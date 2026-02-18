@@ -203,22 +203,27 @@ function handleEvent(ev) {
       setRunning(true)
       break
 
-    case 'content_block_delta':
-      if (ev.delta && ev.delta.type === 'text_delta') {
-        appendToText(ev.delta.text)
+    // claudeのstream-jsonはstream_eventにラップされて届く
+    case 'stream_event': {
+      const inner = ev.event
+      switch (inner.type) {
+        case 'content_block_delta':
+          if (inner.delta && inner.delta.type === 'text_delta') {
+            appendToText(inner.delta.text)
+          }
+          break
+        case 'content_block_start':
+          currentTextEl = null
+          if (inner.content_block && inner.content_block.type === 'tool_use') {
+            addLine(`[${inner.content_block.name}]`, 'line-tool')
+          }
+          break
+        case 'content_block_stop':
+          currentTextEl = null
+          break
       }
       break
-
-    case 'content_block_start':
-      currentTextEl = null
-      if (ev.content_block && ev.content_block.type === 'tool_use') {
-        addLine(`[${ev.content_block.name}]`, 'line-tool')
-      }
-      break
-
-    case 'content_block_stop':
-      currentTextEl = null
-      break
+    }
 
     case 'done':
       currentTextEl = null
