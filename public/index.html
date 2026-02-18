@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>pocket-claude</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #1a1a1a;
+    color: #e0e0e0;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #header {
+    background: #252525;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #3a3a3a;
+    flex-shrink: 0;
+  }
+
+  #status-dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: #555;
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  #status-dot.connected { background: #4CAF50; }
+  #status-dot.running   { background: #FF9800; animation: pulse 1.2s infinite; }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  #header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
+
+  #project-select {
+    margin-left: auto;
+    background: #333;
+    color: #ccc;
+    border: 1px solid #4a4a4a;
+    padding: 5px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+
+  #reset-btn {
+    background: none;
+    border: 1px solid #4a4a4a;
+    color: #888;
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #reset-btn:active { background: #3a3a3a; }
+
+  #output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-family: 'Menlo', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.65;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .line { margin-bottom: 2px; word-break: break-word; white-space: pre-wrap; }
+  .line-user   { color: #81C784; }
+  .line-text   { color: #e0e0e0; }
+  .line-tool   { color: #64B5F6; font-style: italic; }
+  .line-system { color: #777; font-size: 11px; }
+  .line-done   { color: #4CAF50; border-top: 1px solid #333; margin-top: 6px; padding-top: 6px; }
+  .line-error  { color: #EF5350; }
+
+  #input-area {
+    background: #252525;
+    padding: 10px 12px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    border-top: 1px solid #3a3a3a;
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+
+  #prompt {
+    flex: 1;
+    background: #333;
+    color: #e0e0e0;
+    border: 1px solid #4a4a4a;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 16px;   /* SafariのAuto-zoom防止 */
+    line-height: 1.4;
+    resize: none;
+    min-height: 42px;
+    max-height: 160px;
+    font-family: -apple-system, sans-serif;
+    outline: none;
+  }
+  #prompt:focus { border-color: #1565C0; }
+
+  #send-btn {
+    background: #1565C0;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 11px 15px;
+    font-size: 15px;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  #send-btn:disabled { background: #333; color: #555; cursor: default; }
+  #send-btn:active:not(:disabled) { background: #0D47A1; }
+
+  #notice {
+    text-align: center;
+    padding: 6px;
+    font-size: 12px;
+    color: #F57C00;
+    background: #2a2200;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div id="status-dot"></div>
+  <h1>pocket-claude</h1>
+  <select id="project-select"></select>
+  <button id="reset-btn" title="セッションリセット（新規会話）">↺</button>
+</div>
+
+<div id="notice" id="notice">Claude実行中です。完了をお待ちください。</div>
+
+<div id="output"></div>
+
+<div id="input-area">
+  <textarea id="prompt" placeholder="日本語でプロンプトを入力..." rows="2"></textarea>
+  <button id="send-btn">送信</button>
+</div>
+
+<script>
+const output      = document.getElementById('output')
+const promptEl    = document.getElementById('prompt')
+const sendBtn     = document.getElementById('send-btn')
+const statusDot   = document.getElementById('status-dot')
+const projectSel  = document.getElementById('project-select')
+const resetBtn    = document.getElementById('reset-btn')
+const notice      = document.getElementById('notice')
+
+let isRunning = false
+let es = null
+let currentTextEl = null
+
+// プロジェクト一覧の読み込み
+fetch('/api/projects').then(r => r.json()).then(projects => {
+  projects.forEach(p => {
+    const opt = document.createElement('option')
+    opt.value = p; opt.textContent = p
+    projectSel.appendChild(opt)
+  })
+  // ステータス確認してからSSE接続
+  fetch('/api/status').then(r => r.json()).then(s => {
+    if (s.running) setRunning(true)
+    connectSSE()
+  })
+})
+
+// SSE接続（自動再接続付き）
+function connectSSE() {
+  if (es) { es.close(); es = null }
+  es = new EventSource('/api/stream')
+
+  es.onopen = () => { statusDot.className = isRunning ? 'running' : 'connected' }
+
+  es.onmessage = e => {
+    try { handleEvent(JSON.parse(e.data)) } catch {}
+  }
+
+  es.onerror = () => {
+    statusDot.className = ''
+    // EventSourceは自動で再接続する（ブラウザ組み込み）
+  }
+}
+
+// イベント処理
+function handleEvent(ev) {
+  switch (ev.type) {
+    case 'start':
+      currentTextEl = null
+      addLine(`── ${ev.project} ──`, 'line-system')
+      setRunning(true)
+      break
+
+    case 'content_block_delta':
+      if (ev.delta && ev.delta.type === 'text_delta') {
+        appendToText(ev.delta.text)
+      }
+      break
+
+    case 'content_block_start':
+      currentTextEl = null
+      if (ev.content_block && ev.content_block.type === 'tool_use') {
+        addLine(`[${ev.content_block.name}]`, 'line-tool')
+      }
+      break
+
+    case 'content_block_stop':
+      currentTextEl = null
+      break
+
+    case 'done':
+      currentTextEl = null
+      addLine('✓ 完了', 'line-done')
+      setRunning(false)
+      break
+
+    case 'error':
+      currentTextEl = null
+      addLine(`エラー: ${ev.message}`, 'line-error')
+      setRunning(false)
+      break
+
+    case 'stderr':
+      if (ev.text && ev.text.trim()) {
+        addLine(`[stderr] ${ev.text}`, 'line-system')
+      }
+      break
+  }
+}
+
+function appendToText(text) {
+  if (!currentTextEl) {
+    currentTextEl = document.createElement('div')
+    currentTextEl.className = 'line line-text'
+    output.appendChild(currentTextEl)
+  }
+  currentTextEl.textContent += text
+  output.scrollTop = output.scrollHeight
+}
+
+function addLine(text, cls) {
+  const div = document.createElement('div')
+  div.className = `line ${cls}`
+  div.textContent = text
+  output.appendChild(div)
+  output.scrollTop = output.scrollHeight
+}
+
+function setRunning(running) {
+  isRunning = running
+  sendBtn.disabled = running
+  promptEl.disabled = running
+  statusDot.className = running ? 'running' : 'connected'
+  notice.style.display = running ? 'block' : 'none'
+}
+
+// 送信
+async function send() {
+  const prompt = promptEl.value.trim()
+  if (!prompt || isRunning) return
+  promptEl.value = ''
+  promptEl.style.height = 'auto'
+
+  addLine(`> ${prompt}`, 'line-user')
+  currentTextEl = null
+
+  try {
+    const res = await fetch('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, project: projectSel.value })
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      addLine(`送信失敗: ${err.error}`, 'line-error')
+    }
+  } catch (e) {
+    addLine(`ネットワークエラー: ${e.message}`, 'line-error')
+  }
+}
+
+// リセット
+resetBtn.addEventListener('click', async () => {
+  if (isRunning) { alert('Claude実行中はリセットできません'); return }
+  if (!confirm(`「${projectSel.value}」の会話をリセットしますか？`)) return
+  await fetch('/api/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: projectSel.value })
+  })
+  output.innerHTML = ''
+  currentBuffer = []
+  addLine('セッションをリセットしました', 'line-system')
+})
+
+sendBtn.addEventListener('click', send)
+
+// Cmd+Enter または Ctrl+Enter で送信
+promptEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault(); send()
+  }
+})
+
+// テキストエリアの自動リサイズ
+promptEl.addEventListener('input', () => {
+  promptEl.style.height = 'auto'
+  promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
+})
+</script>
+</body>
+</html>

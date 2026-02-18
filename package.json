@@ -1,0 +1,12 @@
+{
+  "name": "pocket-claude",
+  "version": "1.0.0",
+  "description": "iPhone-friendly WebUI for Claude Code headless mode",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}
