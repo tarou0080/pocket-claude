@@ -71,13 +71,13 @@ app.post('/api/send', (req, res) => {
   if (!existingId) saveSessionId(project, sessionId)
 
   const args = existingId
-    ? ['--resume', sessionId, '-p', prompt, '--output-format', 'stream-json', '--include-partial-messages', '--permission-mode', 'bypassPermissions']
-    : ['--session-id', sessionId, '-p', prompt, '--output-format', 'stream-json', '--include-partial-messages', '--permission-mode', 'bypassPermissions']
+    ? ['--resume', sessionId, '-p', prompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions']
+    : ['--session-id', sessionId, '-p', prompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions']
 
   // バッファリセット（新しいタスク開始）
   currentBuffer = []
 
-  const proc = spawn('claude', args, { cwd: projectDir, env: { ...process.env } })
+  const proc = spawn('claude', args, { cwd: projectDir, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] })
   currentProcess = proc
 
   const startEvent = { type: 'start', project, sessionId, timestamp: new Date().toISOString() }
