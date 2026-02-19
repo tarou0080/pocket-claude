@@ -396,6 +396,11 @@ function handleEvent(tabId, ev) {
   const isActive = tabId === currentTabId
 
   switch (ev.type) {
+    case 'user_input':
+      addLine(ts, `> ${ev.text}`, 'line-user')
+      finalizeText(ts)
+      break
+
     case 'start':
       finalizeText(ts)
       ts.isRunning = true
@@ -524,8 +529,6 @@ async function send() {
   const ts = getTS()
   promptEl.value = ''
   promptEl.style.height = 'auto'
-  addLine(ts, `> ${prompt}`, 'line-user')
-  finalizeText(ts)
   try {
     const res = await fetch('/api/send', {
       method: 'POST',
