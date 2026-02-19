@@ -285,6 +285,7 @@ app.post('/api/send', async (req, res) => {
     if (pulled) broadcast(tabId, { type: 'system', text: `git pull: ${pulled}` })
   }
 
+  broadcast(tabId, { type: 'user_input', text: prompt })
   startClaude(tabId, prompt, model)
   res.json({ ok: true, tabId, queued: false })
 })
