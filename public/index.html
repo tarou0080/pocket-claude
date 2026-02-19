@@ -29,7 +29,7 @@
     padding: 8px 12px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     border-bottom: 1px solid #3a3a3a;
   }
 
@@ -54,7 +54,7 @@
     flex-shrink: 0;
   }
 
-  #reset-btn, #stop-btn, #close-tab-btn, #add-tab-btn {
+  #reset-btn, #stop-btn, #close-tab-btn, #add-tab-btn, #history-btn {
     background: none;
     border: 1px solid #4a4a4a;
     border-radius: 6px;
@@ -69,7 +69,7 @@
   #stop-btn.running { opacity: 1; pointer-events: auto; }
   #stop-btn:active { background: #3a2020; }
 
-  #close-tab-btn, #add-tab-btn {
+  #close-tab-btn, #add-tab-btn, #history-btn {
     font-size: 16px;
     padding: 4px 10px;
     color: #888;
@@ -78,7 +78,86 @@
     border: none;
   }
   #close-tab-btn { }
-  #close-tab-btn:active, #add-tab-btn:active { background: #3a3a3a; color: #ccc; }
+  #close-tab-btn:active, #add-tab-btn:active, #history-btn:active { background: #3a3a3a; color: #ccc; }
+  #history-btn.active { color: #64B5F6; }
+
+  /* ── 履歴パネル ── */
+  #history-panel {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: #1a1a1a;
+    flex-direction: column;
+  }
+  #history-panel.open { display: flex; }
+
+  #history-header {
+    background: #252525;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #3a3a3a;
+    flex-shrink: 0;
+  }
+  #history-back {
+    background: none;
+    border: none;
+    color: #64B5F6;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }
+  #history-back:active { background: #2a2a2a; }
+  #history-title {
+    font-size: 14px;
+    color: #e0e0e0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #history-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 一覧 */
+  .history-item {
+    padding: 12px 14px;
+    border-bottom: 1px solid #2a2a2a;
+    cursor: pointer;
+    user-select: none;
+  }
+  .history-item:active { background: #252525; }
+  .history-item-title {
+    font-size: 13px;
+    color: #e0e0e0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 3px;
+  }
+  .history-item-meta {
+    font-size: 11px;
+    color: #666;
+  }
+
+  /* 詳細 */
+  .history-msg {
+    padding: 10px 14px;
+    border-bottom: 1px solid #252525;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .history-msg-user { color: #81C784; background: #1e2a1e; }
+  .history-msg-assistant { color: #e0e0e0; }
 
   /* ── タブバー ── */
   #tab-bar {
@@ -237,11 +316,21 @@
     </select>
     <button id="stop-btn" title="実行を中断">■ 中断</button>
     <button id="reset-btn" title="会話をリセット">↺</button>
+    <button id="history-btn" title="会話履歴">📋</button>
     <button id="add-tab-btn" title="新しい会話">＋</button>
     <button id="close-tab-btn" title="タブを閉じる">✕</button>
     <span id="ctx-badge"></span>
   </div>
   <div id="tab-bar"></div>
+</div>
+
+<!-- 履歴パネル -->
+<div id="history-panel">
+  <div id="history-header">
+    <button id="history-back">← 戻る</button>
+    <span id="history-title">会話履歴</span>
+  </div>
+  <div id="history-body"></div>
 </div>
 
 <div id="output-container"></div>
@@ -259,6 +348,11 @@
 </div>
 
 <script>
+const historyBtn    = document.getElementById('history-btn')
+const historyPanel  = document.getElementById('history-panel')
+const historyBack   = document.getElementById('history-back')
+const historyTitle  = document.getElementById('history-title')
+const historyBody   = document.getElementById('history-body')
 const promptEl      = document.getElementById('prompt')
 const sendBtn       = document.getElementById('send-btn')
 const statusDot     = document.getElementById('status-dot')
@@ -521,6 +615,79 @@ function updateCtxBadge(pct) {
   ctxBadge.textContent = `ctx: ${pct}%`
   ctxBadge.className = pct >= 50 ? 'warn' : ''
 }
+
+// ── 履歴パネル ──
+function formatDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+}
+
+async function openHistory() {
+  historyPanel.classList.add('open')
+  historyBtn.classList.add('active')
+  historyTitle.textContent = '会話履歴'
+  historyBack.onclick = closeHistory
+  historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">読み込み中...</div>'
+
+  try {
+    const sessions = await fetch('/api/history').then(r => r.json())
+    historyBody.innerHTML = ''
+    if (sessions.length === 0) {
+      historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">履歴がありません</div>'
+      return
+    }
+    for (const s of sessions) {
+      const item = document.createElement('div')
+      item.className = 'history-item'
+      item.innerHTML = `
+        <div class="history-item-title">${escapeHtml(s.title)}</div>
+        <div class="history-item-meta">${formatDate(s.updatedAt)} · ${s.msgCount}件</div>
+      `
+      item.addEventListener('click', () => openHistoryDetail(s))
+      historyBody.appendChild(item)
+    }
+  } catch (e) {
+    historyBody.innerHTML = `<div style="padding:20px;color:#EF5350;font-size:13px;">エラー: ${e.message}</div>`
+  }
+}
+
+async function openHistoryDetail(session) {
+  historyTitle.textContent = formatDate(session.updatedAt)
+  historyBack.onclick = openHistory
+  historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">読み込み中...</div>'
+
+  try {
+    const msgs = await fetch(`/api/history/${encodeURIComponent(session.sessionId)}`).then(r => r.json())
+    historyBody.innerHTML = ''
+    if (msgs.length === 0) {
+      historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">メッセージなし</div>'
+      return
+    }
+    for (const m of msgs) {
+      const div = document.createElement('div')
+      div.className = `history-msg ${m.role === 'user' ? 'history-msg-user' : 'history-msg-assistant'}`
+      div.textContent = m.text
+      historyBody.appendChild(div)
+    }
+  } catch (e) {
+    historyBody.innerHTML = `<div style="padding:20px;color:#EF5350;font-size:13px;">エラー: ${e.message}</div>`
+  }
+}
+
+function closeHistory() {
+  historyPanel.classList.remove('open')
+  historyBtn.classList.remove('active')
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+historyBtn.addEventListener('click', () => {
+  if (historyPanel.classList.contains('open')) closeHistory()
+  else openHistory()
+})
 
 // ── 送信 ──
 async function send() {

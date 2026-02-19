@@ -352,6 +352,95 @@ app.get('/api/stream', (req, res) => {
   })
 })
 
+// ── 履歴API ──
+const CLAUDE_PROJECTS_DIR = path.join(process.env.HOME || '/home/johnadmin', '.claude', 'projects', '-home-johnadmin')
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// セッション一覧
+app.get('/api/history', (_req, res) => {
+  let files
+  try {
+    files = fs.readdirSync(CLAUDE_PROJECTS_DIR).filter(f => f.endsWith('.jsonl'))
+  } catch {
+    return res.json([])
+  }
+
+  const sessions = []
+  for (const file of files) {
+    const sessionId = file.replace('.jsonl', '')
+    if (!UUID_RE.test(sessionId)) continue
+    const filePath = path.join(CLAUDE_PROJECTS_DIR, file)
+    let stat, title = '', updatedAt = '', msgCount = 0
+    try {
+      stat = fs.statSync(filePath)
+      updatedAt = stat.mtime.toISOString()
+    } catch { continue }
+    try {
+      const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim())
+      for (const line of lines) {
+        try {
+          const d = JSON.parse(line)
+          if (d.type === 'user') {
+            msgCount++
+            if (!title) {
+              const content = d.message?.content
+              if (typeof content === 'string') title = content
+              else if (Array.isArray(content)) {
+                const textBlock = content.find(c => c.type === 'text')
+                if (textBlock) title = textBlock.text
+              }
+            }
+          } else if (d.type === 'assistant') {
+            msgCount++
+          }
+        } catch {}
+      }
+    } catch {}
+    if (!title) title = `(${sessionId.slice(0, 8)})`
+    sessions.push({ sessionId, title: title.slice(0, 80), updatedAt, msgCount })
+  }
+
+  sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  res.json(sessions)
+})
+
+// 特定セッションの会話内容
+app.get('/api/history/:sessionId', (req, res) => {
+  const { sessionId } = req.params
+  if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
+
+  const filePath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
+  let lines
+  try {
+    lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim())
+  } catch {
+    return res.status(404).json({ error: 'session not found' })
+  }
+
+  const messages = []
+  for (const line of lines) {
+    try {
+      const d = JSON.parse(line)
+      if (d.type === 'user') {
+        const content = d.message?.content
+        let text = ''
+        if (typeof content === 'string') text = content
+        else if (Array.isArray(content)) {
+          text = content.filter(c => c.type === 'text').map(c => c.text).join('\n')
+        }
+        if (text.trim()) messages.push({ role: 'user', text, timestamp: d.timestamp })
+      } else if (d.type === 'assistant') {
+        const content = d.message?.content
+        if (!Array.isArray(content)) continue
+        const text = content.filter(c => c.type === 'text').map(c => c.text).join('\n')
+        if (text.trim()) messages.push({ role: 'assistant', text, timestamp: d.timestamp })
+      }
+    } catch {}
+  }
+
+  res.json(messages)
+})
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`pocket-claude v3 running on port ${PORT}`)
 })
