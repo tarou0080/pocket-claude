@@ -77,7 +77,7 @@
     text-align: center;
     border: none;
   }
-  #close-tab-btn { margin-left: auto; }
+  #close-tab-btn { }
   #close-tab-btn:active, #add-tab-btn:active { background: #3a3a3a; color: #ccc; }
 
   /* ── タブバー ── */
@@ -140,6 +140,9 @@
   .line-tool    { color: #64B5F6; font-style: italic; }
   .line-system  { color: #777; font-size: 11px; }
   .line-done    { color: #4CAF50; border-top: 1px solid #333; margin-top: 6px; padding-top: 6px; }
+  .line-done.warn { color: #FF9800; }
+  #ctx-badge { font-size: 11px; color: #555; flex-shrink: 0; margin-left: auto; }
+  #ctx-badge.warn { color: #FF9800; font-weight: bold; }
   .line-error   { color: #EF5350; }
   .line-queued  { color: #FF9800; font-style: italic; font-size: 12px; }
 
@@ -236,6 +239,7 @@
     <button id="reset-btn" title="会話をリセット">↺</button>
     <button id="add-tab-btn" title="新しい会話">＋</button>
     <button id="close-tab-btn" title="タブを閉じる">✕</button>
+    <span id="ctx-badge"></span>
   </div>
   <div id="tab-bar"></div>
 </div>
@@ -269,7 +273,9 @@ const pendingBar    = document.getElementById('pending-bar')
 const pendingText   = document.getElementById('pending-text')
 const cancelPending = document.getElementById('cancel-pending')
 
-const tabState = {}   // tabId -> { isRunning, hasPending, currentTextEl, _rawText, pane }
+const tabState = {}   // tabId -> { isRunning, hasPending, currentTextEl, _rawText, _ctxTokens, pane }
+const CTX_MAX = 200000
+const ctxBadge = document.getElementById('ctx-badge')
 let currentTabId = null
 let currentES = null
 let _tabsCache = []
@@ -281,7 +287,7 @@ function ensureTabState(tab) {
   pane.className = 'output-pane'
   pane.dataset.tabId = tab.id
   outputCont.appendChild(pane)
-  tabState[tab.id] = { isRunning: false, hasPending: false, currentTextEl: null, _rawText: '', pane }
+  tabState[tab.id] = { isRunning: false, hasPending: false, currentTextEl: null, _rawText: '', _ctxTokens: 0, pane }
 }
 
 // ── タブDOM作成 ──
@@ -343,6 +349,8 @@ function switchTab(tabId) {
   document.querySelectorAll('.output-pane').forEach(p =>
     p.classList.toggle('active', p.dataset.tabId === tabId))
   currentTabId = tabId
+  const switchTs = tabState[tabId]
+  if (switchTs) { const p = Math.round(switchTs._ctxTokens / CTX_MAX * 100); updateCtxBadge(p) }
   updateUI()
   connectSSE(tabId)
 }
@@ -410,16 +418,34 @@ function handleEvent(tabId, ev) {
         case 'content_block_stop':
           finalizeText(ts)
           break
+        case 'message_start':
+          if (inner.message && inner.message.usage) {
+            const u = inner.message.usage
+            ts._ctxTokens = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0)
+          }
+          break
+        case 'message_delta':
+          if (inner.usage && inner.usage.output_tokens) {
+            ts._ctxTokens += inner.usage.output_tokens
+            if (isActive) {
+              const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
+              if (pct >= 50) updateCtxBadge(pct)
+            }
+          }
+          break
       }
       break
     }
 
-    case 'done':
+    case 'done': {
       finalizeText(ts)
       ts.isRunning = false
-      addLine(ts, `✓ 完了 (exit ${ev.exitCode})`, 'line-done')
-      if (isActive) updateUI()
+      const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
+      const doneEl = addLine(ts, `✓ 完了 (exit ${ev.exitCode}) — ctx: ${pct}%`, 'line-done')
+      if (pct >= 50) doneEl.classList.add('warn')
+      if (isActive) { updateCtxBadge(pct); updateUI() }
       break
+    }
 
     case 'error':
       finalizeText(ts)
@@ -482,6 +508,13 @@ function addLine(ts, text, cls) {
   ts.pane.appendChild(div)
   if (tabState[currentTabId] === ts && isAtBottom(ts.pane))
     ts.pane.scrollTop = ts.pane.scrollHeight
+  return div
+}
+
+function updateCtxBadge(pct) {
+  if (pct <= 0) { ctxBadge.textContent = ''; ctxBadge.className = ''; return }
+  ctxBadge.textContent = `ctx: ${pct}%`
+  ctxBadge.className = pct >= 50 ? 'warn' : ''
 }
 
 // ── 送信 ──
@@ -545,6 +578,8 @@ resetBtn.addEventListener('click', async () => {
   ts.pane.innerHTML = ''
   ts.currentTextEl = null
   ts._rawText = ''
+  ts._ctxTokens = 0
+  updateCtxBadge(0)
   addLine(ts, 'セッションをリセットしました', 'line-system')
 })
 
