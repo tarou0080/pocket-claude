@@ -2,8 +2,9 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>pocket-claude</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -11,24 +12,29 @@
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     background: #1a1a1a;
     color: #e0e0e0;
-    height: 100dvh;
-    display: flex;
-    flex-direction: column;
+    height: 100%;
     overflow: hidden;
   }
 
+  /* ── 上部固定エリア ── */
+  #top-bar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 20;
+  }
+
+  /* ── ヘッダー ── */
   #header {
     background: #252525;
-    padding: 10px 14px;
+    padding: 8px 12px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     border-bottom: 1px solid #3a3a3a;
-    flex-shrink: 0;
   }
 
   #status-dot {
-    width: 9px; height: 9px;
+    width: 8px; height: 8px;
     border-radius: 50%;
     background: #555;
     flex-shrink: 0;
@@ -36,60 +42,151 @@
   }
   #status-dot.connected { background: #4CAF50; }
   #status-dot.running   { background: #FF9800; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
-
-  #header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
-
-  #project-select {
-    margin-left: auto;
+  #model-select {
     background: #333;
     color: #ccc;
     border: 1px solid #4a4a4a;
-    padding: 5px 8px;
+    padding: 4px 7px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 12px;
+    flex-shrink: 0;
   }
 
-  #reset-btn {
+  #reset-btn, #stop-btn, #close-tab-btn, #add-tab-btn {
     background: none;
     border: 1px solid #4a4a4a;
-    color: #888;
     border-radius: 6px;
-    padding: 5px 9px;
+    padding: 4px 9px;
     font-size: 12px;
     cursor: pointer;
+    flex-shrink: 0;
   }
+  #reset-btn { color: #888; }
   #reset-btn:active { background: #3a3a3a; }
+  #stop-btn { color: #EF5350; border-color: #EF5350; opacity: 0.3; pointer-events: none; }
+  #stop-btn.running { opacity: 1; pointer-events: auto; }
+  #stop-btn:active { background: #3a2020; }
 
-  #output {
-    flex: 1;
+  #close-tab-btn, #add-tab-btn {
+    font-size: 16px;
+    padding: 4px 10px;
+    color: #888;
+    min-width: 36px;
+    text-align: center;
+    border: none;
+  }
+  #close-tab-btn { margin-left: auto; }
+  #close-tab-btn:active, #add-tab-btn:active { background: #3a3a3a; color: #ccc; }
+
+  /* ── タブバー ── */
+  #tab-bar {
+    background: #1e1e1e;
+    border-bottom: 1px solid #3a3a3a;
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  #tab-bar::-webkit-scrollbar { display: none; }
+
+  .tab {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px;
+    font-size: 13px;
+    color: #888;
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .tab:active { background: #2a2a2a; }
+  .tab.active { color: #e0e0e0; border-bottom-color: #1565C0; }
+  .tab.running { color: #FF9800; }
+  .tab.running.active { border-bottom-color: #FF9800; }
+
+  .tab-name {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── 出力エリア ── */
+  #output-container {
+    position: fixed;
+    left: 0; right: 0;
+    overflow: hidden;
+  }
+
+  .output-pane {
+    position: absolute;
+    inset: 0;
     overflow-y: auto;
     padding: 12px 14px;
     font-family: 'Menlo', 'Courier New', monospace;
     font-size: 13px;
     line-height: 1.65;
     -webkit-overflow-scrolling: touch;
+    display: none;
   }
+  .output-pane.active { display: block; }
 
   .line { margin-bottom: 2px; word-break: break-word; white-space: pre-wrap; }
-  .line-user   { color: #81C784; }
-  .line-text   { color: #e0e0e0; }
-  .line-tool   { color: #64B5F6; font-style: italic; }
-  .line-system { color: #777; font-size: 11px; }
-  .line-done   { color: #4CAF50; border-top: 1px solid #333; margin-top: 6px; padding-top: 6px; }
-  .line-error  { color: #EF5350; }
+  .line-user    { color: #81C784; }
+  .line-text    { color: #e0e0e0; white-space: normal; }
+  .line-tool    { color: #64B5F6; font-style: italic; }
+  .line-system  { color: #777; font-size: 11px; }
+  .line-done    { color: #4CAF50; border-top: 1px solid #333; margin-top: 6px; padding-top: 6px; }
+  .line-error   { color: #EF5350; }
+  .line-queued  { color: #FF9800; font-style: italic; font-size: 12px; }
 
+  /* マークダウン */
+  .line-text p  { margin: 0 0 6px; }
+  .line-text p:last-child { margin-bottom: 0; }
+  .line-text h1,.line-text h2,.line-text h3 { margin: 8px 0 4px; font-size: 1em; color: #90CAF9; }
+  .line-text ul,.line-text ol { padding-left: 18px; margin: 4px 0; }
+  .line-text li { margin: 2px 0; }
+  .line-text code { background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 3px; padding: 1px 4px; font-family: 'Menlo','Courier New',monospace; font-size: 12px; }
+  .line-text pre { background: #222; border: 1px solid #3a3a3a; border-radius: 6px; padding: 10px 12px; margin: 6px 0; overflow-x: auto; }
+  .line-text pre code { background: none; border: none; padding: 0; font-size: 12px; }
+  .line-text strong { color: #fff; }
+  .line-text a { color: #64B5F6; }
+  .line-text blockquote { border-left: 3px solid #555; padding-left: 10px; color: #aaa; margin: 4px 0; }
+
+  /* ── 入力エリア ── */
   #input-area {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
     background: #252525;
     padding: 10px 12px;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
     border-top: 1px solid #3a3a3a;
-    display: flex;
-    gap: 8px;
-    align-items: flex-end;
-    flex-shrink: 0;
+    z-index: 20;
   }
+
+  #pending-bar {
+    display: none;
+    margin-bottom: 6px;
+    padding: 5px 9px;
+    background: #2a1f00;
+    border: 1px solid #5a4000;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #FFB74D;
+    align-items: center;
+    gap: 6px;
+  }
+  #pending-bar.visible { display: flex; }
+  #pending-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cancel-pending {
+    background: none; border: none; color: #888;
+    cursor: pointer; font-size: 14px; flex-shrink: 0; padding: 0 2px;
+  }
+
+  #input-row { display: flex; gap: 8px; align-items: flex-end; }
 
   #prompt {
     flex: 1;
@@ -98,7 +195,7 @@
     border: 1px solid #4a4a4a;
     border-radius: 10px;
     padding: 10px 12px;
-    font-size: 16px;   /* SafariのAuto-zoom防止 */
+    font-size: 16px;
     line-height: 1.4;
     resize: none;
     min-height: 42px;
@@ -107,223 +204,402 @@
     outline: none;
   }
   #prompt:focus { border-color: #1565C0; }
+  #prompt.has-pending { border-color: #5a4000; }
 
   #send-btn {
     background: #1565C0;
     color: white;
     border: none;
     border-radius: 10px;
-    padding: 11px 15px;
-    font-size: 15px;
+    padding: 11px 14px;
+    font-size: 14px;
     cursor: pointer;
     flex-shrink: 0;
     line-height: 1;
+    white-space: nowrap;
   }
-  #send-btn:disabled { background: #333; color: #555; cursor: default; }
-  #send-btn:active:not(:disabled) { background: #0D47A1; }
-
-  #notice {
-    text-align: center;
-    padding: 6px;
-    font-size: 12px;
-    color: #F57C00;
-    background: #2a2200;
-    display: none;
-  }
+  #send-btn:active { background: #0D47A1; }
 </style>
 </head>
 <body>
 
-<div id="header">
-  <div id="status-dot"></div>
-  <h1>pocket-claude</h1>
-  <select id="project-select"></select>
-  <button id="reset-btn" title="セッションリセット（新規会話）">↺</button>
+<div id="top-bar">
+  <div id="header">
+    <div id="status-dot"></div>
+    <select id="model-select">
+      <option value="">Sonnet 4.6</option>
+      <option value="claude-opus-4-6">Opus 4.6</option>
+      <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+      <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+    </select>
+    <button id="stop-btn" title="実行を中断">■ 中断</button>
+    <button id="reset-btn" title="会話をリセット">↺</button>
+    <button id="add-tab-btn" title="新しい会話">＋</button>
+    <button id="close-tab-btn" title="タブを閉じる">✕</button>
+  </div>
+  <div id="tab-bar"></div>
 </div>
 
-<div id="notice" id="notice">Claude実行中です。完了をお待ちください。</div>
-
-<div id="output"></div>
+<div id="output-container"></div>
 
 <div id="input-area">
-  <textarea id="prompt" placeholder="日本語でプロンプトを入力..." rows="2"></textarea>
-  <button id="send-btn">送信</button>
+  <div id="pending-bar">
+    <span>送信待ち: </span>
+    <span id="pending-text"></span>
+    <button id="cancel-pending" title="キャンセル">✕</button>
+  </div>
+  <div id="input-row">
+    <textarea id="prompt" placeholder="プロンプトを入力..." rows="2"></textarea>
+    <button id="send-btn">送信</button>
+  </div>
 </div>
 
 <script>
-const output      = document.getElementById('output')
-const promptEl    = document.getElementById('prompt')
-const sendBtn     = document.getElementById('send-btn')
-const statusDot   = document.getElementById('status-dot')
-const projectSel  = document.getElementById('project-select')
-const resetBtn    = document.getElementById('reset-btn')
-const notice      = document.getElementById('notice')
+const promptEl      = document.getElementById('prompt')
+const sendBtn       = document.getElementById('send-btn')
+const statusDot     = document.getElementById('status-dot')
+const modelSel      = document.getElementById('model-select')
+const resetBtn      = document.getElementById('reset-btn')
+const stopBtn       = document.getElementById('stop-btn')
+const addTabBtn     = document.getElementById('add-tab-btn')
+const closeTabBtn   = document.getElementById('close-tab-btn')
+const tabBar        = document.getElementById('tab-bar')
+const outputCont    = document.getElementById('output-container')
+const pendingBar    = document.getElementById('pending-bar')
+const pendingText   = document.getElementById('pending-text')
+const cancelPending = document.getElementById('cancel-pending')
 
-let isRunning = false
-let es = null
-let currentTextEl = null
+const tabState = {}   // tabId -> { isRunning, hasPending, currentTextEl, _rawText, pane }
+let currentTabId = null
+let currentES = null
+let _tabsCache = []
 
-// プロジェクト一覧の読み込み
-fetch('/api/projects').then(r => r.json()).then(projects => {
-  projects.forEach(p => {
-    const opt = document.createElement('option')
-    opt.value = p; opt.textContent = p
-    projectSel.appendChild(opt)
+// ── タブ状態初期化 ──
+function ensureTabState(tab) {
+  if (tabState[tab.id]) return
+  const pane = document.createElement('div')
+  pane.className = 'output-pane'
+  pane.dataset.tabId = tab.id
+  outputCont.appendChild(pane)
+  tabState[tab.id] = { isRunning: false, hasPending: false, currentTextEl: null, _rawText: '', pane }
+}
+
+// ── タブDOM作成 ──
+function createTabEl(tab) {
+  const el = document.createElement('div')
+  el.className = 'tab'
+  el.dataset.tabId = tab.id
+
+  const name = document.createElement('span')
+  name.className = 'tab-name'
+  name.textContent = tab.name
+
+  // ダブルタップで名前編集
+  let tapTimer = null
+  name.addEventListener('click', () => {
+    if (tapTimer) {
+      clearTimeout(tapTimer); tapTimer = null
+      const newName = prompt('会話名を変更', name.textContent)
+      if (newName?.trim()) {
+        fetch(`/api/tabs/${tab.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName.trim() })
+        }).then(r => r.json()).then(t => { name.textContent = t.name; tab.name = t.name })
+      }
+    } else {
+      tapTimer = setTimeout(() => { tapTimer = null }, 350)
+    }
   })
-  // ステータス確認してからSSE接続
-  fetch('/api/status').then(r => r.json()).then(s => {
-    if (s.running) setRunning(true)
-    connectSSE()
-  })
-})
 
-// SSE接続（自動再接続付き）
-function connectSSE() {
-  if (es) { es.close(); es = null }
-  es = new EventSource('/api/stream')
+  el.appendChild(name)
+  el.addEventListener('click', () => switchTab(tab.id))
+  tabBar.appendChild(el)
+  return el
+}
 
-  es.onopen = () => { statusDot.className = isRunning ? 'running' : 'connected' }
-
-  es.onmessage = e => {
-    try { handleEvent(JSON.parse(e.data)) } catch {}
-  }
-
-  es.onerror = () => {
-    statusDot.className = ''
-    // EventSourceは自動で再接続する（ブラウザ組み込み）
+// ── タブ削除 ──
+async function deleteTab(tabId) {
+  const tabs = [...tabBar.querySelectorAll('.tab')]
+  if (tabs.length <= 1) { alert('最後のタブは削除できません'); return }
+  const res = await fetch(`/api/tabs/${tabId}`, { method: 'DELETE' })
+  if (!res.ok) { const e = await res.json(); alert(e.error); return }
+  tabBar.querySelector(`[data-tab-id="${tabId}"]`)?.remove()
+  tabState[tabId]?.pane.remove()
+  delete tabState[tabId]
+  _tabsCache = _tabsCache.filter(t => t.id !== tabId)
+  if (currentTabId === tabId) {
+    if (currentES) { currentES.close(); currentES = null }
+    const remaining = [...tabBar.querySelectorAll('.tab')]
+    if (remaining.length > 0) switchTab(remaining[0].dataset.tabId)
   }
 }
 
-// イベント処理
-function handleEvent(ev) {
+// ── タブ切り替え ──
+function switchTab(tabId) {
+  if (currentES) { currentES.close(); currentES = null }
+  tabBar.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tabId === tabId))
+  document.querySelectorAll('.output-pane').forEach(p =>
+    p.classList.toggle('active', p.dataset.tabId === tabId))
+  currentTabId = tabId
+  updateUI()
+  connectSSE(tabId)
+}
+
+// ── 初期化 ──
+async function init() {
+  const tabs = await fetch('/api/tabs').then(r => r.json())
+  _tabsCache = tabs
+  tabs.forEach(tab => { ensureTabState(tab); createTabEl(tab) })
+  if (tabs.length > 0) switchTab(tabs[0].id)
+}
+
+// ── UI更新 ──
+function getTS() { return tabState[currentTabId] || {} }
+
+function updateUI() {
+  const ts = getTS()
+  const running = ts.isRunning || false
+  const pending = ts.hasPending || false
+  statusDot.className = running ? 'running' : 'connected'
+  stopBtn.classList.toggle('running', running)
+  tabBar.querySelectorAll('.tab').forEach(el => {
+    const ts2 = tabState[el.dataset.tabId]
+    el.classList.toggle('running', ts2?.isRunning || false)
+  })
+  pendingBar.classList.toggle('visible', pending)
+  promptEl.classList.toggle('has-pending', pending)
+}
+
+// ── SSE接続 ──
+function connectSSE(tabId) {
+  const es = new EventSource(`/api/stream?tab=${encodeURIComponent(tabId)}`)
+  currentES = es
+  es.onopen = () => { if (currentTabId === tabId) updateUI() }
+  es.onmessage = e => { try { handleEvent(tabId, JSON.parse(e.data)) } catch {} }
+  es.onerror = () => { if (currentTabId === tabId) statusDot.className = 'connected' }
+}
+
+// ── イベント処理 ──
+function handleEvent(tabId, ev) {
+  const ts = tabState[tabId]
+  if (!ts) return
+  const isActive = tabId === currentTabId
+
   switch (ev.type) {
     case 'start':
-      currentTextEl = null
-      addLine(`── ${ev.project} ──`, 'line-system')
-      setRunning(true)
+      finalizeText(ts)
+      ts.isRunning = true
+      ts.hasPending = false
+      addLine(ts, `── ${ev.project} (${ev.model}) ──`, 'line-system')
+      if (isActive) updateUI()
       break
 
-    // claudeのstream-jsonはstream_eventにラップされて届く
     case 'stream_event': {
       const inner = ev.event
       switch (inner.type) {
         case 'content_block_delta':
-          if (inner.delta && inner.delta.type === 'text_delta') {
-            appendToText(inner.delta.text)
-          }
+          if (inner.delta?.type === 'text_delta') appendText(ts, inner.delta.text)
           break
         case 'content_block_start':
-          currentTextEl = null
-          if (inner.content_block && inner.content_block.type === 'tool_use') {
-            addLine(`[${inner.content_block.name}]`, 'line-tool')
-          }
+          finalizeText(ts)
+          if (inner.content_block?.type === 'tool_use')
+            addLine(ts, `[${inner.content_block.name}]`, 'line-tool')
           break
         case 'content_block_stop':
-          currentTextEl = null
+          finalizeText(ts)
           break
       }
       break
     }
 
     case 'done':
-      currentTextEl = null
-      addLine('✓ 完了', 'line-done')
-      setRunning(false)
+      finalizeText(ts)
+      ts.isRunning = false
+      addLine(ts, `✓ 完了 (exit ${ev.exitCode})`, 'line-done')
+      if (isActive) updateUI()
       break
 
     case 'error':
-      currentTextEl = null
-      addLine(`エラー: ${ev.message}`, 'line-error')
-      setRunning(false)
+      finalizeText(ts)
+      ts.isRunning = false
+      addLine(ts, `エラー: ${ev.message}`, 'line-error')
+      if (isActive) updateUI()
+      break
+
+    case 'queued':
+      ts.hasPending = true
+      addLine(ts, `▸ 送信待ち: ${ev.message}`, 'line-queued')
+      if (isActive) { pendingText.textContent = ev.message; updateUI() }
+      break
+
+    case 'queued_sent':
+      ts.hasPending = false
+      addLine(ts, `▸ 送信: ${ev.message}`, 'line-system')
+      if (isActive) updateUI()
+      break
+
+    case 'system':
+      addLine(ts, ev.text, 'line-system')
       break
 
     case 'stderr':
-      if (ev.text && ev.text.trim()) {
-        addLine(`[stderr] ${ev.text}`, 'line-system')
-      }
+      if (ev.text?.trim()) addLine(ts, `[err] ${ev.text}`, 'line-system')
       break
   }
 }
 
-function appendToText(text) {
-  if (!currentTextEl) {
-    currentTextEl = document.createElement('div')
-    currentTextEl.className = 'line line-text'
-    output.appendChild(currentTextEl)
-  }
-  currentTextEl.textContent += text
-  output.scrollTop = output.scrollHeight
+function isAtBottom(pane) {
+  return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40
 }
 
-function addLine(text, cls) {
+function appendText(ts, text) {
+  if (!ts.currentTextEl) {
+    ts.currentTextEl = document.createElement('div')
+    ts.currentTextEl.className = 'line line-text'
+    ts.pane.appendChild(ts.currentTextEl)
+    ts._rawText = ''
+  }
+  ts._rawText += text
+  ts.currentTextEl.textContent = ts._rawText
+  if (tabState[currentTabId] === ts && isAtBottom(ts.pane))
+    ts.pane.scrollTop = ts.pane.scrollHeight
+}
+
+function finalizeText(ts) {
+  if (ts.currentTextEl && ts._rawText) {
+    ts.currentTextEl.innerHTML = marked.parse(ts._rawText)
+    ts._rawText = ''
+  }
+  ts.currentTextEl = null
+}
+
+function addLine(ts, text, cls) {
   const div = document.createElement('div')
   div.className = `line ${cls}`
   div.textContent = text
-  output.appendChild(div)
-  output.scrollTop = output.scrollHeight
+  ts.pane.appendChild(div)
+  if (tabState[currentTabId] === ts && isAtBottom(ts.pane))
+    ts.pane.scrollTop = ts.pane.scrollHeight
 }
 
-function setRunning(running) {
-  isRunning = running
-  sendBtn.disabled = running
-  promptEl.disabled = running
-  statusDot.className = running ? 'running' : 'connected'
-  notice.style.display = running ? 'block' : 'none'
-}
-
-// 送信
+// ── 送信 ──
 async function send() {
   const prompt = promptEl.value.trim()
-  if (!prompt || isRunning) return
+  if (!prompt) return
+  const ts = getTS()
   promptEl.value = ''
   promptEl.style.height = 'auto'
-
-  addLine(`> ${prompt}`, 'line-user')
-  currentTextEl = null
-
+  addLine(ts, `> ${prompt}`, 'line-user')
+  finalizeText(ts)
   try {
     const res = await fetch('/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, project: projectSel.value })
+      body: JSON.stringify({ prompt, tab: currentTabId, model: modelSel.value || null })
     })
     if (!res.ok) {
-      const err = await res.json()
-      addLine(`送信失敗: ${err.error}`, 'line-error')
+      addLine(ts, `送信失敗: ${(await res.json()).error}`, 'line-error')
+    } else {
+      const data = await res.json()
+      // タブ名が変わっていたら反映
+      const tabEl = tabBar.querySelector(`[data-tab-id="${currentTabId}"] .tab-name`)
+      const cached = _tabsCache.find(t => t.id === currentTabId)
+      if (tabEl && cached && tabEl.textContent !== cached.name) {
+        const fresh = await fetch('/api/tabs').then(r => r.json())
+        _tabsCache = fresh
+        const updated = fresh.find(t => t.id === currentTabId)
+        if (updated && tabEl.textContent !== updated.name) tabEl.textContent = updated.name
+      }
+      if (data.queued) {
+        ts.hasPending = true
+        pendingText.textContent = prompt
+        updateUI()
+      }
     }
   } catch (e) {
-    addLine(`ネットワークエラー: ${e.message}`, 'line-error')
+    addLine(ts, `ネットワークエラー: ${e.message}`, 'line-error')
   }
 }
 
-// リセット
-resetBtn.addEventListener('click', async () => {
-  if (isRunning) { alert('Claude実行中はリセットできません'); return }
-  if (!confirm(`「${projectSel.value}」の会話をリセットしますか？`)) return
-  await fetch('/api/reset', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project: projectSel.value })
-  })
-  output.innerHTML = ''
-  currentBuffer = []
-  addLine('セッションをリセットしました', 'line-system')
+// ── ボタン ──
+stopBtn.addEventListener('click', () => {
+  fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tab: currentTabId }) })
 })
+
+cancelPending.addEventListener('click', async () => {
+  await fetch('/api/stop-pending', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tab: currentTabId }) })
+  const ts = getTS(); ts.hasPending = false; updateUI()
+})
+
+resetBtn.addEventListener('click', async () => {
+  const ts = getTS()
+  if (ts.isRunning) { alert('実行中はリセットできません'); return }
+  const tabName = tabBar.querySelector(`[data-tab-id="${currentTabId}"] .tab-name`)?.textContent || ''
+  if (!confirm(`「${tabName}」の会話をリセットしますか？`)) return
+  await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tab: currentTabId }) })
+  ts.pane.innerHTML = ''
+  ts.currentTextEl = null
+  ts._rawText = ''
+  addLine(ts, 'セッションをリセットしました', 'line-system')
+})
+
+addTabBtn.addEventListener('click', async () => {
+  const newTab = await fetch('/api/tabs', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(r => r.json())
+  _tabsCache.push(newTab)
+  ensureTabState(newTab)
+  createTabEl(newTab)
+  switchTab(newTab.id)
+})
+
+closeTabBtn.addEventListener('click', () => { if (currentTabId) deleteTab(currentTabId) })
 
 sendBtn.addEventListener('click', send)
-
-// Cmd+Enter または Ctrl+Enter で送信
 promptEl.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault(); send()
-  }
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send() }
 })
-
-// テキストエリアの自動リサイズ
 promptEl.addEventListener('input', () => {
   promptEl.style.height = 'auto'
   promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
+  updateLayout()
 })
+
+// ── レイアウト計算（visualViewport対応） ──
+const topBarEl    = document.getElementById('top-bar')
+const inputAreaEl = document.getElementById('input-area')
+
+function updateLayout() {
+  const vv = window.visualViewport
+  const offsetTop = vv ? vv.offsetTop  : 0
+  const vvHeight  = vv ? vv.height     : window.innerHeight
+
+  topBarEl.style.top = offsetTop + 'px'
+
+  const inputH = inputAreaEl.offsetHeight
+  inputAreaEl.style.top    = (offsetTop + vvHeight - inputH) + 'px'
+  inputAreaEl.style.bottom = 'auto'
+
+  const topH = topBarEl.offsetHeight
+  outputCont.style.top    = (offsetTop + topH) + 'px'
+  outputCont.style.height = (vvHeight - topH - inputH) + 'px'
+  outputCont.style.bottom = 'auto'
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', updateLayout)
+  window.visualViewport.addEventListener('scroll', updateLayout)
+}
+const ro = new ResizeObserver(updateLayout)
+ro.observe(topBarEl)
+ro.observe(inputAreaEl)
+updateLayout()
+
+init()
 </script>
 </body>
 </html>
