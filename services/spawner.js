@@ -42,9 +42,13 @@ function startClaude(tabId, prompt, model) {
   const proc = spawn('claude', args, {
     cwd: projectDir,
     env: { ...process.env },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   })
   s.process = proc
+  proc.stdin.on('error', () => {})
+  // 初期プロンプトはargs経由(-p)なのでstdinは即クローズ
+  // ※追加インジェクションを使う場合はここをコメントアウト
+  proc.stdin.end()
 
   proc.stdout.on('data', data => {
     data.toString().split('\n').filter(l => l.trim()).forEach(line => {
@@ -93,6 +97,18 @@ function stopClaude(tabId) {
   return false
 }
 
+// 実行中プロセスへの追加メッセージ注入
+function injectPrompt(tabId, prompt) {
+  const s = getState(tabId)
+  if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
+  try {
+    s.process.stdin.write(prompt + '\n')
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ペンディングキャンセル
 function stopPending(tabId) {
   const s = getState(tabId)
@@ -100,4 +116,4 @@ function stopPending(tabId) {
   s.pendingModel = null
 }
 
-module.exports = { startClaude, stopClaude, stopPending, gitPull }
+module.exports = { startClaude, stopClaude, stopPending, injectPrompt, gitPull }

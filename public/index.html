@@ -54,7 +54,7 @@
     flex-shrink: 0;
   }
 
-  #reset-btn, #stop-btn, #close-tab-btn, #add-tab-btn, #history-btn {
+  #stop-btn, #close-tab-btn, #add-tab-btn, #history-btn {
     background: none;
     border: 1px solid #4a4a4a;
     border-radius: 6px;
@@ -63,8 +63,6 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  #reset-btn { color: #888; }
-  #reset-btn:active { background: #3a3a3a; }
   #stop-btn { color: #EF5350; border-color: #EF5350; opacity: 0.3; pointer-events: none; }
   #stop-btn.running { opacity: 1; pointer-events: auto; }
   #stop-btn:active { background: #3a2020; }
@@ -238,7 +236,6 @@
   #ctx-badge { font-size: 11px; color: #555; flex-shrink: 0; }
   #ctx-badge.warn { color: #FF9800; font-weight: bold; }
   .line-error   { color: #EF5350; }
-  .line-queued  { color: #FF9800; font-style: italic; font-size: 12px; }
 
   /* マークダウン */
   .line-text p  { margin: 0 0 6px; }
@@ -264,25 +261,6 @@
     z-index: 20;
   }
 
-  #pending-bar {
-    display: none;
-    margin-bottom: 6px;
-    padding: 5px 9px;
-    background: #2a1f00;
-    border: 1px solid #5a4000;
-    border-radius: 6px;
-    font-size: 12px;
-    color: #FFB74D;
-    align-items: center;
-    gap: 6px;
-  }
-  #pending-bar.visible { display: flex; }
-  #pending-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #cancel-pending {
-    background: none; border: none; color: #888;
-    cursor: pointer; font-size: 14px; flex-shrink: 0; padding: 0 2px;
-  }
-
   #input-row { display: flex; gap: 8px; align-items: flex-end; }
 
   #prompt {
@@ -301,7 +279,6 @@
     outline: none;
   }
   #prompt:focus { border-color: #1565C0; }
-  #prompt.has-pending { border-color: #5a4000; }
 
   #send-btn {
     background: #1565C0;
@@ -331,7 +308,6 @@
       <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
     </select>
     <button id="stop-btn" title="Stop execution">■</button>
-    <button id="reset-btn" title="Reset conversation">↺</button>
     <button id="history-btn" title="Conversation history">📄</button>
     <button id="add-tab-btn" title="New conversation">＋</button>
     <button id="close-tab-btn" title="Close tab">✕</button>
@@ -351,11 +327,6 @@
 <div id="output-container"></div>
 
 <div id="input-area">
-  <div id="pending-bar">
-    <span>Queued: </span>
-    <span id="pending-text"></span>
-    <button id="cancel-pending" title="キャンセル">✕</button>
-  </div>
   <div id="input-row">
     <textarea id="prompt" placeholder="Enter prompt..." rows="2"></textarea>
     <button id="send-btn">✨</button>
@@ -372,17 +343,13 @@ const promptEl      = document.getElementById('prompt')
 const sendBtn       = document.getElementById('send-btn')
 const statusDot     = document.getElementById('status-dot')
 const modelSel      = document.getElementById('model-select')
-const resetBtn      = document.getElementById('reset-btn')
 const stopBtn       = document.getElementById('stop-btn')
 const addTabBtn     = document.getElementById('add-tab-btn')
 const closeTabBtn   = document.getElementById('close-tab-btn')
 const tabBar        = document.getElementById('tab-bar')
 const outputCont    = document.getElementById('output-container')
-const pendingBar    = document.getElementById('pending-bar')
-const pendingText   = document.getElementById('pending-text')
-const cancelPending = document.getElementById('cancel-pending')
 
-const tabState = {}   // tabId -> { isRunning, hasPending, currentTextEl, _rawText, _ctxTokens, pane }
+const tabState = {}   // tabId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane }
 const CTX_MAX = 200000
 const ctxBadge = document.getElementById('ctx-badge')
 let currentTabId = null
@@ -396,7 +363,7 @@ function ensureTabState(tab) {
   pane.className = 'output-pane'
   pane.dataset.tabId = tab.id
   outputCont.appendChild(pane)
-  tabState[tab.id] = { isRunning: false, hasPending: false, currentTextEl: null, _rawText: '', _ctxTokens: 0, pane, _userInputShown: false }
+  tabState[tab.id] = { isRunning: false, currentTextEl: null, _rawText: '', _ctxTokens: 0, pane, _userInputShown: false }
 }
 
 // ── タブDOM作成 ──
@@ -478,15 +445,12 @@ function getTS() { return tabState[currentTabId] || {} }
 function updateUI() {
   const ts = getTS()
   const running = ts.isRunning || false
-  const pending = ts.hasPending || false
   statusDot.className = running ? 'running' : 'connected'
   stopBtn.classList.toggle('running', running)
   tabBar.querySelectorAll('.tab').forEach(el => {
     const ts2 = tabState[el.dataset.tabId]
     el.classList.toggle('running', ts2?.isRunning || false)
   })
-  pendingBar.classList.toggle('visible', pending)
-  promptEl.classList.toggle('has-pending', pending)
 }
 
 // ── SSE接続 ──
@@ -526,7 +490,6 @@ function handleEvent(tabId, ev) {
     case 'start':
       finalizeText(ts)
       ts.isRunning = true
-      ts.hasPending = false
       addLine(ts, `── ${ev.project} (${ev.model}) ──`, 'line-system')
       if (isActive) updateUI()
       break
@@ -579,18 +542,6 @@ function handleEvent(tabId, ev) {
       finalizeText(ts)
       ts.isRunning = false
       addLine(ts, `Error: ${ev.message}`, 'line-error')
-      if (isActive) updateUI()
-      break
-
-    case 'queued':
-      ts.hasPending = true
-      addLine(ts, `▸ Queued: ${ev.message}`, 'line-queued')
-      if (isActive) { pendingText.textContent = ev.message; updateUI() }
-      break
-
-    case 'queued_sent':
-      ts.hasPending = false
-      addLine(ts, `▸ Sent: ${ev.message}`, 'line-system')
       if (isActive) updateUI()
       break
 
@@ -776,7 +727,6 @@ async function send() {
     if (!res.ok) {
       addLine(ts, `Send failed: ${(await res.json()).error}`, 'line-error')
     } else {
-      const data = await res.json()
       // タブ名が変わっていたら反映
       const tabEl = tabBar.querySelector(`[data-tab-id="${currentTabId}"] .tab-name`)
       const cached = _tabsCache.find(t => t.id === currentTabId)
@@ -785,11 +735,6 @@ async function send() {
         _tabsCache = fresh
         const updated = fresh.find(t => t.id === currentTabId)
         if (updated && tabEl.textContent !== updated.name) tabEl.textContent = updated.name
-      }
-      if (data.queued) {
-        ts.hasPending = true
-        pendingText.textContent = prompt
-        updateUI()
       }
     }
   } catch (e) {
@@ -801,27 +746,6 @@ async function send() {
 stopBtn.addEventListener('click', () => {
   fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tab: currentTabId }) })
-})
-
-cancelPending.addEventListener('click', async () => {
-  await fetch('/api/stop-pending', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tab: currentTabId }) })
-  const ts = getTS(); ts.hasPending = false; updateUI()
-})
-
-resetBtn.addEventListener('click', async () => {
-  const ts = getTS()
-  if (ts.isRunning) { alert('実行中はリセットできません'); return }
-  const tabName = tabBar.querySelector(`[data-tab-id="${currentTabId}"] .tab-name`)?.textContent || ''
-  if (!confirm(`「${tabName}」の会話をリセットしますか？`)) return
-  await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tab: currentTabId }) })
-  ts.pane.innerHTML = ''
-  ts.currentTextEl = null
-  ts._rawText = ''
-  ts._ctxTokens = 0
-  updateCtxBadge(0)
-  addLine(ts, 'Session reset', 'line-system')
 })
 
 addTabBtn.addEventListener('click', async () => {

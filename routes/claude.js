@@ -2,7 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const router = express.Router()
 const { loadTabs, saveTabs } = require('../services/tabs')
-const { startClaude, stopClaude, stopPending, gitPull } = require('../services/spawner')
+const { startClaude, stopClaude, stopPending, injectPrompt, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const config = require('../config/index')
 
@@ -38,10 +38,14 @@ router.post('/send', async (req, res) => {
   const s = getState(tabId)
 
   if (s.process) {
-    s.pendingPrompt = prompt
-    s.pendingModel = model || null
-    broadcast(tabId, { type: 'queued', message: prompt })
-    return res.json({ ok: true, queued: true })
+    broadcast(tabId, { type: 'user_input', text: prompt })
+    const injected = injectPrompt(tabId, prompt)
+    if (!injected) {
+      // stdin injection 不可の場合は従来のキューにフォールバック（UI通知なし）
+      s.pendingPrompt = prompt
+      s.pendingModel = model || null
+    }
+    return res.json({ ok: true, injected })
   }
 
   // git pull
