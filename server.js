@@ -207,6 +207,16 @@ function startClaude(tabId, prompt, model) {
 }
 
 app.use(express.json())
+
+// Root endpoint - serve index.html with dynamic lang attribute
+app.get('/', (req, res) => {
+  const lang = config.uiLang || 'en'
+  const htmlPath = path.join(__dirname, 'public', 'index.html')
+  let html = fs.readFileSync(htmlPath, 'utf8')
+  html = html.replace('<html lang="en">', `<html lang="${lang}">`)
+  res.send(html)
+})
+
 app.use(express.static(path.join(__dirname, 'public')))
 
 // プロジェクト一覧
