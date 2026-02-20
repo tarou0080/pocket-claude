@@ -1,0 +1,6 @@
+{
+  "port": 3333,
+  "permissionMode": "ask",
+  "sessionDir": "./sessions",
+  "logsDir": "./logs"
+}

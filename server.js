@@ -5,10 +5,26 @@ const path = require('path')
 const { randomUUID } = require('crypto')
 
 const app = express()
-const PORT = process.env.PORT || 3333
 
-const SESSIONS_DIR = path.join(__dirname, 'sessions')
-const LOGS_DIR     = path.join(__dirname, 'logs')
+// Load config
+function loadConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'))
+  } catch {
+    return {
+      port: 3333,
+      permissionMode: 'ask',
+      sessionDir: './sessions',
+      logsDir: './logs'
+    }
+  }
+}
+
+const config = loadConfig()
+const PORT = process.env.PORT || config.port || 3333
+
+const SESSIONS_DIR = path.join(__dirname, config.sessionDir || 'sessions')
+const LOGS_DIR     = path.join(__dirname, config.logsDir || 'logs')
 const TABS_FILE    = path.join(__dirname, 'tabs.json')
 fs.mkdirSync(SESSIONS_DIR, { recursive: true })
 fs.mkdirSync(LOGS_DIR, { recursive: true })
@@ -18,7 +34,8 @@ function loadProjects() {
   try {
     return JSON.parse(fs.readFileSync(path.join(__dirname, 'projects.json'), 'utf8'))
   } catch {
-    return { home: '/home/johnadmin' }
+    const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
+    return { home: homeDir }
   }
 }
 
@@ -133,13 +150,14 @@ function startClaude(tabId, prompt, model) {
   const sessionId  = existingId || randomUUID()
   if (!existingId) saveSessionId(tabId, sessionId)
 
+  const permissionMode = config.permissionMode || 'ask'
   const args = [
     ...(existingId ? ['--resume', sessionId] : ['--session-id', sessionId]),
     '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
-    '--permission-mode', 'bypassPermissions',
+    '--permission-mode', permissionMode,
     ...(model ? ['--model', model] : []),
   ]
 
@@ -177,6 +195,7 @@ function startClaude(tabId, prompt, model) {
       s.pendingPrompt = null
       s.pendingModel  = null
       broadcast(tabId, { type: 'queued_sent', message: pending })
+      broadcast(tabId, { type: 'user_input', text: pending })
       setTimeout(() => startClaude(tabId, pending, pendingModel), 300)
     }
   })
@@ -242,6 +261,53 @@ app.delete('/api/tabs/:id', (req, res) => {
   delete state[removed.id]
   fs.unlink(logFile(removed.id), () => {})
   res.json({ ok: true })
+})
+
+// タブをfork（履歴セッションから新しいタブを作成）
+app.post('/api/tabs/fork', (req, res) => {
+  const { sessionId } = req.body
+  if (!sessionId || !UUID_RE.test(sessionId)) {
+    return res.status(400).json({ error: 'invalid sessionId' })
+  }
+
+  // 履歴ファイルの存在確認
+  const historyPath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
+  if (!fs.existsSync(historyPath)) {
+    return res.status(404).json({ error: 'session not found' })
+  }
+
+  // タイトル取得（履歴の最初のユーザーメッセージ）
+  let title = '再開'
+  try {
+    const lines = fs.readFileSync(historyPath, 'utf8').split('\n').filter(l => l.trim())
+    for (const line of lines) {
+      try {
+        const d = JSON.parse(line)
+        if (d.type === 'user') {
+          const content = d.message?.content
+          if (typeof content === 'string') title = content.slice(0, 12)
+          else if (Array.isArray(content)) {
+            const textBlock = content.find(c => c.type === 'text')
+            if (textBlock) title = textBlock.text.slice(0, 12)
+          }
+          break
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // 新しいタブ作成
+  const tabs = loadTabs()
+  const newTab = {
+    id: randomUUID(),
+    name: `${title}（再開）`,
+    project: getDefaultProject(),
+    sessionId: sessionId,
+  }
+  tabs.push(newTab)
+  saveTabs(tabs)
+
+  res.json(newTab)
 })
 
 // 状態確認
@@ -353,7 +419,9 @@ app.get('/api/stream', (req, res) => {
 })
 
 // ── 履歴API ──
-const CLAUDE_PROJECTS_DIR = path.join(process.env.HOME || '/home/johnadmin', '.claude', 'projects', '-home-johnadmin')
+const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
+const homeDirNormalized = homeDir.replace(/\//g, '-').replace(/^-/, '')
+const CLAUDE_PROJECTS_DIR = path.join(homeDir, '.claude', 'projects', homeDirNormalized)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // セッション一覧

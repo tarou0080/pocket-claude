@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
@@ -77,7 +77,7 @@
     text-align: center;
     border: none;
   }
-  #close-tab-btn { }
+  #close-tab-btn { margin-left: auto; }
   #close-tab-btn:active, #add-tab-btn:active, #history-btn:active { background: #3a3a3a; color: #ccc; }
   #history-btn.active { color: #64B5F6; }
 
@@ -159,6 +159,21 @@
   .history-msg-user { color: #81C784; background: #1e2a1e; }
   .history-msg-assistant { color: #e0e0e0; }
 
+  /* 再開ボタン */
+  #resume-btn {
+    margin: 20px 14px;
+    padding: 14px 20px;
+    background: #1565C0;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    cursor: pointer;
+    width: calc(100% - 28px);
+    text-align: center;
+  }
+  #resume-btn:active { background: #0D47A1; }
+
   /* ── タブバー ── */
   #tab-bar {
     background: #1e1e1e;
@@ -220,7 +235,7 @@
   .line-system  { color: #777; font-size: 11px; }
   .line-done    { color: #4CAF50; border-top: 1px solid #333; margin-top: 6px; padding-top: 6px; }
   .line-done.warn { color: #FF9800; }
-  #ctx-badge { font-size: 11px; color: #555; flex-shrink: 0; margin-left: auto; }
+  #ctx-badge { font-size: 11px; color: #555; flex-shrink: 0; }
   #ctx-badge.warn { color: #FF9800; font-weight: bold; }
   .line-error   { color: #EF5350; }
   .line-queued  { color: #FF9800; font-style: italic; font-size: 12px; }
@@ -308,18 +323,18 @@
 <div id="top-bar">
   <div id="header">
     <div id="status-dot"></div>
+    <span id="ctx-badge"></span>
     <select id="model-select">
       <option value="">Sonnet 4.6</option>
       <option value="claude-opus-4-6">Opus 4.6</option>
       <option value="claude-sonnet-4-6">Sonnet 4.6</option>
       <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
     </select>
-    <button id="stop-btn" title="実行を中断">■ 中断</button>
-    <button id="reset-btn" title="会話をリセット">↺</button>
-    <button id="history-btn" title="会話履歴">📋</button>
-    <button id="add-tab-btn" title="新しい会話">＋</button>
-    <button id="close-tab-btn" title="タブを閉じる">✕</button>
-    <span id="ctx-badge"></span>
+    <button id="stop-btn" title="Pause execution">⏸ Pause</button>
+    <button id="reset-btn" title="Reset conversation">↺</button>
+    <button id="history-btn" title="Conversation history">📋</button>
+    <button id="add-tab-btn" title="New conversation">＋</button>
+    <button id="close-tab-btn" title="Close tab">✕</button>
   </div>
   <div id="tab-bar"></div>
 </div>
@@ -327,8 +342,8 @@
 <!-- 履歴パネル -->
 <div id="history-panel">
   <div id="history-header">
-    <button id="history-back">← 戻る</button>
-    <span id="history-title">会話履歴</span>
+    <button id="history-back">← Back</button>
+    <span id="history-title">Conversation History</span>
   </div>
   <div id="history-body"></div>
 </div>
@@ -337,13 +352,13 @@
 
 <div id="input-area">
   <div id="pending-bar">
-    <span>送信待ち: </span>
+    <span>Queued: </span>
     <span id="pending-text"></span>
     <button id="cancel-pending" title="キャンセル">✕</button>
   </div>
   <div id="input-row">
-    <textarea id="prompt" placeholder="プロンプトを入力..." rows="2"></textarea>
-    <button id="send-btn">送信</button>
+    <textarea id="prompt" placeholder="Enter prompt..." rows="2"></textarea>
+    <button id="send-btn">✨ Send</button>
   </div>
 </div>
 
@@ -381,7 +396,7 @@ function ensureTabState(tab) {
   pane.className = 'output-pane'
   pane.dataset.tabId = tab.id
   outputCont.appendChild(pane)
-  tabState[tab.id] = { isRunning: false, hasPending: false, currentTextEl: null, _rawText: '', _ctxTokens: 0, pane }
+  tabState[tab.id] = { isRunning: false, hasPending: false, currentTextEl: null, _rawText: '', _ctxTokens: 0, pane, _userInputShown: false }
 }
 
 // ── タブDOM作成 ──
@@ -421,7 +436,7 @@ function createTabEl(tab) {
 // ── タブ削除 ──
 async function deleteTab(tabId) {
   const tabs = [...tabBar.querySelectorAll('.tab')]
-  if (tabs.length <= 1) { alert('最後のタブは削除できません'); return }
+  if (tabs.length <= 1) { alert('Cannot delete the last tab'); return }
   const res = await fetch(`/api/tabs/${tabId}`, { method: 'DELETE' })
   if (!res.ok) { const e = await res.json(); alert(e.error); return }
   tabBar.querySelector(`[data-tab-id="${tabId}"]`)?.remove()
@@ -491,9 +506,22 @@ function handleEvent(tabId, ev) {
 
   switch (ev.type) {
     case 'user_input':
-      addLine(ts, `> ${ev.text}`, 'line-user')
+      if (!ts._userInputShown) addLine(ts, `> ${ev.text}`, 'line-user')
+      ts._userInputShown = true
       finalizeText(ts)
       break
+
+    case 'user': {
+      // Claudeが出力するユーザーメッセージイベント（user_inputが表示されなかった場合のフォールバック）
+      if (!ts._userInputShown) {
+        const c = ev.message?.content
+        const text = typeof c === 'string' ? c
+          : Array.isArray(c) ? c.filter(b => b.type === 'text').map(b => b.text).join('\n')
+          : ''
+        if (text.trim()) addLine(ts, `> ${text}`, 'line-user')
+      }
+      break
+    }
 
     case 'start':
       finalizeText(ts)
@@ -539,6 +567,7 @@ function handleEvent(tabId, ev) {
     case 'done': {
       finalizeText(ts)
       ts.isRunning = false
+      ts._userInputShown = false
       const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
       const doneEl = addLine(ts, `✓ 完了 (exit ${ev.exitCode}) — ctx: ${pct}%`, 'line-done')
       if (pct >= 50) doneEl.classList.add('warn')
@@ -549,19 +578,19 @@ function handleEvent(tabId, ev) {
     case 'error':
       finalizeText(ts)
       ts.isRunning = false
-      addLine(ts, `エラー: ${ev.message}`, 'line-error')
+      addLine(ts, `Error: ${ev.message}`, 'line-error')
       if (isActive) updateUI()
       break
 
     case 'queued':
       ts.hasPending = true
-      addLine(ts, `▸ 送信待ち: ${ev.message}`, 'line-queued')
+      addLine(ts, `▸ Queued: ${ev.message}`, 'line-queued')
       if (isActive) { pendingText.textContent = ev.message; updateUI() }
       break
 
     case 'queued_sent':
       ts.hasPending = false
-      addLine(ts, `▸ 送信: ${ev.message}`, 'line-system')
+      addLine(ts, `▸ Sent: ${ev.message}`, 'line-system')
       if (isActive) updateUI()
       break
 
@@ -626,15 +655,15 @@ function formatDate(iso) {
 async function openHistory() {
   historyPanel.classList.add('open')
   historyBtn.classList.add('active')
-  historyTitle.textContent = '会話履歴'
+  historyTitle.textContent = 'Conversation History'
   historyBack.onclick = closeHistory
-  historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">読み込み中...</div>'
+  historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">Loading...</div>'
 
   try {
     const sessions = await fetch('/api/history').then(r => r.json())
     historyBody.innerHTML = ''
     if (sessions.length === 0) {
-      historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">履歴がありません</div>'
+      historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">No history available</div>'
       return
     }
     for (const s of sessions) {
@@ -648,14 +677,14 @@ async function openHistory() {
       historyBody.appendChild(item)
     }
   } catch (e) {
-    historyBody.innerHTML = `<div style="padding:20px;color:#EF5350;font-size:13px;">エラー: ${e.message}</div>`
+    historyBody.innerHTML = `<div style="padding:20px;color:#EF5350;font-size:13px;">Error: ${e.message}</div>`
   }
 }
 
 async function openHistoryDetail(session) {
   historyTitle.textContent = formatDate(session.updatedAt)
   historyBack.onclick = openHistory
-  historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">読み込み中...</div>'
+  historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">Loading...</div>'
 
   try {
     const msgs = await fetch(`/api/history/${encodeURIComponent(session.sessionId)}`).then(r => r.json())
@@ -670,8 +699,48 @@ async function openHistoryDetail(session) {
       div.textContent = m.text
       historyBody.appendChild(div)
     }
+
+    // 再開ボタン
+    const resumeBtn = document.createElement('button')
+    resumeBtn.id = 'resume-btn'
+    resumeBtn.textContent = 'この会話を再開'
+    resumeBtn.addEventListener('click', () => resumeConversation(session.sessionId))
+    historyBody.appendChild(resumeBtn)
+
+    // 最下部にスクロール
+    setTimeout(() => {
+      historyBody.scrollTop = historyBody.scrollHeight
+    }, 100)
   } catch (e) {
-    historyBody.innerHTML = `<div style="padding:20px;color:#EF5350;font-size:13px;">エラー: ${e.message}</div>`
+    historyBody.innerHTML = `<div style="padding:20px;color:#EF5350;font-size:13px;">Error: ${e.message}</div>`
+  }
+}
+
+async function resumeConversation(sessionId) {
+  try {
+    const newTab = await fetch('/api/tabs/fork', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId })
+    }).then(r => r.json())
+
+    _tabsCache.push(newTab)
+    ensureTabState(newTab)
+    createTabEl(newTab)
+    switchTab(newTab.id)
+
+    // 過去のメッセージを取得して表示
+    const msgs = await fetch(`/api/history/${encodeURIComponent(sessionId)}`).then(r => r.json())
+    const ts = getTS()
+    for (const m of msgs) {
+      const role = m.role === 'user' ? 'line-user' : 'line-assistant'
+      const prefix = m.role === 'user' ? '> ' : ''
+      addLine(ts, prefix + m.text, role)
+    }
+
+    closeHistory()
+  } catch (e) {
+    alert(`Resume error: ${e.message}`)
   }
 }
 
@@ -696,6 +765,8 @@ async function send() {
   const ts = getTS()
   promptEl.value = ''
   promptEl.style.height = 'auto'
+  ts._userInputShown = true
+  addLine(ts, `> ${prompt}`, 'line-user')
   try {
     const res = await fetch('/api/send', {
       method: 'POST',
@@ -703,7 +774,7 @@ async function send() {
       body: JSON.stringify({ prompt, tab: currentTabId, model: modelSel.value || null })
     })
     if (!res.ok) {
-      addLine(ts, `送信失敗: ${(await res.json()).error}`, 'line-error')
+      addLine(ts, `Send failed: ${(await res.json()).error}`, 'line-error')
     } else {
       const data = await res.json()
       // タブ名が変わっていたら反映
@@ -722,7 +793,7 @@ async function send() {
       }
     }
   } catch (e) {
-    addLine(ts, `ネットワークエラー: ${e.message}`, 'line-error')
+    addLine(ts, `Network error: ${e.message}`, 'line-error')
   }
 }
 
@@ -750,7 +821,7 @@ resetBtn.addEventListener('click', async () => {
   ts._rawText = ''
   ts._ctxTokens = 0
   updateCtxBadge(0)
-  addLine(ts, 'セッションをリセットしました', 'line-system')
+  addLine(ts, 'Session reset', 'line-system')
 })
 
 addTabBtn.addEventListener('click', async () => {

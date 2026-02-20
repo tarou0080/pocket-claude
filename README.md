@@ -1,93 +1,148 @@
 # pocket-claude
 
+A lightweight, mobile-first Web UI for Claude Code, optimized for iOS Safari.
 
+## ✨ Features
 
-## Getting started
+- 📱 **Mobile-First Design** - Tested and optimized for iPhone Safari
+- 🪶 **Ultra-Lightweight** - Vanilla HTML/CSS/JS, no build step required
+- 🗂️ **Tab-Based Conversations** - Manage multiple conversations simultaneously
+- 📊 **Context Usage Tracking** - Real-time token usage visualization
+- 📜 **Integrated History Browser** - Browse and resume past sessions
+- 🔄 **SSE Streaming** - Real-time output with automatic reconnection
+- 🎨 **Markdown Rendering** - Clean, readable output formatting
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 🎯 Why pocket-claude?
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Existing solutions are feature-rich but heavyweight. pocket-claude takes a different approach:
 
-## Add your files
+- **No React/Vite/TypeScript** - Just Express + vanilla JS
+- **Self-hosted focused** - Designed for home server environments
+- **iOS-optimized** - visualViewport API for perfect keyboard handling
+- **Minimal dependencies** - Only marked.js for markdown rendering
 
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js v18+
+- [Claude Code CLI](https://code.claude.com/) installed and authenticated
+
+### Installation
+
+```bash
+git clone https://github.com/yourusername/pocket-claude.git
+cd pocket-claude
+npm install
+```
+
+### Configuration
+
+1. Copy example configs:
+```bash
+cp config.example.json config.json
+cp projects.example.json projects.json
+```
+
+2. Edit `projects.json` to add your working directories:
+```json
+{
+  "home": "/home/user",
+  "work": "/home/user/workspace"
+}
+```
+
+3. (Optional) Edit `config.json`:
+```json
+{
+  "port": 3333,
+  "permissionMode": "ask",
+  "sessionDir": "./sessions",
+  "logsDir": "./logs"
+}
+```
+
+### Run
+
+```bash
+npm start
+```
+
+Access at `http://localhost:3333`
+
+## ⚙️ Configuration Options
+
+### Permission Modes
+
+- `"ask"` (default) - Prompt for tool execution approval
+- `"bypassPermissions"` - Auto-approve all tool executions
+
+⚠️ **Security Warning**: `bypassPermissions` mode allows Claude Code to execute tools without confirmation. Only use in trusted environments with proper authentication (e.g., VPN + 2FA).
+
+### Projects
+
+Define working directories in `projects.json`. Each project appears as a selectable option when creating new conversations.
+
+## 🏗️ Architecture
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.nanoha.pgw.jp/shell/pocket-claude.git
-git branch -M main
-git push -uf origin main
+[Mobile Browser]
+    ↓ HTTPS
+[nginx (optional)]
+    ↓
+[pocket-claude (Node.js/Express)]
+    ↓ spawn
+[claude CLI (headless mode)]
+    ↓
+[Your Project Directory]
 ```
 
-## Integrate with your tools
+- **Frontend**: Single HTML file with vanilla JavaScript
+- **Backend**: Express server spawning `claude -p` processes
+- **Communication**: Server-Sent Events (SSE) for streaming
+- **Session Management**: JSON files for persistence
 
-* [Set up project integrations](https://gitlab.nanoha.pgw.jp/shell/pocket-claude/-/settings/integrations)
+## 🐳 Docker (Optional)
 
-## Collaborate with your team
+```bash
+docker build -t pocket-claude .
+docker run -p 3333:3333 \
+  -v $(pwd)/config.json:/app/config.json:ro \
+  -v $(pwd)/projects.json:/app/projects.json:ro \
+  -v $(pwd)/sessions:/app/sessions \
+  -v $(pwd)/logs:/app/logs \
+  -v ~/.claude:/root/.claude:ro \
+  pocket-claude
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## 🔒 Security Considerations
 
-## Test and Deploy
+pocket-claude is designed for **trusted environments**. Recommended deployment:
 
-Use the built-in continuous integration in GitLab.
+1. **Local network only** - Bind to localhost or private IPs
+2. **VPN access** - Use WireGuard/OpenVPN for remote access
+3. **Authentication proxy** - Add nginx + Authelia/OAuth2 Proxy
+4. **Permission mode** - Keep `permissionMode: "ask"` unless fully trusted
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+## 📝 License
 
-***
+MIT License - see [LICENSE](LICENSE) file for details.
 
-# Editing this README
+## 🙏 Acknowledgments
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+- [marked.js](https://github.com/markedjs/marked) - Markdown parser (MIT)
+- [Express](https://expressjs.com/) - Web framework (MIT)
 
-## Suggestions for a good README
+Inspired by:
+- [claude-code-webui](https://github.com/sugyan/claude-code-webui) by sugyan
+- [claudecodeui](https://github.com/siteboon/claudecodeui) by siteboon
+- [claude-relay](https://github.com/chadbyte/claude-relay) by chadbyte
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## 🤝 Contributing
 
-## Name
-Choose a self-explaining name for your project.
+Contributions welcome! Please feel free to submit a Pull Request.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## 📧 Support
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+- Issues: [GitHub Issues](https://github.com/yourusername/pocket-claude/issues)
+- Discussions: [GitHub Discussions](https://github.com/yourusername/pocket-claude/discussions)
