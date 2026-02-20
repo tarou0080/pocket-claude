@@ -1,0 +1,39 @@
+const express = require('express')
+const router = express.Router()
+const { getState, loadLogFile, registerSSEClient, unregisterSSEClient } = require('../services/stream')
+
+// SSEエンドポイント
+router.get('/', (req, res) => {
+  const tabId = req.query.tab
+  if (!tabId) {
+    res.status(400).end()
+    return
+  }
+
+  const s = getState(tabId)
+
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('X-Accel-Buffering', 'no')
+
+  // メモリバッファが空ならファイルから復元
+  if (s.buffer.length === 0) {
+    s.buffer = loadLogFile(tabId)
+  }
+  s.buffer.forEach(ev => res.write(`data: ${JSON.stringify(ev)}\n\n`))
+  registerSSEClient(tabId, res)
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': ping\n\n')
+    } catch {}
+  }, 20000)
+
+  req.on('close', () => {
+    clearInterval(heartbeat)
+    unregisterSSEClient(tabId, res)
+  })
+})
+
+module.exports = router
