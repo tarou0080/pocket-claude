@@ -6,6 +6,13 @@ const { randomUUID } = require('crypto')
 
 const app = express()
 
+// ── セキュリティ設定 ──
+// 許可されたプロジェクトベースディレクトリ（Path Traversal対策）
+const ALLOWED_BASE_DIRS = [
+  path.resolve('/home/johnadmin'),
+  path.resolve('/srv/shell')
+].map(dir => dir + path.sep)  // 末尾に/を追加してstartsWith判定で使用
+
 // Load config
 function loadConfig() {
   try {
@@ -29,14 +36,42 @@ const TABS_FILE    = path.join(__dirname, 'tabs.json')
 fs.mkdirSync(SESSIONS_DIR, { recursive: true })
 fs.mkdirSync(LOGS_DIR, { recursive: true })
 
-// プロジェクト設定読み込み
+// プロジェクト設定読み込み（Path Traversal対策付き）
 function loadProjects() {
+  let raw
   try {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, 'projects.json'), 'utf8'))
+    raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'projects.json'), 'utf8'))
   } catch {
     const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
-    return { home: homeDir }
+    raw = { home: homeDir }
   }
+
+  // セキュリティ: 許可されたディレクトリのみ受け入れる
+  const sanitized = {}
+  for (const [name, dir] of Object.entries(raw)) {
+    try {
+      const resolved = path.resolve(dir)
+      const realPath = fs.realpathSync(resolved)  // シンボリックリンク解決
+
+      // 許可されたベースディレクトリ内かチェック
+      const isAllowed = ALLOWED_BASE_DIRS.some(allowed => realPath.startsWith(allowed))
+      if (isAllowed) {
+        sanitized[name] = realPath
+      } else {
+        console.warn(`[SECURITY] Rejected project path: ${name} -> ${dir} (resolved: ${realPath})`)
+      }
+    } catch (err) {
+      console.warn(`[SECURITY] Invalid project path: ${name} -> ${dir} (${err.message})`)
+    }
+  }
+
+  // 有効なプロジェクトがない場合はデフォルトを追加
+  if (Object.keys(sanitized).length === 0) {
+    const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
+    sanitized.home = homeDir
+  }
+
+  return sanitized
 }
 
 // タブ管理
@@ -482,16 +517,32 @@ app.get('/api/history', (_req, res) => {
   res.json(sessions)
 })
 
-// 特定セッションの会話内容
+// 特定セッションの会話内容（Path Traversal対策付き）
 app.get('/api/history/:sessionId', (req, res) => {
   const { sessionId } = req.params
   if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
 
+  // セキュリティ: CLAUDE_PROJECTS_DIRの存在確認
+  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
+    console.error('[SECURITY] CLAUDE_PROJECTS_DIR does not exist:', CLAUDE_PROJECTS_DIR)
+    return res.status(404).json({ error: 'history directory not found' })
+  }
+
   const filePath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
+
+  // セキュリティ: パストラバーサル対策（解決後のパスがディレクトリ内か確認）
+  const resolved = path.resolve(filePath)
+  const allowedDir = path.resolve(CLAUDE_PROJECTS_DIR)
+  if (!resolved.startsWith(allowedDir + path.sep)) {
+    console.warn('[SECURITY] Path traversal attempt:', { sessionId, resolved, allowedDir })
+    return res.status(400).json({ error: 'invalid path' })
+  }
+
   let lines
   try {
-    lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim())
-  } catch {
+    lines = fs.readFileSync(resolved, 'utf8').split('\n').filter(l => l.trim())
+  } catch (err) {
+    console.error('[SECURITY] Failed to read history file:', { sessionId, error: err.message })
     return res.status(404).json({ error: 'session not found' })
   }
 
