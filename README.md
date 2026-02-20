@@ -87,9 +87,7 @@ Define working directories in `projects.json`. Each project appears as a selecta
 
 ```
 [Mobile Browser]
-    ↓ HTTPS
-[nginx (optional)]
-    ↓
+    ↓ HTTP
 [pocket-claude (Node.js/Express)]
     ↓ spawn
 [claude CLI (headless mode)]
@@ -102,27 +100,15 @@ Define working directories in `projects.json`. Each project appears as a selecta
 - **Communication**: Server-Sent Events (SSE) for streaming
 - **Session Management**: JSON files for persistence
 
-## 🐳 Docker (Optional)
-
-```bash
-docker build -t pocket-claude .
-docker run -p 3333:3333 \
-  -v $(pwd)/config.json:/app/config.json:ro \
-  -v $(pwd)/projects.json:/app/projects.json:ro \
-  -v $(pwd)/sessions:/app/sessions \
-  -v $(pwd)/logs:/app/logs \
-  -v ~/.claude:/root/.claude:ro \
-  pocket-claude
-```
-
 ## 🔒 Security Considerations
 
-pocket-claude is designed for **trusted environments**. Recommended deployment:
+pocket-claude is designed for **local/trusted network use**:
 
-1. **Local network only** - Bind to localhost or private IPs
-2. **VPN access** - Use WireGuard/OpenVPN for remote access
-3. **Authentication proxy** - Add nginx + Authelia/OAuth2 Proxy
-4. **Permission mode** - Keep `permissionMode: "ask"` unless fully trusted
+- **Local network only** - Runs on localhost or LAN by default
+- **Permission mode** - Use `permissionMode: "ask"` for safer operation
+- **Trusted environment** - Not designed for public internet exposure
+
+For remote access, consider using a VPN or SSH tunnel instead of exposing the server directly.
 
 ## 📝 License
 
