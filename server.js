@@ -430,7 +430,7 @@ app.get('/api/stream', (req, res) => {
 
 // ── 履歴API ──
 const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
-const homeDirNormalized = homeDir.replace(/\//g, '-').replace(/^-/, '')
+const homeDirNormalized = homeDir.replace(/\//g, '-')
 const CLAUDE_PROJECTS_DIR = path.join(homeDir, '.claude', 'projects', homeDirNormalized)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
