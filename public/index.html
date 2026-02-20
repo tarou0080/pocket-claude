@@ -330,7 +330,7 @@
       <option value="claude-sonnet-4-6">Sonnet 4.6</option>
       <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
     </select>
-    <button id="stop-btn" title="Pause execution">⏸ Pause</button>
+    <button id="stop-btn" title="Pause execution">⏸</button>
     <button id="reset-btn" title="Reset conversation">↺</button>
     <button id="history-btn" title="Conversation history">📋</button>
     <button id="add-tab-btn" title="New conversation">＋</button>
@@ -358,7 +358,7 @@
   </div>
   <div id="input-row">
     <textarea id="prompt" placeholder="Enter prompt..." rows="2"></textarea>
-    <button id="send-btn">✨ Send</button>
+    <button id="send-btn">✨</button>
   </div>
 </div>
 
@@ -569,7 +569,7 @@ function handleEvent(tabId, ev) {
       ts.isRunning = false
       ts._userInputShown = false
       const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
-      const doneEl = addLine(ts, `✓ 完了 (exit ${ev.exitCode}) — ctx: ${pct}%`, 'line-done')
+      const doneEl = addLine(ts, `✓ Done (exit ${ev.exitCode}) — ${pct}%`, 'line-done')
       if (pct >= 50) doneEl.classList.add('warn')
       if (isActive) { updateCtxBadge(pct); updateUI() }
       break
@@ -641,7 +641,7 @@ function addLine(ts, text, cls) {
 
 function updateCtxBadge(pct) {
   if (pct <= 0) { ctxBadge.textContent = ''; ctxBadge.className = ''; return }
-  ctxBadge.textContent = `ctx: ${pct}%`
+  ctxBadge.textContent = `${pct}%`
   ctxBadge.className = pct >= 50 ? 'warn' : ''
 }
 
