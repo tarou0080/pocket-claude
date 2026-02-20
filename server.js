@@ -11,7 +11,14 @@ const app = express()
 const ALLOWED_BASE_DIRS = [
   path.resolve('/home/johnadmin'),
   path.resolve('/srv/shell')
-].map(dir => dir + path.sep)  // 末尾に/を追加してstartsWith判定で使用
+]
+
+// セキュリティチェック: パスが許可されたディレクトリ内か確認
+function isPathAllowed(realPath) {
+  return ALLOWED_BASE_DIRS.some(allowed =>
+    realPath === allowed || realPath.startsWith(allowed + path.sep)
+  )
+}
 
 // Load config
 function loadConfig() {
@@ -54,7 +61,7 @@ function loadProjects() {
       const realPath = fs.realpathSync(resolved)  // シンボリックリンク解決
 
       // 許可されたベースディレクトリ内かチェック
-      const isAllowed = ALLOWED_BASE_DIRS.some(allowed => realPath.startsWith(allowed))
+      const isAllowed = isPathAllowed(realPath)
       if (isAllowed) {
         sanitized[name] = realPath
       } else {
