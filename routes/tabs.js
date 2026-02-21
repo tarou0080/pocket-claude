@@ -16,10 +16,12 @@ router.get('/', (_req, res) => {
 // タブ作成
 router.post('/', (req, res) => {
   const tabs = loadTabs()
+  // リクエストボディからプロジェクトを受け取る（なければデフォルト）
+  const project = req.body.project || getDefaultProject()
   const newTab = {
     id: randomUUID(),
     name: `Conversation ${tabs.length + 1}`,
-    project: getDefaultProject(),
+    project: project,
     sessionId: null,
   }
   tabs.push(newTab)

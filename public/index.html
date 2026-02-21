@@ -637,13 +637,19 @@ function switchTab(tabId) {
 async function loadProjects() {
   try {
     const projects = await fetch('/api/projects/list').then(r => r.json())
+    const currentTab = _tabsCache.find(t => t.id === currentTabId)
+    const currentProject = currentTab?.project || Object.keys(projects)[0]
+
     projectsBody.innerHTML = ''
 
     for (const [name, path] of Object.entries(projects)) {
       const item = document.createElement('div')
       item.className = 'project-item'
+      const isSelected = name === currentProject
       item.innerHTML = `
-        <div class="project-info">
+        <input type="radio" name="project-select" value="${name}" ${isSelected ? 'checked' : ''}
+               style="margin-right: 10px; cursor: pointer;">
+        <div class="project-info" style="flex: 1;">
           <div class="project-name">${name}</div>
           <div class="project-path">${path}</div>
         </div>
@@ -651,6 +657,33 @@ async function loadProjects() {
       `
       projectsBody.appendChild(item)
     }
+
+    // Radio button change event
+    projectsBody.querySelectorAll('input[name="project-select"]').forEach(radio => {
+      radio.addEventListener('change', async (e) => {
+        const newProject = e.target.value
+        if (!currentTabId) return
+
+        try {
+          await fetch(`/api/tabs/${currentTabId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project: newProject })
+          })
+
+          // Update cache
+          const tab = _tabsCache.find(t => t.id === currentTabId)
+          if (tab) tab.project = newProject
+
+          updatePlaceholder()
+          projectsModal.classList.remove('open')
+          projectsBtn.classList.remove('active')
+        } catch (err) {
+          projectError.textContent = `Error: ${err.message}`
+          projectError.style.display = 'block'
+        }
+      })
+    })
 
     // Remove button event
     projectsBody.querySelectorAll('.project-remove').forEach(btn => {
@@ -749,6 +782,20 @@ function updateUI() {
     const ts2 = tabState[el.dataset.tabId]
     el.classList.toggle('running', ts2?.isRunning || false)
   })
+  updatePlaceholder()
+}
+
+async function updatePlaceholder() {
+  const currentTab = _tabsCache.find(t => t.id === currentTabId)
+  if (!currentTab) return
+
+  try {
+    const projects = await fetch('/api/projects/list').then(r => r.json())
+    const projectPath = projects[currentTab.project] || ''
+    promptEl.placeholder = `Enter prompt... 📁 ${projectPath}`
+  } catch {
+    promptEl.placeholder = 'Enter prompt...'
+  }
 }
 
 // ── SSE接続 ──
@@ -1155,8 +1202,15 @@ stopBtn.addEventListener('click', () => {
 })
 
 addTabBtn.addEventListener('click', async () => {
+  // 現在のタブのプロジェクトを引き継ぐ
+  const currentTab = _tabsCache.find(t => t.id === currentTabId)
+  const project = currentTab?.project
+
   const newTab = await fetch('/api/tabs', { method: 'POST',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(r => r.json())
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project })
+  }).then(r => r.json())
+
   _tabsCache.push(newTab)
   ensureTabState(newTab)
   createTabEl(newTab)
