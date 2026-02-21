@@ -17,7 +17,7 @@ Turn your Claude Code CLI into a web app:
 - On your local laptop - use browser instead of terminal
 - On a home server - access Claude Code from your phone while traveling
 - On a cloud VM - prefer web UI over SSH + terminal sessions
-- Anywhere Claude Code CLI runs - this adds a browser interface
+- **Project management** - Add project directories directly from the browser
 
 **No server required** - Just `npm install` and run it wherever your Claude Code is installed.
 
@@ -87,6 +87,41 @@ cp projects.example.json projects.json
 - Node.js v18+
 - [Claude Code CLI](https://code.claude.com/) installed and authenticated
 
+## 🗂️ Project Management
+
+pocket-claude allows you to manage project directories from the browser or configuration files.
+
+### Add from Browser (Recommended)
+
+1. Click the **P** button in the header
+2. Enter project name and directory path
+3. Click **Add Project**
+
+Settings are persisted across server restarts.
+
+### Manage via Configuration File
+
+Edit `projects.json` to define projects:
+
+```json
+{
+  "home": "/home/user",
+  "myapp": "/srv/shell/myapp",
+  "website": "/var/www/html"
+}
+```
+
+### Add via Environment Variable
+
+You can also add projects at startup using environment variables:
+
+```bash
+export ADDITIONAL_ALLOWED_DIRS="/srv/shell:/opt/projects"
+npm start
+```
+
+These are automatically added as `env_0`, `env_1`, etc.
+
 ## ⚙️ Configuration Options
 
 ### Permission Modes
@@ -95,10 +130,6 @@ cp projects.example.json projects.json
 - `"bypassPermissions"` - Auto-approve all tool executions
 
 ⚠️ **Security Warning**: `bypassPermissions` mode allows Claude Code to execute tools without confirmation. Only use in trusted environments with proper authentication (e.g., VPN + 2FA).
-
-### Projects
-
-Define working directories in `projects.json`. Each project appears as a selectable option when creating new conversations.
 
 ## 🏗️ Architecture
 
@@ -173,6 +204,25 @@ Change the port in `config.json` or set `PORT` environment variable:
 ```bash
 PORT=3334 npm start
 ```
+
+### Project directory not accessible
+If adding a project fails:
+
+1. Check if the directory exists:
+   ```bash
+   ls -ld /path/to/project
+   ```
+
+2. Check if you have read permissions:
+   ```bash
+   # Run as the user running pocket-claude
+   cd /path/to/project
+   ```
+
+3. Check server logs for details:
+   ```
+   [WARNING] Invalid project path: myproject -> /srv/shell (No such file or directory)
+   ```
 
 ## 📝 License
 
