@@ -913,14 +913,19 @@ promptEl.addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send() }
 })
 promptEl.addEventListener('input', () => {
+  const ts = getTS()
   promptEl.style.height = 'auto'
   promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
   updateLayout()
 
   // 入力フォームが拡大しても、自動スクロール中なら最下部を維持
-  const ts = getTS()
+  // レイアウト更新後に再度スクロール
   if (ts && ts.autoScroll) {
-    scrollToBottom(ts)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        ts.pane.scrollTop = ts.pane.scrollHeight
+      })
+    })
   }
 })
 
