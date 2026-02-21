@@ -67,7 +67,7 @@
   #stop-btn.running { opacity: 1; pointer-events: auto; }
   #stop-btn:active { background: #3a2020; }
 
-  #close-tab-btn, #add-tab-btn, #history-btn {
+  #close-tab-btn, #add-tab-btn {
     font-size: 16px;
     padding: 4px 10px;
     color: #888;
@@ -75,9 +75,19 @@
     text-align: center;
     border: none;
   }
+  #history-btn {
+    font-size: 14px;
+    padding: 4px 8px;
+    color: #888;
+    min-width: 32px;
+    text-align: center;
+    border: 1px solid #4a4a4a;
+    border-radius: 6px;
+  }
   #close-tab-btn { margin-left: auto; }
-  #close-tab-btn:active, #add-tab-btn:active, #history-btn:active { background: #3a3a3a; color: #ccc; }
-  #history-btn.active { color: #64B5F6; }
+  #close-tab-btn:active, #add-tab-btn:active { background: #3a3a3a; color: #ccc; }
+  #history-btn:active { background: #3a3a3a; color: #ccc; }
+  #history-btn.active { color: #64B5F6; border-color: #64B5F6; }
 
   /* ── 履歴パネル ── */
   #history-panel {
@@ -229,7 +239,12 @@
   .line { margin-bottom: 2px; word-break: break-word; white-space: pre-wrap; }
   .line-user    { color: #81C784; }
   .line-text    { color: #e0e0e0; white-space: normal; }
-  .line-tool    { color: #64B5F6; font-style: italic; }
+  .line-tool    { color: #64B5F6; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+  .line-tool .tool-name { font-style: italic; flex-shrink: 0; }
+  .line-tool .tool-desc { color: #888; font-size: 11px; font-style: normal; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .line-tool .tool-toggle { font-size: 10px; color: #666; flex-shrink: 0; }
+  .tool-result { color: #777; font-size: 11px; margin-left: 20px; margin-top: 2px; white-space: pre-wrap; overflow-x: auto; max-height: 0; overflow-y: hidden; transition: max-height 0.2s; }
+  .tool-result.expanded { max-height: 500px; overflow-y: auto; }
   .line-system  { color: #777; font-size: 11px; }
   .line-done    { color: #4CAF50; border-top: 1px solid #333; margin-top: 6px; padding-top: 6px; }
   .line-done.warn { color: #FF9800; }
@@ -308,8 +323,8 @@
       <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
     </select>
     <button id="stop-btn" title="Stop execution">■</button>
-    <button id="history-btn" title="Conversation history">📄</button>
-    <button id="add-tab-btn" title="New conversation">＋</button>
+    <button id="history-btn" title="Conversation history">⟳</button>
+    <button id="add-tab-btn" title="New conversation">+</button>
     <button id="close-tab-btn" title="Close tab">✕</button>
   </div>
   <div id="tab-bar"></div>
@@ -349,7 +364,7 @@ const closeTabBtn   = document.getElementById('close-tab-btn')
 const tabBar        = document.getElementById('tab-bar')
 const outputCont    = document.getElementById('output-container')
 
-const tabState = {}   // tabId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane }
+const tabState = {}   // tabId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane, autoScroll }
 const CTX_MAX = 200000
 const ctxBadge = document.getElementById('ctx-badge')
 let currentTabId = null
@@ -363,7 +378,27 @@ function ensureTabState(tab) {
   pane.className = 'output-pane'
   pane.dataset.tabId = tab.id
   outputCont.appendChild(pane)
-  tabState[tab.id] = { isRunning: false, currentTextEl: null, _rawText: '', _ctxTokens: 0, pane, _userInputShown: false }
+  tabState[tab.id] = {
+    isRunning: false,
+    currentTextEl: null,
+    _rawText: '',
+    _ctxTokens: 0,
+    pane,
+    _userInputShown: false,
+    autoScroll: true  // デフォルトで自動スクロール有効
+  }
+
+  // ユーザーが手動でスクロールしたら自動スクロールを無効化
+  pane.addEventListener('scroll', () => {
+    const ts = tabState[tab.id]
+    if (!ts) return
+    // 最下部から100px以内なら自動スクロール再開
+    if (isAtBottom(pane, 100)) {
+      ts.autoScroll = true
+    } else {
+      ts.autoScroll = false
+    }
+  })
 }
 
 // ── タブDOM作成 ──
@@ -403,7 +438,6 @@ function createTabEl(tab) {
 // ── タブ削除 ──
 async function deleteTab(tabId) {
   const tabs = [...tabBar.querySelectorAll('.tab')]
-  if (tabs.length <= 1) { alert('Cannot delete the last tab'); return }
   const res = await fetch(`/api/tabs/${tabId}`, { method: 'DELETE' })
   if (!res.ok) { const e = await res.json(); alert(e.error); return }
   tabBar.querySelector(`[data-tab-id="${tabId}"]`)?.remove()
@@ -413,7 +447,17 @@ async function deleteTab(tabId) {
   if (currentTabId === tabId) {
     if (currentES) { currentES.close(); currentES = null }
     const remaining = [...tabBar.querySelectorAll('.tab')]
-    if (remaining.length > 0) switchTab(remaining[0].dataset.tabId)
+    if (remaining.length > 0) {
+      switchTab(remaining[0].dataset.tabId)
+    } else {
+      // 最後のタブを削除したので新規タブを作成
+      const newTab = await fetch('/api/tabs', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(r => r.json())
+      _tabsCache.push(newTab)
+      ensureTabState(newTab)
+      createTabEl(newTab)
+      switchTab(newTab.id)
+    }
   }
 }
 
@@ -499,14 +543,28 @@ function handleEvent(tabId, ev) {
       switch (inner.type) {
         case 'content_block_delta':
           if (inner.delta?.type === 'text_delta') appendText(ts, inner.delta.text)
+          else if (inner.delta?.type === 'input_json_delta' && ts._currentToolEl) {
+            ts._currentToolInput = (ts._currentToolInput || '') + (inner.delta.partial_json || '')
+          }
           break
         case 'content_block_start':
           finalizeText(ts)
-          if (inner.content_block?.type === 'tool_use')
-            addLine(ts, `[${inner.content_block.name}]`, 'line-tool')
+          if (inner.content_block?.type === 'tool_use') {
+            const toolName = inner.content_block.name || 'Tool'
+            ts._currentToolEl = addToolLine(ts, toolName, inner.content_block.id)
+            ts._currentToolInput = ''
+          }
           break
         case 'content_block_stop':
           finalizeText(ts)
+          if (ts._currentToolEl && ts._currentToolInput) {
+            try {
+              const params = JSON.parse(ts._currentToolInput)
+              updateToolDesc(ts._currentToolEl, params)
+            } catch {}
+          }
+          ts._currentToolEl = null
+          ts._currentToolInput = ''
           break
         case 'message_start':
           if (inner.message && inner.message.usage) {
@@ -555,8 +613,16 @@ function handleEvent(tabId, ev) {
   }
 }
 
-function isAtBottom(pane) {
-  return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40
+function isAtBottom(pane, threshold = 100) {
+  return pane.scrollHeight - pane.scrollTop - pane.clientHeight < threshold
+}
+
+function scrollToBottom(ts) {
+  if (ts.autoScroll && tabState[currentTabId] === ts) {
+    requestAnimationFrame(() => {
+      ts.pane.scrollTop = ts.pane.scrollHeight
+    })
+  }
 }
 
 function appendText(ts, text) {
@@ -568,8 +634,7 @@ function appendText(ts, text) {
   }
   ts._rawText += text
   ts.currentTextEl.textContent = ts._rawText
-  if (tabState[currentTabId] === ts && isAtBottom(ts.pane))
-    ts.pane.scrollTop = ts.pane.scrollHeight
+  scrollToBottom(ts)
 }
 
 function finalizeText(ts) {
@@ -585,9 +650,78 @@ function addLine(ts, text, cls) {
   div.className = `line ${cls}`
   div.textContent = text
   ts.pane.appendChild(div)
-  if (tabState[currentTabId] === ts && isAtBottom(ts.pane))
-    ts.pane.scrollTop = ts.pane.scrollHeight
+  scrollToBottom(ts)
   return div
+}
+
+function addToolLine(ts, toolName, toolId) {
+  const div = document.createElement('div')
+  div.className = 'line line-tool'
+  div.dataset.toolId = toolId
+
+  const nameSpan = document.createElement('span')
+  nameSpan.className = 'tool-name'
+  nameSpan.textContent = `[${toolName}]`
+
+  const descSpan = document.createElement('span')
+  descSpan.className = 'tool-desc'
+  descSpan.textContent = ''
+
+  const toggleSpan = document.createElement('span')
+  toggleSpan.className = 'tool-toggle'
+  toggleSpan.textContent = '▸'
+
+  div.appendChild(nameSpan)
+  div.appendChild(descSpan)
+  div.appendChild(toggleSpan)
+
+  const resultDiv = document.createElement('div')
+  resultDiv.className = 'tool-result'
+
+  div.addEventListener('click', () => {
+    const expanded = resultDiv.classList.toggle('expanded')
+    toggleSpan.textContent = expanded ? '▾' : '▸'
+  })
+
+  ts.pane.appendChild(div)
+  ts.pane.appendChild(resultDiv)
+
+  div._resultDiv = resultDiv
+  scrollToBottom(ts)
+  return div
+}
+
+function updateToolDesc(toolEl, params) {
+  const descSpan = toolEl.querySelector('.tool-desc')
+  if (!descSpan) return
+
+  const toolName = toolEl.querySelector('.tool-name')?.textContent.replace(/[\[\]]/g, '') || ''
+  let desc = ''
+
+  switch (toolName) {
+    case 'Bash':
+      desc = params.command ? params.command.substring(0, 60) : ''
+      break
+    case 'Read':
+      desc = params.file_path ? params.file_path : ''
+      break
+    case 'Edit':
+      desc = params.file_path ? params.file_path : ''
+      break
+    case 'Write':
+      desc = params.file_path ? params.file_path : ''
+      break
+    case 'Grep':
+      desc = params.pattern ? `"${params.pattern}"${params.path ? ' in ' + params.path : ''}` : ''
+      break
+    case 'Glob':
+      desc = params.pattern ? params.pattern : ''
+      break
+    default:
+      desc = Object.keys(params).slice(0, 2).map(k => `${k}: ${String(params[k]).substring(0, 30)}`).join(', ')
+  }
+
+  descSpan.textContent = desc
 }
 
 function updateCtxBadge(pct) {
@@ -767,6 +901,12 @@ promptEl.addEventListener('input', () => {
   promptEl.style.height = 'auto'
   promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
   updateLayout()
+
+  // 入力フォームが拡大しても、自動スクロール中なら最下部を維持
+  const ts = getTS()
+  if (ts && ts.autoScroll) {
+    scrollToBottom(ts)
+  }
 })
 
 // ── レイアウト計算（visualViewport対応） ──
