@@ -2,13 +2,13 @@ const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
 
-// タブIDごとの実行状態（メモリ）
+// sessionIDごとの実行状態（メモリ）
 const state = {}
 
 // 状態取得
-function getState(tabId) {
-  if (!state[tabId]) {
-    state[tabId] = {
+function getState(sessionId) {
+  if (!state[sessionId]) {
+    state[sessionId] = {
       process: null,
       buffer: [],
       sseClients: [],
@@ -16,19 +16,19 @@ function getState(tabId) {
       pendingModel: null
     }
   }
-  return state[tabId]
+  return state[sessionId]
 }
 
 // ログファイルパス
-function logFile(tabId) {
-  return path.join(config.LOGS_DIR, `${tabId}.jsonl`)
+function logFile(sessionId) {
+  return path.join(config.LOGS_DIR, `${sessionId}.jsonl`)
 }
 
 // 全クライアントに配信（バッファ＋ファイルにも積む）
-function broadcast(tabId, event) {
-  const s = getState(tabId)
+function broadcast(sessionId, event) {
+  const s = getState(sessionId)
   s.buffer.push(event)
-  fs.appendFile(logFile(tabId), JSON.stringify(event) + '\n', () => {})
+  fs.appendFile(logFile(sessionId), JSON.stringify(event) + '\n', () => {})
   const line = `data: ${JSON.stringify(event)}\n\n`
   s.sseClients.forEach(res => {
     try {
@@ -38,9 +38,9 @@ function broadcast(tabId, event) {
 }
 
 // ログファイルからバッファを復元
-function loadLogFile(tabId) {
+function loadLogFile(sessionId) {
   try {
-    return fs.readFileSync(logFile(tabId), 'utf8')
+    return fs.readFileSync(logFile(sessionId), 'utf8')
       .split('\n')
       .filter(l => l.trim())
       .map(l => JSON.parse(l))
@@ -50,20 +50,20 @@ function loadLogFile(tabId) {
 }
 
 // SSEクライアント登録
-function registerSSEClient(tabId, res) {
-  const s = getState(tabId)
+function registerSSEClient(sessionId, res) {
+  const s = getState(sessionId)
   s.sseClients.push(res)
 }
 
 // SSEクライアント削除
-function unregisterSSEClient(tabId, res) {
-  const s = getState(tabId)
+function unregisterSSEClient(sessionId, res) {
+  const s = getState(sessionId)
   s.sseClients = s.sseClients.filter(c => c !== res)
 }
 
 // state削除（タブ削除時）
-function deleteState(tabId) {
-  delete state[tabId]
+function deleteState(sessionId) {
+  delete state[sessionId]
 }
 
 module.exports = {

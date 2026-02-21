@@ -4,13 +4,13 @@ const { getState, loadLogFile, registerSSEClient, unregisterSSEClient } = requir
 
 // SSEエンドポイント
 router.get('/', (req, res) => {
-  const tabId = req.query.tab
-  if (!tabId) {
+  const sessionId = req.query.session
+  if (!sessionId) {
     res.status(400).end()
     return
   }
 
-  const s = getState(tabId)
+  const s = getState(sessionId)
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -18,9 +18,9 @@ router.get('/', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no')
 
   // 常にログファイルから復元（サービス再起動後もすべての履歴を配信）
-  const logEvents = loadLogFile(tabId)
+  const logEvents = loadLogFile(sessionId)
   logEvents.forEach(ev => res.write(`data: ${JSON.stringify(ev)}\n\n`))
-  registerSSEClient(tabId, res)
+  registerSSEClient(sessionId, res)
 
   const heartbeat = setInterval(() => {
     try {
@@ -30,7 +30,7 @@ router.get('/', (req, res) => {
 
   req.on('close', () => {
     clearInterval(heartbeat)
-    unregisterSSEClient(tabId, res)
+    unregisterSSEClient(sessionId, res)
   })
 })
 

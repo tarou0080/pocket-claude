@@ -1,27 +1,17 @@
 const { spawn } = require('child_process')
-const { randomUUID } = require('crypto')
 const config = require('../config/index')
-const { loadTabs } = require('./tabs')
-const { getSessionId, saveSessionId } = require('./sessions')
 const { broadcast, getState } = require('./stream')
 const { gitPull } = require('./git')
 
 // claude プロセス起動
-function startClaude(tabId, prompt, model) {
-  const tabs = loadTabs()
-  const tab = tabs.find(t => t.id === tabId)
-  if (!tab) return
-
+function startClaude(sessionId, prompt, model, project, isResume) {
   const projects = config.projects
-  const projectDir = projects[tab.project] || projects[Object.keys(projects)[0]]
-  const s = getState(tabId)
-  const existingId = getSessionId(tabId)
-  const sessionId = existingId || randomUUID()
-  if (!existingId) saveSessionId(tabId, sessionId)
+  const projectDir = projects[project] || projects[Object.keys(projects)[0]]
+  const s = getState(sessionId)
 
   const permissionMode = config.permissionMode || 'ask'
   const args = [
-    ...(existingId ? ['--resume', sessionId] : ['--session-id', sessionId]),
+    ...(isResume ? ['--resume', sessionId] : ['--session-id', sessionId]),
     '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
@@ -30,11 +20,10 @@ function startClaude(tabId, prompt, model) {
     ...(model ? ['--model', model] : []),
   ]
 
-  broadcast(tabId, {
+  broadcast(sessionId, {
     type: 'start',
-    tabId,
-    project: tab.project,
     sessionId,
+    project,
     model: model || 'default',
     timestamp: new Date().toISOString(),
   })
@@ -46,48 +35,46 @@ function startClaude(tabId, prompt, model) {
   })
   s.process = proc
   proc.stdin.on('error', () => {})
-  // 初期プロンプトはargs経由(-p)なのでstdinは即クローズ
-  // ※追加インジェクションを使う場合はここをコメントアウト
   proc.stdin.end()
 
   proc.stdout.on('data', data => {
     data.toString().split('\n').filter(l => l.trim()).forEach(line => {
       try {
-        broadcast(tabId, JSON.parse(line))
+        broadcast(sessionId, JSON.parse(line))
       } catch {
-        broadcast(tabId, { type: 'raw', text: line })
+        broadcast(sessionId, { type: 'raw', text: line })
       }
     })
   })
 
   proc.stderr.on('data', data => {
     const text = data.toString().trim()
-    if (text) broadcast(tabId, { type: 'stderr', text })
+    if (text) broadcast(sessionId, { type: 'stderr', text })
   })
 
   proc.on('close', code => {
     s.process = null
-    broadcast(tabId, { type: 'done', exitCode: code, timestamp: new Date().toISOString() })
+    broadcast(sessionId, { type: 'done', exitCode: code, timestamp: new Date().toISOString() })
     if (s.pendingPrompt) {
       const pending = s.pendingPrompt
       const pendingModel = s.pendingModel
       s.pendingPrompt = null
       s.pendingModel = null
-      broadcast(tabId, { type: 'queued_sent', message: pending })
-      broadcast(tabId, { type: 'user_input', text: pending })
-      setTimeout(() => startClaude(tabId, pending, pendingModel), 300)
+      broadcast(sessionId, { type: 'queued_sent', message: pending })
+      broadcast(sessionId, { type: 'user_input', text: pending })
+      setTimeout(() => startClaude(sessionId, pending, pendingModel, project, true), 300)
     }
   })
 
   proc.on('error', err => {
     s.process = null
-    broadcast(tabId, { type: 'error', message: err.message })
+    broadcast(sessionId, { type: 'error', message: err.message })
   })
 }
 
 // プロセス停止
-function stopClaude(tabId) {
-  const s = getState(tabId)
+function stopClaude(sessionId) {
+  const s = getState(sessionId)
   if (s.process) {
     s.pendingPrompt = null
     s.pendingModel = null
@@ -98,8 +85,8 @@ function stopClaude(tabId) {
 }
 
 // 実行中プロセスへの追加メッセージ注入
-function injectPrompt(tabId, prompt) {
-  const s = getState(tabId)
+function injectPrompt(sessionId, prompt) {
+  const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
   try {
     s.process.stdin.write(prompt + '\n')
@@ -110,8 +97,8 @@ function injectPrompt(tabId, prompt) {
 }
 
 // ペンディングキャンセル
-function stopPending(tabId) {
-  const s = getState(tabId)
+function stopPending(sessionId) {
+  const s = getState(sessionId)
   s.pendingPrompt = null
   s.pendingModel = null
 }
