@@ -866,8 +866,7 @@ async function send() {
   const ts = getTS()
   promptEl.value = ''
   promptEl.style.height = 'auto'
-  ts._userInputShown = true
-  addLine(ts, `> ${prompt}`, 'line-user')
+  // user_inputイベントで表示されるため、ここでは表示しない
   try {
     const res = await fetch('/api/send', {
       method: 'POST',
