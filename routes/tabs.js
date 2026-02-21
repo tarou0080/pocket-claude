@@ -46,7 +46,7 @@ router.delete('/:id', (req, res) => {
   const tabs = loadTabs()
   const idx = tabs.findIndex(t => t.id === req.params.id)
   if (idx === -1) return res.status(404).json({ error: 'tab not found' })
-  if (tabs.length === 1) return res.status(400).json({ error: 'cannot delete last tab' })
+  // 最後のタブでも削除可能（フロントエンドで新規タブ作成）
   const [removed] = tabs.splice(idx, 1)
   saveTabs(tabs)
   const s = getState(removed.id)

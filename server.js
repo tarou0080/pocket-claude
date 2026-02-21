@@ -23,10 +23,6 @@ app.get('/', (req, res) => {
   const htmlPath = path.join(__dirname, 'public', 'index.html')
   let html = fs.readFileSync(htmlPath, 'utf8')
   html = html.replace('<html lang="en">', `<html lang="${lang}">`)
-  // キャッシュ無効化（開発用）
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
-  res.setHeader('Pragma', 'no-cache')
-  res.setHeader('Expires', '0')
   res.send(html)
 })
 
