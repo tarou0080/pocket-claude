@@ -17,11 +17,9 @@ router.get('/', (req, res) => {
   res.setHeader('Connection', 'keep-alive')
   res.setHeader('X-Accel-Buffering', 'no')
 
-  // メモリバッファが空ならファイルから復元
-  if (s.buffer.length === 0) {
-    s.buffer = loadLogFile(tabId)
-  }
-  s.buffer.forEach(ev => res.write(`data: ${JSON.stringify(ev)}\n\n`))
+  // 常にログファイルから復元（サービス再起動後もすべての履歴を配信）
+  const logEvents = loadLogFile(tabId)
+  logEvents.forEach(ev => res.write(`data: ${JSON.stringify(ev)}\n\n`))
   registerSSEClient(tabId, res)
 
   const heartbeat = setInterval(() => {
