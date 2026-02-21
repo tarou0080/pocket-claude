@@ -501,8 +501,22 @@ function updateUI() {
 function connectSSE(tabId) {
   const es = new EventSource(`/api/stream?tab=${encodeURIComponent(tabId)}`)
   currentES = es
+  let firstMessage = true
   es.onopen = () => { if (currentTabId === tabId) updateUI() }
-  es.onmessage = e => { try { handleEvent(tabId, JSON.parse(e.data)) } catch {} }
+  es.onmessage = e => {
+    try {
+      handleEvent(tabId, JSON.parse(e.data))
+      // 最初のメッセージ受信時（ログファイル復元後）に自動スクロール
+      if (firstMessage && currentTabId === tabId) {
+        firstMessage = false
+        const ts = tabState[tabId]
+        if (ts) {
+          ts.autoScroll = true
+          scrollToBottom(ts)
+        }
+      }
+    } catch {}
+  }
   es.onerror = () => { if (currentTabId === tabId) statusDot.className = 'connected' }
 }
 
@@ -818,10 +832,20 @@ async function resumeConversation(sessionId) {
     const msgs = await fetch(`/api/history/${encodeURIComponent(sessionId)}`).then(r => r.json())
     const ts = getTS()
     for (const m of msgs) {
-      const role = m.role === 'user' ? 'line-user' : 'line-assistant'
-      const prefix = m.role === 'user' ? '> ' : ''
-      addLine(ts, prefix + m.text, role)
+      if (m.role === 'user') {
+        addLine(ts, `> ${m.text}`, 'line-user')
+      } else {
+        // assistantメッセージはマークダウンレンダリング
+        const div = document.createElement('div')
+        div.className = 'line line-text'
+        div.innerHTML = marked.parse(m.text)
+        ts.pane.appendChild(div)
+      }
     }
+
+    // 最下部にスクロール
+    ts.autoScroll = true
+    scrollToBottom(ts)
 
     closeHistory()
   } catch (e) {
