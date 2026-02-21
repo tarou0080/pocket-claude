@@ -31,7 +31,7 @@ Existing solutions are feature-rich but heavyweight. pocket-claude takes a diffe
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/pocket-claude.git
+git clone https://github.com/tarou0080/pocket-claude.git
 cd pocket-claude
 npm install
 ```
@@ -130,5 +130,5 @@ Contributions welcome! Please feel free to submit a Pull Request.
 
 ## 📧 Support
 
-- Issues: [GitHub Issues](https://github.com/yourusername/pocket-claude/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/pocket-claude/discussions)
+- Issues: [GitHub Issues](https://github.com/tarou0080/pocket-claude/issues)
+- Discussions: [GitHub Discussions](https://github.com/tarou0080/pocket-claude/discussions)

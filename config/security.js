@@ -2,7 +2,7 @@ const path = require('path')
 
 // 許可されたプロジェクトベースディレクトリ（Path Traversal対策）
 const ALLOWED_BASE_DIRS = [
-  path.resolve('/home/johnadmin'),
+  path.resolve(process.env.HOME || '/home/user'),
   path.resolve('/srv/shell')
 ]
 
