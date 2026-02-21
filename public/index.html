@@ -54,7 +54,7 @@
     flex-shrink: 0;
   }
 
-  #stop-btn, #close-tab-btn, #add-tab-btn, #history-btn {
+  #stop-btn, #close-tab-btn, #add-tab-btn, #history-btn, #projects-btn {
     background: none;
     border: 1px solid #4a4a4a;
     border-radius: 6px;
@@ -75,7 +75,7 @@
     text-align: center;
     border: none;
   }
-  #history-btn {
+  #history-btn, #projects-btn {
     font-size: 14px;
     padding: 4px 8px;
     color: #888;
@@ -86,8 +86,8 @@
   }
   #close-tab-btn { margin-left: auto; }
   #close-tab-btn:active, #add-tab-btn:active { background: #3a3a3a; color: #ccc; }
-  #history-btn:active { background: #3a3a3a; color: #ccc; }
-  #history-btn.active { color: #64B5F6; border-color: #64B5F6; }
+  #history-btn:active, #projects-btn:active { background: #3a3a3a; color: #ccc; }
+  #history-btn.active, #projects-btn.active { color: #64B5F6; border-color: #64B5F6; }
 
   /* ── 履歴パネル ── */
   #history-panel {
@@ -181,6 +181,139 @@
     text-align: center;
   }
   #resume-btn:active { background: #0D47A1; }
+
+  /* ── プロジェクトモーダル ── */
+  #projects-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.8);
+    align-items: center;
+    justify-content: center;
+  }
+  #projects-modal.open { display: flex; }
+
+  #projects-content {
+    background: #252525;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #projects-header {
+    padding: 16px;
+    border-bottom: 1px solid #3a3a3a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  #projects-header h3 {
+    font-size: 16px;
+    color: #e0e0e0;
+  }
+
+  #projects-close {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+  #projects-close:active { color: #ccc; }
+
+  #projects-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  .project-item {
+    padding: 12px;
+    background: #1e1e1e;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .project-info {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .project-name {
+    font-size: 14px;
+    color: #e0e0e0;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+
+  .project-path {
+    font-size: 12px;
+    color: #888;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-remove {
+    background: none;
+    border: 1px solid #EF5350;
+    color: #EF5350;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-left: 10px;
+  }
+  .project-remove:active { background: #3a2020; }
+
+  #project-add-form {
+    padding: 16px;
+    border-top: 1px solid #3a3a3a;
+  }
+
+  #project-add-form input {
+    width: 100%;
+    padding: 10px;
+    background: #1e1e1e;
+    border: 1px solid #4a4a4a;
+    border-radius: 6px;
+    color: #e0e0e0;
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+
+  #project-add-form input::placeholder {
+    color: #666;
+  }
+
+  #project-add-btn {
+    width: 100%;
+    padding: 12px;
+    background: #1565C0;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #project-add-btn:active { background: #0D47A1; }
+
+  #project-error {
+    color: #EF5350;
+    font-size: 12px;
+    margin-top: 8px;
+    display: none;
+  }
 
   /* ── タブバー ── */
   #tab-bar {
@@ -323,6 +456,7 @@
       <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
     </select>
     <button id="stop-btn" title="Stop execution">■</button>
+    <button id="projects-btn" title="Projects">P</button>
     <button id="history-btn" title="Conversation history">⟳</button>
     <button id="add-tab-btn" title="New conversation">+</button>
     <button id="close-tab-btn" title="Close tab">✕</button>
@@ -339,6 +473,23 @@
   <div id="history-body"></div>
 </div>
 
+<!-- プロジェクトモーダル -->
+<div id="projects-modal">
+  <div id="projects-content">
+    <div id="projects-header">
+      <h3>Projects</h3>
+      <button id="projects-close">✕</button>
+    </div>
+    <div id="projects-body"></div>
+    <div id="project-add-form">
+      <input type="text" id="project-name-input" placeholder="Project name (e.g., myapp)">
+      <input type="text" id="project-path-input" placeholder="Directory path (e.g., /srv/shell/myapp)">
+      <button id="project-add-btn">Add Project</button>
+      <div id="project-error"></div>
+    </div>
+  </div>
+</div>
+
 <div id="output-container"></div>
 
 <div id="input-area">
@@ -349,20 +500,28 @@
 </div>
 
 <script>
-const historyBtn    = document.getElementById('history-btn')
-const historyPanel  = document.getElementById('history-panel')
-const historyBack   = document.getElementById('history-back')
-const historyTitle  = document.getElementById('history-title')
-const historyBody   = document.getElementById('history-body')
-const promptEl      = document.getElementById('prompt')
-const sendBtn       = document.getElementById('send-btn')
-const statusDot     = document.getElementById('status-dot')
-const modelSel      = document.getElementById('model-select')
-const stopBtn       = document.getElementById('stop-btn')
-const addTabBtn     = document.getElementById('add-tab-btn')
-const closeTabBtn   = document.getElementById('close-tab-btn')
-const tabBar        = document.getElementById('tab-bar')
-const outputCont    = document.getElementById('output-container')
+const historyBtn      = document.getElementById('history-btn')
+const historyPanel    = document.getElementById('history-panel')
+const historyBack     = document.getElementById('history-back')
+const historyTitle    = document.getElementById('history-title')
+const historyBody     = document.getElementById('history-body')
+const projectsBtn     = document.getElementById('projects-btn')
+const projectsModal   = document.getElementById('projects-modal')
+const projectsClose   = document.getElementById('projects-close')
+const projectsBody    = document.getElementById('projects-body')
+const projectNameInput = document.getElementById('project-name-input')
+const projectPathInput = document.getElementById('project-path-input')
+const projectAddBtn   = document.getElementById('project-add-btn')
+const projectError    = document.getElementById('project-error')
+const promptEl        = document.getElementById('prompt')
+const sendBtn         = document.getElementById('send-btn')
+const statusDot       = document.getElementById('status-dot')
+const modelSel        = document.getElementById('model-select')
+const stopBtn         = document.getElementById('stop-btn')
+const addTabBtn       = document.getElementById('add-tab-btn')
+const closeTabBtn     = document.getElementById('close-tab-btn')
+const tabBar          = document.getElementById('tab-bar')
+const outputCont      = document.getElementById('output-container')
 
 const tabState = {}   // tabId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane, autoScroll }
 const CTX_MAX = 200000
@@ -473,6 +632,102 @@ function switchTab(tabId) {
   updateUI()
   connectSSE(tabId)  // SSE接続でログ復元後に自動スクロール
 }
+
+// ── プロジェクト管理 ──
+async function loadProjects() {
+  try {
+    const projects = await fetch('/api/projects/list').then(r => r.json())
+    projectsBody.innerHTML = ''
+
+    for (const [name, path] of Object.entries(projects)) {
+      const item = document.createElement('div')
+      item.className = 'project-item'
+      item.innerHTML = `
+        <div class="project-info">
+          <div class="project-name">${name}</div>
+          <div class="project-path">${path}</div>
+        </div>
+        <button class="project-remove" data-name="${name}">Remove</button>
+      `
+      projectsBody.appendChild(item)
+    }
+
+    // Remove button event
+    projectsBody.querySelectorAll('.project-remove').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const name = e.target.dataset.name
+        if (!confirm(`Remove project "${name}"?`)) return
+
+        try {
+          await fetch('/api/projects/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          })
+          loadProjects()
+        } catch (err) {
+          projectError.textContent = `Error: ${err.message}`
+          projectError.style.display = 'block'
+        }
+      })
+    })
+  } catch (err) {
+    console.error('Failed to load projects:', err)
+  }
+}
+
+projectsBtn.addEventListener('click', () => {
+  projectsModal.classList.add('open')
+  projectsBtn.classList.add('active')
+  loadProjects()
+})
+
+projectsClose.addEventListener('click', () => {
+  projectsModal.classList.remove('open')
+  projectsBtn.classList.remove('active')
+  projectError.style.display = 'none'
+})
+
+projectsModal.addEventListener('click', (e) => {
+  if (e.target === projectsModal) {
+    projectsModal.classList.remove('open')
+    projectsBtn.classList.remove('active')
+    projectError.style.display = 'none'
+  }
+})
+
+projectAddBtn.addEventListener('click', async () => {
+  const name = projectNameInput.value.trim()
+  const path = projectPathInput.value.trim()
+
+  projectError.style.display = 'none'
+
+  if (!name || !path) {
+    projectError.textContent = 'Name and path are required'
+    projectError.style.display = 'block'
+    return
+  }
+
+  try {
+    const res = await fetch('/api/projects/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, path })
+    })
+
+    if (!res.ok) {
+      const data = await res.json()
+      throw new Error(data.error || 'Failed to add project')
+    }
+
+    projectNameInput.value = ''
+    projectPathInput.value = ''
+    loadProjects()
+  } catch (err) {
+    projectError.textContent = err.message
+    projectError.style.display = 'block'
+  }
+})
 
 // ── 初期化 ──
 async function init() {

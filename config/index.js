@@ -1,6 +1,5 @@
 const fs = require('fs')
 const path = require('path')
-const { isPathAllowed } = require('./security')
 
 // Load config.json
 function loadConfig() {
@@ -16,42 +15,45 @@ function loadConfig() {
   }
 }
 
-// プロジェクト設定読み込み（Path Traversal対策付き）
+// プロジェクト設定読み込み
 function loadProjects() {
-  let raw
+  let projects
   try {
-    raw = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'projects.json'), 'utf8'))
+    projects = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'projects.json'), 'utf8'))
   } catch {
     const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
-    raw = { home: homeDir }
+    projects = { home: homeDir }
   }
 
-  // セキュリティ: 許可されたディレクトリのみ受け入れる
-  const sanitized = {}
-  for (const [name, dir] of Object.entries(raw)) {
+  // 環境変数からの追加パス
+  if (process.env.ADDITIONAL_ALLOWED_DIRS) {
+    const additionalDirs = process.env.ADDITIONAL_ALLOWED_DIRS.split(':')
+    additionalDirs.forEach((dir, index) => {
+      if (dir.trim()) {
+        const name = `env_${index}`
+        projects[name] = path.resolve(dir.trim())
+      }
+    })
+  }
+
+  // パスを正規化
+  const normalized = {}
+  for (const [name, dir] of Object.entries(projects)) {
     try {
       const resolved = path.resolve(dir)
-      const realPath = fs.realpathSync(resolved)  // シンボリックリンク解決
-
-      // 許可されたベースディレクトリ内かチェック
-      const isAllowed = isPathAllowed(realPath)
-      if (isAllowed) {
-        sanitized[name] = realPath
-      } else {
-        console.warn(`[SECURITY] Rejected project path: ${name} -> ${dir} (resolved: ${realPath})`)
-      }
+      normalized[name] = fs.realpathSync(resolved)
     } catch (err) {
-      console.warn(`[SECURITY] Invalid project path: ${name} -> ${dir} (${err.message})`)
+      console.warn(`[WARNING] Invalid project path: ${name} -> ${dir} (${err.message})`)
     }
   }
 
   // 有効なプロジェクトがない場合はデフォルトを追加
-  if (Object.keys(sanitized).length === 0) {
+  if (Object.keys(normalized).length === 0) {
     const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
-    sanitized.home = homeDir
+    normalized.home = homeDir
   }
 
-  return sanitized
+  return normalized
 }
 
 const config = loadConfig()

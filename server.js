@@ -7,6 +7,7 @@ const tabsRouter = require('./routes/tabs')
 const claudeRouter = require('./routes/claude')
 const streamRouter = require('./routes/stream')
 const historyRouter = require('./routes/history')
+const projectsRouter = require('./routes/projects')
 
 const app = express()
 const PORT = process.env.PORT || config.port || 3333
@@ -33,6 +34,7 @@ app.use('/api/tabs', tabsRouter)
 app.use('/api', claudeRouter)
 app.use('/api/stream', streamRouter)
 app.use('/api/history', historyRouter)
+app.use('/api/projects', projectsRouter)
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`pocket-claude v4 (modular) running on port ${PORT}`)
