@@ -1177,6 +1177,13 @@ async function resumeConversation(sessionId) {
       saveSessions(sessions)
       ensureTabState(targetSession)
       createTabEl(targetSession)
+
+      // サーバーにマッピングを登録（pocket sessionId = Claude sessionId）
+      await fetch('/api/register-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pocketSessionId: sessionId, claudeSessionId: sessionId })
+      })
     }
 
     switchTab(sessionId)

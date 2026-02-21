@@ -1,17 +1,34 @@
 const { spawn } = require('child_process')
+const fs = require('fs')
+const path = require('path')
 const config = require('../config/index')
 const { broadcast, getState } = require('./stream')
 const { gitPull } = require('./git')
 
+const sessionsDir = path.join(__dirname, '..', 'sessions')
+
+function saveClaudeSessionId(sessionId, claudeSessionId) {
+  try {
+    fs.mkdirSync(sessionsDir, { recursive: true })
+    fs.writeFileSync(path.join(sessionsDir, `${sessionId}.json`), JSON.stringify({ claudeSessionId }))
+  } catch {}
+}
+
+function getClaudeSessionId(sessionId) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8')).claudeSessionId || null
+  } catch { return null }
+}
+
 // claude プロセス起動
-function startClaude(sessionId, prompt, model, project, isResume) {
+function startClaude(sessionId, prompt, model, project, claudeSessionId) {
   const projects = config.projects
   const projectDir = projects[project] || projects[Object.keys(projects)[0]]
   const s = getState(sessionId)
 
   const permissionMode = config.permissionMode || 'ask'
   const args = [
-    ...(isResume ? ['--resume', sessionId] : ['--session-id', sessionId]),
+    ...(claudeSessionId ? ['--resume', claudeSessionId] : []),
     '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
@@ -40,7 +57,11 @@ function startClaude(sessionId, prompt, model, project, isResume) {
   proc.stdout.on('data', data => {
     data.toString().split('\n').filter(l => l.trim()).forEach(line => {
       try {
-        broadcast(sessionId, JSON.parse(line))
+        const parsed = JSON.parse(line)
+        if (parsed.type === 'system' && parsed.subtype === 'init' && !claudeSessionId) {
+          saveClaudeSessionId(sessionId, parsed.session_id)
+        }
+        broadcast(sessionId, parsed)
       } catch {
         broadcast(sessionId, { type: 'raw', text: line })
       }
@@ -62,7 +83,7 @@ function startClaude(sessionId, prompt, model, project, isResume) {
       s.pendingModel = null
       broadcast(sessionId, { type: 'queued_sent', message: pending })
       broadcast(sessionId, { type: 'user_input', text: pending })
-      setTimeout(() => startClaude(sessionId, pending, pendingModel, project, true), 300)
+      setTimeout(() => startClaude(sessionId, pending, pendingModel, project, getClaudeSessionId(sessionId)), 300)
     }
   })
 

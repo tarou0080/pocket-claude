@@ -1,9 +1,19 @@
 const express = require('express')
 const fs = require('fs')
+const path = require('path')
 const router = express.Router()
 const { startClaude, stopClaude, stopPending, injectPrompt, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const config = require('../config/index')
+
+const sessionsDir = path.join(__dirname, '..', 'sessions')
+
+function getClaudeSessionId(sessionId) {
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8'))
+    return data.claudeSessionId || null
+  } catch { return null }
+}
 
 // プロジェクト一覧
 router.get('/projects', (_req, res) => {
@@ -25,7 +35,7 @@ router.post('/send', async (req, res) => {
 
   const { randomUUID } = require('crypto')
   const actualSessionId = sessionId || randomUUID()
-  const isResume = !!sessionId
+  const claudeSessionId = sessionId ? getClaudeSessionId(actualSessionId) : null
   const actualProject = project || Object.keys(config.projects)[0]
 
   const s = getState(actualSessionId)
@@ -48,7 +58,7 @@ router.post('/send', async (req, res) => {
   }
 
   broadcast(actualSessionId, { type: 'user_input', text: prompt })
-  startClaude(actualSessionId, prompt, model, actualProject, isResume)
+  startClaude(actualSessionId, prompt, model, actualProject, claudeSessionId)
   res.json({ ok: true, sessionId: actualSessionId, queued: false })
 })
 
@@ -69,6 +79,19 @@ router.post('/stop-pending', (req, res) => {
   res.json({ ok: true })
 })
 
+// セッション登録（履歴再開用）
+router.post('/register-session', (req, res) => {
+  const { pocketSessionId, claudeSessionId } = req.body
+  if (!pocketSessionId || !claudeSessionId) return res.status(400).json({ error: 'pocketSessionId and claudeSessionId required' })
+  try {
+    fs.mkdirSync(sessionsDir, { recursive: true })
+    fs.writeFileSync(path.join(sessionsDir, `${pocketSessionId}.json`), JSON.stringify({ claudeSessionId }))
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // セッションリセット
 router.post('/reset', (req, res) => {
   const sessionId = req.body.session
@@ -77,6 +100,7 @@ router.post('/reset', (req, res) => {
   if (s.process) return res.status(409).json({ error: 'Claude is running.' })
   s.buffer = []
   fs.unlink(logFile(sessionId), () => {})
+  fs.unlink(path.join(sessionsDir, `${sessionId}.json`), () => {})
   res.json({ ok: true, sessionId })
 })
 
