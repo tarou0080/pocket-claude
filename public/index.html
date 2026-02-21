@@ -647,6 +647,8 @@ function finalizeText(ts) {
   if (ts.currentTextEl && ts._rawText) {
     ts.currentTextEl.innerHTML = marked.parse(ts._rawText)
     ts._rawText = ''
+    // マークダウンレンダリングで高さが変わるので、autoScroll中なら追従
+    scrollToBottom(ts)
   }
   ts.currentTextEl = null
 }
