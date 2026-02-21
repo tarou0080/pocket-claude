@@ -1,6 +1,21 @@
 # pocket-claude
 
-A lightweight, mobile-first Web UI for Claude Code, optimized for iOS Safari.
+**Access your Claude Code CLI from any browser.**
+
+pocket-claude is a web interface that lets you control Claude Code running on a server or local machine through your browser. If you're already using Claude Code CLI on a remote server, local workstation, or cloud VM, this tool provides a mobile-friendly web UI to interact with it from anywhere.
+
+## 💡 What does it do?
+
+Instead of using Claude Code in a terminal, you can:
+- **Browse to a URL** and chat with Claude Code through a clean web interface
+- **Use your phone or tablet** - especially optimized for iOS Safari
+- **Keep conversations organized** with tab-based session management
+- **Access from anywhere** - just point your browser to your server
+
+**Use cases:**
+- You run Claude Code on a home server and want to use it from your phone
+- You have Claude Code on a cloud VM and prefer a web UI over SSH + terminal
+- You want to use Claude Code on your local machine through a browser instead of terminal
 
 ## ✨ Features
 
