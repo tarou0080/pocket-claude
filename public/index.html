@@ -473,6 +473,14 @@ function switchTab(tabId) {
   if (switchTs) { const p = Math.round(switchTs._ctxTokens / CTX_MAX * 100); updateCtxBadge(p) }
   updateUI()
   connectSSE(tabId)
+
+  // タブ切り替え時（リロード後含む）は自動で最下部へ
+  if (switchTs && switchTs.pane.children.length > 0) {
+    switchTs.autoScroll = true
+    requestAnimationFrame(() => {
+      switchTs.pane.scrollTop = switchTs.pane.scrollHeight
+    })
+  }
 }
 
 // ── 初期化 ──
