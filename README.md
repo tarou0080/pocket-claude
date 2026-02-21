@@ -4,7 +4,7 @@
 
 pocket-claude is a web interface for Claude Code CLI. If you're using Claude Code, you can install this to get a browser-based UI instead of working in the terminal.
 
-## 💡 What does it do?
+## What does it do?
 
 Turn your Claude Code CLI into a web app:
 - **Browse to a URL** and chat with Claude Code through a clean web interface
@@ -21,17 +21,17 @@ Turn your Claude Code CLI into a web app:
 
 **No server required** - Just `npm install` and run it wherever your Claude Code is installed.
 
-## ✨ Features
+## Features
 
-- 📱 **Mobile-First Design** - Tested and optimized for iPhone Safari
-- 🪶 **Ultra-Lightweight** - Vanilla HTML/CSS/JS, no build step required
-- 🗂️ **Tab-Based Conversations** - Manage multiple conversations simultaneously
-- 📊 **Context Usage Tracking** - Real-time token usage visualization
-- 📜 **Integrated History Browser** - Browse and resume past sessions
-- 🔄 **SSE Streaming** - Real-time output with automatic reconnection
-- 🎨 **Markdown Rendering** - Clean, readable output formatting
+- **Mobile-First Design** - Tested and optimized for iPhone Safari
+- **Ultra-Lightweight** - Vanilla HTML/CSS/JS, no build step required
+- **Tab-Based Conversations** - Manage multiple conversations simultaneously
+- **Context Usage Tracking** - Real-time token usage visualization
+- **Integrated History Browser** - Browse and resume past sessions
+- **SSE Streaming** - Real-time output with automatic reconnection
+- **Markdown Rendering** - Clean, readable output formatting
 
-## 🎯 Why pocket-claude?
+## Why pocket-claude?
 
 Existing solutions are feature-rich but heavyweight. pocket-claude takes a different approach:
 
@@ -40,7 +40,7 @@ Existing solutions are feature-rich but heavyweight. pocket-claude takes a diffe
 - **iOS-optimized** - visualViewport API for perfect keyboard handling
 - **Minimal dependencies** - Only marked.js for markdown rendering
 
-## 🚀 Quick Start
+## Quick Start
 
 **Simplest installation (works with Claude Code):**
 
@@ -87,7 +87,7 @@ cp projects.example.json projects.json
 - Node.js v18+
 - [Claude Code CLI](https://code.claude.com/) installed and authenticated
 
-## 🗂️ Project Management
+## Project Management
 
 pocket-claude allows you to manage project directories from the browser or configuration files.
 
@@ -122,7 +122,7 @@ npm start
 
 These are automatically added as `env_0`, `env_1`, etc.
 
-## ⚙️ Configuration Options
+## Configuration Options
 
 ### Permission Modes
 
@@ -131,7 +131,7 @@ These are automatically added as `env_0`, `env_1`, etc.
 
 ⚠️ **Security Warning**: `bypassPermissions` mode allows Claude Code to execute tools without confirmation. Only use in trusted environments with proper authentication (e.g., VPN + 2FA).
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 [Mobile Browser]
@@ -148,7 +148,7 @@ These are automatically added as `env_0`, `env_1`, etc.
 - **Communication**: Server-Sent Events (SSE) for streaming
 - **Session Management**: JSON files for persistence
 
-## 🔒 Security Considerations
+## Security Considerations
 
 pocket-claude is designed for **local/trusted network use**:
 
@@ -167,7 +167,7 @@ export ADDITIONAL_ALLOWED_DIRS="/srv/shell:/opt/projects"
 npm start
 ```
 
-## 🚫 Out of Scope
+## Out of Scope
 
 pocket-claude is intentionally minimal. The following features are **not planned**:
 
@@ -181,7 +181,7 @@ If you need these features, consider:
 - [claudecodeui](https://github.com/siteboon/claudecodeui) - Full-featured web IDE
 - [claude-relay](https://github.com/chadbyte/claude-relay) - More advanced features
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Claude CLI not found
 Ensure Claude Code CLI is installed and in your PATH:
@@ -224,11 +224,11 @@ If adding a project fails:
    [WARNING] Invalid project path: myproject -> /srv/shell (No such file or directory)
    ```
 
-## 📝 License
+## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [marked.js](https://github.com/markedjs/marked) - Markdown parser (MIT)
 - [Express](https://expressjs.com/) - Web framework (MIT)
@@ -238,11 +238,11 @@ Inspired by:
 - [claudecodeui](https://github.com/siteboon/claudecodeui) by siteboon
 - [claude-relay](https://github.com/chadbyte/claude-relay) by chadbyte
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please feel free to submit a Pull Request.
 
-## 📧 Support
+## Support
 
 - Issues: [GitHub Issues](https://github.com/tarou0080/pocket-claude/issues)
 - Discussions: [GitHub Discussions](https://github.com/tarou0080/pocket-claude/discussions)
