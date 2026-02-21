@@ -523,22 +523,44 @@ const closeTabBtn     = document.getElementById('close-tab-btn')
 const tabBar          = document.getElementById('tab-bar')
 const outputCont      = document.getElementById('output-container')
 
-const tabState = {}   // tabId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane, autoScroll }
+const tabState = {}   // sessionId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane, autoScroll }
 const CTX_MAX = 200000
 const ctxBadge = document.getElementById('ctx-badge')
-let currentTabId = null
+let currentSessionId = null
 let currentES = null
-let _tabsCache = []
 let _projectsCache = {}
 
+// ── localStorage管理 ──
+function loadSessions() {
+  const data = localStorage.getItem('sessions')
+  return data ? JSON.parse(data) : []
+}
+
+function saveSessions(sessions) {
+  localStorage.setItem('sessions', JSON.stringify(sessions))
+}
+
+function getCurrentSession() {
+  return loadSessions().find(s => s.sessionId === currentSessionId)
+}
+
+function updateSession(sessionId, updates) {
+  const sessions = loadSessions()
+  const idx = sessions.findIndex(s => s.sessionId === sessionId)
+  if (idx >= 0) {
+    sessions[idx] = { ...sessions[idx], ...updates, lastUsed: Date.now() }
+    saveSessions(sessions)
+  }
+}
+
 // ── タブ状態初期化 ──
-function ensureTabState(tab) {
-  if (tabState[tab.id]) return
+function ensureTabState(session) {
+  if (tabState[session.sessionId]) return
   const pane = document.createElement('div')
   pane.className = 'output-pane'
-  pane.dataset.tabId = tab.id
+  pane.dataset.sessionId = session.sessionId
   outputCont.appendChild(pane)
-  tabState[tab.id] = {
+  tabState[session.sessionId] = {
     isRunning: false,
     currentTextEl: null,
     _rawText: '',
@@ -549,7 +571,7 @@ function ensureTabState(tab) {
 
   // ユーザーが手動でスクロールしたら自動スクロールを無効化
   pane.addEventListener('scroll', () => {
-    const ts = tabState[tab.id]
+    const ts = tabState[session.sessionId]
     if (!ts) return
     // 最下部から100px以内なら自動スクロール再開
     if (isAtBottom(pane, 100)) {
@@ -561,14 +583,14 @@ function ensureTabState(tab) {
 }
 
 // ── タブDOM作成 ──
-function createTabEl(tab) {
+function createTabEl(session) {
   const el = document.createElement('div')
   el.className = 'tab'
-  el.dataset.tabId = tab.id
+  el.dataset.sessionId = session.sessionId
 
   const name = document.createElement('span')
   name.className = 'tab-name'
-  name.textContent = tab.name
+  name.textContent = session.name
 
   // ダブルタップで名前編集
   let tapTimer = null
@@ -577,11 +599,9 @@ function createTabEl(tab) {
       clearTimeout(tapTimer); tapTimer = null
       const newName = prompt('Rename conversation', name.textContent)
       if (newName?.trim()) {
-        fetch(`/api/tabs/${tab.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName.trim() })
-        }).then(r => r.json()).then(t => { name.textContent = t.name; tab.name = t.name })
+        name.textContent = newName.trim()
+        updateSession(session.sessionId, { name: newName.trim() })
+        session.name = newName.trim()
       }
     } else {
       tapTimer = setTimeout(() => { tapTimer = null }, 350)
@@ -589,57 +609,64 @@ function createTabEl(tab) {
   })
 
   el.appendChild(name)
-  el.addEventListener('click', () => switchTab(tab.id))
+  el.addEventListener('click', () => switchTab(session.sessionId))
   tabBar.appendChild(el)
   return el
 }
 
 // ── タブ削除 ──
-async function deleteTab(tabId) {
-  const tabs = [...tabBar.querySelectorAll('.tab')]
-  const res = await fetch(`/api/tabs/${tabId}`, { method: 'DELETE' })
-  if (!res.ok) { const e = await res.json(); alert(e.error); return }
-  tabBar.querySelector(`[data-tab-id="${tabId}"]`)?.remove()
-  tabState[tabId]?.pane.remove()
-  delete tabState[tabId]
-  _tabsCache = _tabsCache.filter(t => t.id !== tabId)
-  if (currentTabId === tabId) {
+async function deleteTab(sessionId) {
+  tabBar.querySelector(`[data-session-id="${sessionId}"]`)?.remove()
+  tabState[sessionId]?.pane.remove()
+  delete tabState[sessionId]
+
+  const sessions = loadSessions().filter(s => s.sessionId !== sessionId)
+  saveSessions(sessions)
+
+  if (currentSessionId === sessionId) {
     if (currentES) { currentES.close(); currentES = null }
     const remaining = [...tabBar.querySelectorAll('.tab')]
     if (remaining.length > 0) {
-      switchTab(remaining[0].dataset.tabId)
+      switchTab(remaining[0].dataset.sessionId)
     } else {
       // 最後のタブを削除したので新規タブを作成
-      const newTab = await fetch('/api/tabs', { method: 'POST',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(r => r.json())
-      _tabsCache.push(newTab)
-      ensureTabState(newTab)
-      createTabEl(newTab)
-      switchTab(newTab.id)
+      const currentProj = Object.keys(_projectsCache)[0]
+      const newSession = {
+        sessionId: crypto.randomUUID(),
+        name: 'New conversation',
+        project: currentProj,
+        lastUsed: Date.now()
+      }
+      saveSessions([newSession])
+      ensureTabState(newSession)
+      createTabEl(newSession)
+      switchTab(newSession.sessionId)
     }
   }
 }
 
 // ── タブ切り替え ──
-function switchTab(tabId) {
+function switchTab(sessionId) {
   if (currentES) { currentES.close(); currentES = null }
   tabBar.querySelectorAll('.tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.tabId === tabId))
+    t.classList.toggle('active', t.dataset.sessionId === sessionId))
   document.querySelectorAll('.output-pane').forEach(p =>
-    p.classList.toggle('active', p.dataset.tabId === tabId))
-  currentTabId = tabId
-  const switchTs = tabState[tabId]
+    p.classList.toggle('active', p.dataset.sessionId === sessionId))
+  currentSessionId = sessionId
+  localStorage.setItem('currentSessionId', sessionId)
+  updateSession(sessionId, { lastUsed: Date.now() })
+  const switchTs = tabState[sessionId]
   if (switchTs) { const p = Math.round(switchTs._ctxTokens / CTX_MAX * 100); updateCtxBadge(p) }
   updateUI()
-  connectSSE(tabId)  // SSE接続でログ復元後に自動スクロール
+  connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
 }
 
 // ── プロジェクト管理 ──
 async function loadProjects() {
   try {
     _projectsCache = await fetch('/api/projects/list').then(r => r.json())
-    const currentTab = _tabsCache.find(t => t.id === currentTabId)
-    const currentProject = currentTab?.project || Object.keys(_projectsCache)[0]
+    const currentSession = getCurrentSession()
+    const currentProject = currentSession?.project || Object.keys(_projectsCache)[0]
 
     projectsBody.innerHTML = ''
 
@@ -663,19 +690,10 @@ async function loadProjects() {
     projectsBody.querySelectorAll('input[name="project-select"]').forEach(radio => {
       radio.addEventListener('change', async (e) => {
         const newProject = e.target.value
-        if (!currentTabId) return
+        if (!currentSessionId) return
 
         try {
-          await fetch(`/api/tabs/${currentTabId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ project: newProject })
-          })
-
-          // Update cache
-          const tab = _tabsCache.find(t => t.id === currentTabId)
-          if (tab) tab.project = newProject
-
+          updateSession(currentSessionId, { project: newProject })
           updatePlaceholder()
           projectsModal.classList.remove('open')
           projectsBtn.classList.remove('active')
@@ -765,15 +783,31 @@ projectAddBtn.addEventListener('click', async () => {
 
 // ── 初期化 ──
 async function init() {
-  const tabs = await fetch('/api/tabs').then(r => r.json())
-  _tabsCache = tabs
   await refreshProjectsCache()
-  tabs.forEach(tab => { ensureTabState(tab); createTabEl(tab) })
-  if (tabs.length > 0) switchTab(tabs[0].id)
+  let sessions = loadSessions()
+
+  // 初回起動時、セッションがなければ作成
+  if (sessions.length === 0) {
+    const defaultProject = Object.keys(_projectsCache)[0]
+    sessions = [{
+      sessionId: crypto.randomUUID(),
+      name: 'New conversation',
+      project: defaultProject,
+      lastUsed: Date.now()
+    }]
+    saveSessions(sessions)
+  }
+
+  sessions.forEach(s => { ensureTabState(s); createTabEl(s) })
+
+  // 前回のセッションを復元
+  const lastSessionId = localStorage.getItem('currentSessionId')
+  const startSession = sessions.find(s => s.sessionId === lastSessionId) || sessions[0]
+  switchTab(startSession.sessionId)
 }
 
 // ── UI更新 ──
-function getTS() { return tabState[currentTabId] || {} }
+function getTS() { return tabState[currentSessionId] || {} }
 
 function updateUI() {
   const ts = getTS()
@@ -781,17 +815,17 @@ function updateUI() {
   statusDot.className = running ? 'running' : 'connected'
   stopBtn.classList.toggle('running', running)
   tabBar.querySelectorAll('.tab').forEach(el => {
-    const ts2 = tabState[el.dataset.tabId]
+    const ts2 = tabState[el.dataset.sessionId]
     el.classList.toggle('running', ts2?.isRunning || false)
   })
   updatePlaceholder()
 }
 
 function updatePlaceholder() {
-  const currentTab = _tabsCache.find(t => t.id === currentTabId)
-  if (!currentTab) return
+  const currentSession = getCurrentSession()
+  if (!currentSession) return
 
-  const projectPath = _projectsCache[currentTab.project] || ''
+  const projectPath = _projectsCache[currentSession.project] || ''
   if (projectPath) {
     promptEl.placeholder = `Enter prompt... ${projectPath}`
   } else {
@@ -809,18 +843,18 @@ async function refreshProjectsCache() {
 }
 
 // ── SSE接続 ──
-function connectSSE(tabId) {
-  const es = new EventSource(`/api/stream?tab=${encodeURIComponent(tabId)}`)
+function connectSSE(sessionId) {
+  const es = new EventSource(`/api/stream?session=${encodeURIComponent(sessionId)}`)
   currentES = es
   let firstMessage = true
-  es.onopen = () => { if (currentTabId === tabId) updateUI() }
+  es.onopen = () => { if (currentSessionId === sessionId) updateUI() }
   es.onmessage = e => {
     try {
-      handleEvent(tabId, JSON.parse(e.data))
+      handleEvent(sessionId, JSON.parse(e.data))
       // 最初のメッセージ受信時（ログファイル復元後）に自動スクロール
-      if (firstMessage && currentTabId === tabId) {
+      if (firstMessage && currentSessionId === sessionId) {
         firstMessage = false
-        const ts = tabState[tabId]
+        const ts = tabState[sessionId]
         if (ts) {
           ts.autoScroll = true
           // DOM描画完了を待ってからスクロール
@@ -831,14 +865,14 @@ function connectSSE(tabId) {
       }
     } catch {}
   }
-  es.onerror = () => { if (currentTabId === tabId) statusDot.className = 'connected' }
+  es.onerror = () => { if (currentSessionId === sessionId) statusDot.className = 'connected' }
 }
 
 // ── イベント処理 ──
-function handleEvent(tabId, ev) {
-  const ts = tabState[tabId]
+function handleEvent(sessionId, ev) {
+  const ts = tabState[sessionId]
   if (!ts) return
-  const isActive = tabId === currentTabId
+  const isActive = sessionId === currentSessionId
 
   switch (ev.type) {
     case 'user_input':
@@ -936,7 +970,7 @@ function isAtBottom(pane, threshold = 100) {
 }
 
 function scrollToBottom(ts) {
-  if (ts.autoScroll && tabState[currentTabId] === ts) {
+  if (ts.autoScroll && tabState[currentSessionId] === ts) {
     requestAnimationFrame(() => {
       ts.pane.scrollTop = ts.pane.scrollHeight
     })
@@ -1123,19 +1157,31 @@ async function openHistoryDetail(session) {
 
 async function resumeConversation(sessionId) {
   try {
-    const newTab = await fetch('/api/tabs/fork', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId })
-    }).then(r => r.json())
-
-    _tabsCache.push(newTab)
-    ensureTabState(newTab)
-    createTabEl(newTab)
-    switchTab(newTab.id)
-
     // 過去のメッセージを取得して表示
     const msgs = await fetch(`/api/history/${encodeURIComponent(sessionId)}`).then(r => r.json())
+
+    // 既存セッションをチェック
+    const sessions = loadSessions()
+    let targetSession = sessions.find(s => s.sessionId === sessionId)
+
+    if (!targetSession) {
+      // 新規セッションとして作成
+      const currentProj = getCurrentSession()?.project || Object.keys(_projectsCache)[0]
+      targetSession = {
+        sessionId,
+        name: msgs[0]?.text.substring(0, 30) || 'Resumed conversation',
+        project: currentProj,
+        lastUsed: Date.now()
+      }
+      sessions.push(targetSession)
+      saveSessions(sessions)
+      ensureTabState(targetSession)
+      createTabEl(targetSession)
+    }
+
+    switchTab(sessionId)
+
+    // メッセージ表示
     const ts = getTS()
     for (const m of msgs) {
       if (m.role === 'user') {
@@ -1178,6 +1224,9 @@ async function send() {
   const prompt = promptEl.value.trim()
   if (!prompt) return
   const ts = getTS()
+  const currentSession = getCurrentSession()
+  if (!currentSession) return
+
   promptEl.value = ''
   promptEl.style.height = 'auto'
   // user_inputイベントで表示されるため、ここでは表示しない
@@ -1185,20 +1234,15 @@ async function send() {
     const res = await fetch('/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, tab: currentTabId, model: modelSel.value || null })
+      body: JSON.stringify({
+        prompt,
+        sessionId: currentSessionId,
+        project: currentSession.project,
+        model: modelSel.value || null
+      })
     })
     if (!res.ok) {
       addLine(ts, `Send failed: ${(await res.json()).error}`, 'line-error')
-    } else {
-      // タブ名が変わっていたら反映
-      const tabEl = tabBar.querySelector(`[data-tab-id="${currentTabId}"] .tab-name`)
-      const cached = _tabsCache.find(t => t.id === currentTabId)
-      if (tabEl && cached && tabEl.textContent !== cached.name) {
-        const fresh = await fetch('/api/tabs').then(r => r.json())
-        _tabsCache = fresh
-        const updated = fresh.find(t => t.id === currentTabId)
-        if (updated && tabEl.textContent !== updated.name) tabEl.textContent = updated.name
-      }
     }
   } catch (e) {
     addLine(ts, `Network error: ${e.message}`, 'line-error')
@@ -1208,26 +1252,31 @@ async function send() {
 // ── ボタン ──
 stopBtn.addEventListener('click', () => {
   fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tab: currentTabId }) })
+    body: JSON.stringify({ session: currentSessionId }) })
 })
 
 addTabBtn.addEventListener('click', async () => {
-  // 現在のタブのプロジェクトを引き継ぐ
-  const currentTab = _tabsCache.find(t => t.id === currentTabId)
-  const project = currentTab?.project
+  // 現在のセッションのプロジェクトを引き継ぐ
+  const currentSession = getCurrentSession()
+  const project = currentSession?.project || Object.keys(_projectsCache)[0]
 
-  const newTab = await fetch('/api/tabs', { method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project })
-  }).then(r => r.json())
+  const newSession = {
+    sessionId: crypto.randomUUID(),
+    name: 'New conversation',
+    project,
+    lastUsed: Date.now()
+  }
 
-  _tabsCache.push(newTab)
-  ensureTabState(newTab)
-  createTabEl(newTab)
-  switchTab(newTab.id)
+  const sessions = loadSessions()
+  sessions.push(newSession)
+  saveSessions(sessions)
+
+  ensureTabState(newSession)
+  createTabEl(newSession)
+  switchTab(newSession.sessionId)
 })
 
-closeTabBtn.addEventListener('click', () => { if (currentTabId) deleteTab(currentTabId) })
+closeTabBtn.addEventListener('click', () => { if (currentSessionId) deleteTab(currentSessionId) })
 
 sendBtn.addEventListener('click', send)
 promptEl.addEventListener('keydown', e => {
