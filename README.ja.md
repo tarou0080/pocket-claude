@@ -1,23 +1,27 @@
 # pocket-claude
 
-**ブラウザから Claude Code CLI を操作できるようにします。**
+**ブラウザから Claude Code を使えるようにします。**
 
-pocket-claude は、サーバーやローカルマシンで動作している Claude Code をブラウザから操作できる Web インターフェースです。すでにリモートサーバー、ローカルワークステーション、クラウド VM などで Claude Code CLI を使用している場合、このツールを導入することでモバイルフレンドリーな Web UI からどこからでも操作できるようになります。
+pocket-claude は Claude Code CLI の Web インターフェースです。Claude Code を使っている方は、これをインストールすることでターミナルではなくブラウザベースの UI で操作できるようになります。
 
 [English](README.md) | 日本語
 
 ## 💡 何ができるの？
 
-ターミナルで Claude Code を使う代わりに：
+Claude Code CLI を Web アプリに変換：
 - **URL にアクセス**して、クリーンな Web インターフェースで Claude Code とチャット
 - **スマートフォンやタブレットを使用** - 特に iOS Safari に最適化
+- **どこからでもアクセス** - VPN、SSH トンネル、ローカルネットワーク経由
 - **会話を整理** - タブベースのセッション管理
-- **どこからでもアクセス** - ブラウザでサーバーにアクセスするだけ
+- **CLAUDE.md に対応** - プロジェクトの CLAUDE.md 設定を尊重
 
-**利用シーン：**
-- 自宅サーバーで Claude Code を動かしていて、スマホから使いたい
-- クラウド VM に Claude Code があり、SSH + ターミナルより Web UI が好み
-- ローカルマシンの Claude Code をターミナルではなくブラウザから使いたい
+**すべての Claude Code ユーザーが使えます：**
+- ローカルの PC - ターミナルの代わりにブラウザを使用
+- 自宅サーバー - 移動中もスマホから Claude Code にアクセス
+- クラウド VM - SSH + ターミナルより Web UI が好み
+- Claude Code CLI が動く場所ならどこでも - ブラウザインターフェースを追加
+
+**サーバー不要** - Claude Code がインストールされている場所で `npm install` して実行するだけ。
 
 ## ✨ 特徴
 
@@ -40,36 +44,31 @@ pocket-claude は、サーバーやローカルマシンで動作している Cl
 
 ## 🚀 クイックスタート
 
-### 前提条件
-
-- Node.js v18+
-- [Claude Code CLI](https://code.claude.com/) がインストール・認証済み
-
-### インストール
+**最もシンプルなインストール（Claude Code で導入可能）：**
 
 ```bash
 git clone https://github.com/tarou0080/pocket-claude.git
 cd pocket-claude
 npm install
+npm start
 ```
 
-### 設定
+`http://localhost:3333` でアクセス可能
 
-1. サンプル設定ファイルをコピー:
-```bash
-cp config.example.json config.json
-cp projects.example.json projects.json
-```
+これだけです！設定なしでそのまま動きます。
 
-2. `projects.json` を編集して作業ディレクトリを追加:
+### オプション設定
+
+**カスタムプロジェクトディレクトリを追加** (`projects.json`):
 ```json
 {
   "home": "/home/user",
-  "work": "/home/user/workspace"
+  "work": "/home/user/workspace",
+  "myproject": "/path/to/project"
 }
 ```
 
-3. （オプション）`config.json` を編集:
+**設定を変更** (`config.json`):
 ```json
 {
   "port": 3333,
@@ -79,13 +78,16 @@ cp projects.example.json projects.json
 }
 ```
 
-### 起動
-
+サンプルからコピー:
 ```bash
-npm start
+cp config.example.json config.json
+cp projects.example.json projects.json
 ```
 
-`http://localhost:3333` でアクセス可能
+### 前提条件
+
+- Node.js v18+
+- [Claude Code CLI](https://code.claude.com/) がインストール・認証済み
 
 ## ⚙️ 設定オプション
 

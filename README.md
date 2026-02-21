@@ -1,21 +1,25 @@
 # pocket-claude
 
-**Access your Claude Code CLI from any browser.**
+**Use Claude Code from your browser, anywhere.**
 
-pocket-claude is a web interface that lets you control Claude Code running on a server or local machine through your browser. If you're already using Claude Code CLI on a remote server, local workstation, or cloud VM, this tool provides a mobile-friendly web UI to interact with it from anywhere.
+pocket-claude is a web interface for Claude Code CLI. If you're using Claude Code, you can install this to get a browser-based UI instead of working in the terminal.
 
 ## 💡 What does it do?
 
-Instead of using Claude Code in a terminal, you can:
+Turn your Claude Code CLI into a web app:
 - **Browse to a URL** and chat with Claude Code through a clean web interface
 - **Use your phone or tablet** - especially optimized for iOS Safari
-- **Keep conversations organized** with tab-based session management
-- **Access from anywhere** - just point your browser to your server
+- **Access from anywhere** - via VPN, SSH tunnel, or local network
+- **Keep conversations organized** - tab-based session management
+- **Works with CLAUDE.md** - Respects your project's CLAUDE.md configuration
 
-**Use cases:**
-- You run Claude Code on a home server and want to use it from your phone
-- You have Claude Code on a cloud VM and prefer a web UI over SSH + terminal
-- You want to use Claude Code on your local machine through a browser instead of terminal
+**This works for ANY Claude Code user:**
+- On your local laptop - use browser instead of terminal
+- On a home server - access Claude Code from your phone while traveling
+- On a cloud VM - prefer web UI over SSH + terminal sessions
+- Anywhere Claude Code CLI runs - this adds a browser interface
+
+**No server required** - Just `npm install` and run it wherever your Claude Code is installed.
 
 ## ✨ Features
 
@@ -38,36 +42,31 @@ Existing solutions are feature-rich but heavyweight. pocket-claude takes a diffe
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-- Node.js v18+
-- [Claude Code CLI](https://code.claude.com/) installed and authenticated
-
-### Installation
+**Simplest installation (works with Claude Code):**
 
 ```bash
 git clone https://github.com/tarou0080/pocket-claude.git
 cd pocket-claude
 npm install
+npm start
 ```
 
-### Configuration
+Access at `http://localhost:3333`
 
-1. Copy example configs:
-```bash
-cp config.example.json config.json
-cp projects.example.json projects.json
-```
+That's it! It works out-of-the-box with sensible defaults.
 
-2. Edit `projects.json` to add your working directories:
+### Optional Configuration
+
+**Add custom project directories** (`projects.json`):
 ```json
 {
   "home": "/home/user",
-  "work": "/home/user/workspace"
+  "work": "/home/user/workspace",
+  "myproject": "/path/to/project"
 }
 ```
 
-3. (Optional) Edit `config.json`:
+**Change settings** (`config.json`):
 ```json
 {
   "port": 3333,
@@ -77,13 +76,16 @@ cp projects.example.json projects.json
 }
 ```
 
-### Run
-
+Copy from examples:
 ```bash
-npm start
+cp config.example.json config.json
+cp projects.example.json projects.json
 ```
 
-Access at `http://localhost:3333`
+### Prerequisites
+
+- Node.js v18+
+- [Claude Code CLI](https://code.claude.com/) installed and authenticated
 
 ## ⚙️ Configuration Options
 
