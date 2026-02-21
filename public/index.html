@@ -529,6 +529,7 @@ const ctxBadge = document.getElementById('ctx-badge')
 let currentTabId = null
 let currentES = null
 let _tabsCache = []
+let _projectsCache = {}
 
 // ── タブ状態初期化 ──
 function ensureTabState(tab) {
@@ -636,13 +637,13 @@ function switchTab(tabId) {
 // ── プロジェクト管理 ──
 async function loadProjects() {
   try {
-    const projects = await fetch('/api/projects/list').then(r => r.json())
+    _projectsCache = await fetch('/api/projects/list').then(r => r.json())
     const currentTab = _tabsCache.find(t => t.id === currentTabId)
-    const currentProject = currentTab?.project || Object.keys(projects)[0]
+    const currentProject = currentTab?.project || Object.keys(_projectsCache)[0]
 
     projectsBody.innerHTML = ''
 
-    for (const [name, path] of Object.entries(projects)) {
+    for (const [name, path] of Object.entries(_projectsCache)) {
       const item = document.createElement('div')
       item.className = 'project-item'
       const isSelected = name === currentProject
@@ -766,6 +767,7 @@ projectAddBtn.addEventListener('click', async () => {
 async function init() {
   const tabs = await fetch('/api/tabs').then(r => r.json())
   _tabsCache = tabs
+  await refreshProjectsCache()
   tabs.forEach(tab => { ensureTabState(tab); createTabEl(tab) })
   if (tabs.length > 0) switchTab(tabs[0].id)
 }
@@ -785,16 +787,24 @@ function updateUI() {
   updatePlaceholder()
 }
 
-async function updatePlaceholder() {
+function updatePlaceholder() {
   const currentTab = _tabsCache.find(t => t.id === currentTabId)
   if (!currentTab) return
 
-  try {
-    const projects = await fetch('/api/projects/list').then(r => r.json())
-    const projectPath = projects[currentTab.project] || ''
-    promptEl.placeholder = `Enter prompt... 📁 ${projectPath}`
-  } catch {
+  const projectPath = _projectsCache[currentTab.project] || ''
+  if (projectPath) {
+    promptEl.placeholder = `Enter prompt... ${projectPath}`
+  } else {
     promptEl.placeholder = 'Enter prompt...'
+  }
+}
+
+async function refreshProjectsCache() {
+  try {
+    _projectsCache = await fetch('/api/projects/list').then(r => r.json())
+    updatePlaceholder()
+  } catch (err) {
+    console.error('Failed to fetch projects:', err)
   }
 }
 
