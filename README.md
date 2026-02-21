@@ -110,6 +110,53 @@ pocket-claude is designed for **local/trusted network use**:
 
 For remote access, consider using a VPN or SSH tunnel instead of exposing the server directly.
 
+### Environment Variables
+
+Set `ADDITIONAL_ALLOWED_DIRS` to allow access to additional directories (colon-separated):
+
+```bash
+export ADDITIONAL_ALLOWED_DIRS="/srv/shell:/opt/projects"
+npm start
+```
+
+## 🚫 Out of Scope
+
+pocket-claude is intentionally minimal. The following features are **not planned**:
+
+- **File editor** - Use VSCode or your preferred editor
+- **Terminal emulator** - Use SSH or native terminal
+- **Multi-user support** - Designed for single-user, trusted environment
+- **Database integration** - Session data is stored in simple JSON files
+- **Authentication system** - Rely on network-level security (VPN, firewall)
+
+If you need these features, consider:
+- [claudecodeui](https://github.com/siteboon/claudecodeui) - Full-featured web IDE
+- [claude-relay](https://github.com/chadbyte/claude-relay) - More advanced features
+
+## 🔧 Troubleshooting
+
+### Claude CLI not found
+Ensure Claude Code CLI is installed and in your PATH:
+```bash
+which claude
+```
+
+### Permission denied errors
+Check that your project directories are readable by the user running pocket-claude.
+
+### SSE connection issues
+If using nginx, ensure buffering is disabled:
+```nginx
+proxy_buffering off;
+proxy_cache off;
+```
+
+### Port already in use
+Change the port in `config.json` or set `PORT` environment variable:
+```bash
+PORT=3334 npm start
+```
+
 ## 📝 License
 
 MIT License - see [LICENSE](LICENSE) file for details.

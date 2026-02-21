@@ -3,7 +3,9 @@ const path = require('path')
 // 許可されたプロジェクトベースディレクトリ（Path Traversal対策）
 const ALLOWED_BASE_DIRS = [
   path.resolve(process.env.HOME || '/home/user'),
-  path.resolve('/srv/shell')
+  ...(process.env.ADDITIONAL_ALLOWED_DIRS
+    ? process.env.ADDITIONAL_ALLOWED_DIRS.split(':').map(p => path.resolve(p))
+    : [])
 ]
 
 // セキュリティチェック: パスが許可されたディレクトリ内か確認

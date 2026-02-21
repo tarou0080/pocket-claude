@@ -30,7 +30,7 @@ router.post('/send', async (req, res) => {
   if (!tab) return res.status(404).json({ error: 'tab not found' })
 
   // タブ名の自動生成（初回送信時）
-  if (!tab.sessionId && /^会話\d+$/.test(tab.name)) {
+  if (!tab.sessionId && /^Conversation \d+$/.test(tab.name)) {
     tab.name = prompt.slice(0, 12).trim()
     saveTabs(tabs)
   }

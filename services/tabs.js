@@ -39,7 +39,7 @@ function ensureDefaultTabs() {
   if (migrated.length > 0) {
     saveTabs(migrated)
   } else {
-    saveTabs([{ id: randomUUID(), name: '会話1', project: getDefaultProject(), sessionId: null }])
+    saveTabs([{ id: randomUUID(), name: 'Conversation 1', project: getDefaultProject(), sessionId: null }])
   }
 }
 

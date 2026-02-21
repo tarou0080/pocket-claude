@@ -18,7 +18,7 @@ router.post('/', (req, res) => {
   const tabs = loadTabs()
   const newTab = {
     id: randomUUID(),
-    name: `会話${tabs.length + 1}`,
+    name: `Conversation ${tabs.length + 1}`,
     project: getDefaultProject(),
     sessionId: null,
   }
@@ -93,7 +93,7 @@ router.post('/fork', (req, res) => {
   const tabs = loadTabs()
   const newTab = {
     id: randomUUID(),
-    name: `${title}（再開）`,
+    name: `${title} (Resumed)`,
     project: getDefaultProject(),
     sessionId: sessionId,
   }

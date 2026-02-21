@@ -415,7 +415,7 @@ function createTabEl(tab) {
   name.addEventListener('click', () => {
     if (tapTimer) {
       clearTimeout(tapTimer); tapTimer = null
-      const newName = prompt('会話名を変更', name.textContent)
+      const newName = prompt('Rename conversation', name.textContent)
       if (newName?.trim()) {
         fetch(`/api/tabs/${tab.id}`, {
           method: 'PATCH',
@@ -764,7 +764,7 @@ async function openHistory() {
       item.className = 'history-item'
       item.innerHTML = `
         <div class="history-item-title">${escapeHtml(s.title)}</div>
-        <div class="history-item-meta">${formatDate(s.updatedAt)} · ${s.msgCount}件</div>
+        <div class="history-item-meta">${formatDate(s.updatedAt)} · ${s.msgCount} messages</div>
       `
       item.addEventListener('click', () => openHistoryDetail(s))
       historyBody.appendChild(item)
@@ -783,7 +783,7 @@ async function openHistoryDetail(session) {
     const msgs = await fetch(`/api/history/${encodeURIComponent(session.sessionId)}`).then(r => r.json())
     historyBody.innerHTML = ''
     if (msgs.length === 0) {
-      historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">メッセージなし</div>'
+      historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">No messages</div>'
       return
     }
     for (const m of msgs) {
@@ -796,7 +796,7 @@ async function openHistoryDetail(session) {
     // 再開ボタン
     const resumeBtn = document.createElement('button')
     resumeBtn.id = 'resume-btn'
-    resumeBtn.textContent = 'この会話を再開'
+    resumeBtn.textContent = 'Resume this conversation'
     resumeBtn.addEventListener('click', () => resumeConversation(session.sessionId))
     historyBody.appendChild(resumeBtn)
 
