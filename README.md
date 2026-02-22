@@ -31,6 +31,17 @@ Turn your Claude Code CLI into a web app:
 - **SSE Streaming** - Real-time output with automatic reconnection
 - **Markdown Rendering** - Clean, readable output formatting
 
+## Screenshots
+
+### Main Interface
+![Main Interface](./screenshots/main.png)
+
+### Project Management
+![Project Management](./screenshots/projects.png)
+
+### History Browser
+![History Browser](./screenshots/history.png)
+
 ## Why pocket-claude?
 
 Existing solutions are feature-rich but heavyweight. pocket-claude takes a different approach:

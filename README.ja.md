@@ -33,6 +33,17 @@ Claude Code CLI を Web アプリに変換：
 - **SSE ストリーミング** - 自動再接続付きリアルタイム出力
 - **Markdown レンダリング** - クリーンで読みやすい出力
 
+## スクリーンショット
+
+### メインインターフェース
+![メインインターフェース](./screenshots/main.png)
+
+### プロジェクト管理
+![プロジェクト管理](./screenshots/projects.png)
+
+### 履歴ブラウザ
+![履歴ブラウザ](./screenshots/history.png)
+
 ## なぜ pocket-claude？
 
 既存のソリューションは高機能ですが、依存が重いです。pocket-claude は異なるアプローチを取っています：
