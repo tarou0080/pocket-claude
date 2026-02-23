@@ -14,10 +14,10 @@ Turn your Claude Code CLI into a web app:
 - **Works with CLAUDE.md** - Respects your project's CLAUDE.md configuration
 
 **This works for ANY Claude Code user:**
-- On your local laptop - use browser instead of terminal
-- On a home server - access Claude Code from your phone while traveling
-- On a cloud VM - prefer web UI over SSH + terminal sessions
-- **Project management** - Add project directories directly from the browser
+- Local laptop, home server, cloud VM - anywhere Claude Code runs
+- Use browser instead of terminal
+- Access from your phone
+- Switch between multiple projects easily
 
 **No server required** - Just `npm install` and run it wherever your Claude Code is installed.
 
