@@ -693,7 +693,7 @@ async function deleteTab(sessionId) {
       const currentProj = Object.keys(_projectsCache)[0]
       const newSession = {
         sessionId: crypto.randomUUID(),
-        name: 'New conversation',
+        name: 'Claude Code',
         project: currentProj,
         lastUsed: Date.now()
       }
@@ -883,7 +883,7 @@ async function init() {
     const defaultProject = Object.keys(_projectsCache)[0]
     sessions = [{
       sessionId: crypto.randomUUID(),
-      name: 'New conversation',
+      name: 'Claude Code',
       project: defaultProject,
       lastUsed: Date.now()
     }]
