@@ -878,6 +878,11 @@ async function init() {
   await refreshProjectsCache()
   let sessions = loadSessions()
 
+  // 旧名称 'New conversation' → 'Claude Code' に移行
+  const migrated = sessions.map(s => s.name === 'New conversation' ? { ...s, name: 'Claude Code' } : s)
+  if (migrated.some((s, i) => s.name !== sessions[i].name)) saveSessions(migrated)
+  sessions = migrated
+
   // 初回起動時、セッションがなければ作成
   if (sessions.length === 0) {
     const defaultProject = Object.keys(_projectsCache)[0]
