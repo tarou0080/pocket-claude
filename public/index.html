@@ -54,7 +54,7 @@
     flex-shrink: 0;
   }
 
-  #stop-btn, #close-tab-btn, #add-tab-btn, #history-btn, #projects-btn {
+  #stop-btn, #history-btn, #projects-btn {
     background: none;
     border: 1px solid #4a4a4a;
     border-radius: 6px;
@@ -67,14 +67,6 @@
   #stop-btn.running { opacity: 1; pointer-events: auto; }
   #stop-btn:active { background: #3a2020; }
 
-  #close-tab-btn, #add-tab-btn {
-    font-size: 16px;
-    padding: 4px 10px;
-    color: #888;
-    min-width: 36px;
-    text-align: center;
-    border: none;
-  }
   #history-btn, #projects-btn {
     font-size: 14px;
     padding: 4px 8px;
@@ -84,8 +76,6 @@
     border: 1px solid #4a4a4a;
     border-radius: 6px;
   }
-  #close-tab-btn { margin-left: auto; }
-  #close-tab-btn:active, #add-tab-btn:active { background: #3a3a3a; color: #ccc; }
   #history-btn:active, #projects-btn:active { background: #3a3a3a; color: #ccc; }
   #history-btn.active, #projects-btn.active { color: #64B5F6; border-color: #64B5F6; }
 
@@ -315,6 +305,27 @@
     display: none;
   }
 
+  #projects-note {
+    font-size: 12px;
+    color: #888;
+    padding: 8px 16px 0;
+    flex-shrink: 0;
+  }
+
+  .project-item.current .project-name { color: #64B5F6; }
+  .project-item.locked { cursor: default; }
+  .project-item:not(.locked):not(.current):hover { background: #2a2a2a; cursor: pointer; }
+
+  .project-star {
+    font-size: 16px;
+    color: #555;
+    cursor: pointer;
+    padding: 0 4px;
+    flex-shrink: 0;
+  }
+  .project-star.active { color: #fbbf24; }
+  .project-star:hover { color: #fbbf24; opacity: 0.7; }
+
   /* ── タブバー ── */
   #tab-bar {
     background: #1e1e1e;
@@ -329,14 +340,17 @@
   .tab {
     display: flex;
     align-items: center;
-    padding: 8px 14px;
+    gap: 6px;
+    padding: 8px 10px;
     font-size: 13px;
     color: #888;
     cursor: pointer;
-    white-space: nowrap;
     border-bottom: 2px solid transparent;
-    flex-shrink: 0;
     user-select: none;
+    flex: 1 1 0;
+    min-width: 60px;
+    max-width: 300px;
+    overflow: hidden;
   }
   .tab:active { background: #2a2a2a; }
   .tab.active { color: #e0e0e0; border-bottom-color: #1565C0; }
@@ -344,9 +358,36 @@
   .tab.running.active { border-bottom-color: #FF9800; }
 
   .tab-name {
-    max-width: 120px;
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tab-close {
+    font-size: 14px;
+    color: #555;
+    border-radius: 3px;
+    padding: 0 2px;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .tab-close:hover { color: #EF5350; }
+
+  #tab-bar #add-tab-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 18px;
+    padding: 4px 12px;
+    cursor: pointer;
+    align-self: center;
+  }
+  #tab-bar #add-tab-btn:active { color: #ccc; background: #2a2a2a; }
+
+  @media (max-width: 480px) {
+    .tab { max-width: none; padding: 8px 8px; }
   }
 
   /* ── 出力エリア ── */
@@ -466,10 +507,10 @@
     <button id="stop-btn" title="Stop execution">■</button>
     <button id="projects-btn" title="Projects">P</button>
     <button id="history-btn" title="Conversation history">⟳</button>
-    <button id="add-tab-btn" title="New conversation">+</button>
-    <button id="close-tab-btn" title="Close tab">✕</button>
   </div>
-  <div id="tab-bar"></div>
+  <div id="tab-bar">
+    <button id="add-tab-btn" title="New conversation">+</button>
+  </div>
 </div>
 
 <!-- 履歴パネル -->
@@ -488,6 +529,7 @@
       <h3>Projects</h3>
       <button id="projects-close">✕</button>
     </div>
+    <div id="projects-note"></div>
     <div id="projects-body"></div>
     <div id="project-add-form">
       <input type="text" id="project-name-input" placeholder="Project name (e.g., myapp)">
@@ -528,7 +570,6 @@ const modelSel        = document.getElementById('model-select')
 const effortSel       = document.getElementById('effort-select')
 const stopBtn         = document.getElementById('stop-btn')
 const addTabBtn       = document.getElementById('add-tab-btn')
-const closeTabBtn     = document.getElementById('close-tab-btn')
 const tabBar          = document.getElementById('tab-bar')
 const outputCont      = document.getElementById('output-container')
 
@@ -618,8 +659,18 @@ function createTabEl(session) {
   })
 
   el.appendChild(name)
+
+  const closeBtn = document.createElement('span')
+  closeBtn.className = 'tab-close'
+  closeBtn.textContent = '×'
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    deleteTab(session.sessionId)
+  })
+  el.appendChild(closeBtn)
+
   el.addEventListener('click', () => switchTab(session.sessionId))
-  tabBar.appendChild(el)
+  tabBar.insertBefore(el, addTabBtn)
   return el
 }
 
@@ -677,48 +728,64 @@ async function loadProjects() {
     const currentSession = getCurrentSession()
     const currentProject = currentSession?.project || Object.keys(_projectsCache)[0]
 
-    projectsBody.innerHTML = ''
+    // 未送信セッションのみ切り替え可
+    const ts = tabState[currentSessionId]
+    const canSwitch = !!(ts && ts.pane.children.length === 0 && !ts.isRunning)
 
-    for (const [name, path] of Object.entries(_projectsCache)) {
-      const item = document.createElement('div')
-      item.className = 'project-item'
-      const isSelected = name === currentProject
-      item.innerHTML = `
-        <input type="radio" name="project-select" value="${name}" ${isSelected ? 'checked' : ''}
-               style="margin-right: 10px; cursor: pointer;">
-        <div class="project-info" style="flex: 1;">
-          <div class="project-name">${name}</div>
-          <div class="project-path">${path}</div>
-        </div>
-        <button class="project-remove" data-name="${name}">Remove</button>
-      `
-      projectsBody.appendChild(item)
+    // ノート表示
+    const noteEl = document.getElementById('projects-note')
+    if (noteEl) {
+      noteEl.textContent = canSwitch
+        ? 'Select a project for this session (before first message).'
+        : 'Session already started. ★ changes the default for new sessions.'
     }
 
-    // Radio button change event
-    projectsBody.querySelectorAll('input[name="project-select"]').forEach(radio => {
-      radio.addEventListener('change', async (e) => {
-        const newProject = e.target.value
-        if (!currentSessionId) return
+    const defaultProject = localStorage.getItem('pc-default-project') || currentProject
 
-        try {
-          updateSession(currentSessionId, { project: newProject })
-          updatePlaceholder()
-          projectsModal.classList.remove('open')
-          projectsBtn.classList.remove('active')
-        } catch (err) {
-          projectError.textContent = `Error: ${err.message}`
-          projectError.style.display = 'block'
-        }
+    projectsBody.innerHTML = ''
+    projectError.style.display = 'none'
+
+    for (const [name, projPath] of Object.entries(_projectsCache)) {
+      const isCurrent = name === currentProject
+      const isDefault = name === defaultProject
+
+      const item = document.createElement('div')
+      item.className = 'project-item' + (isCurrent ? ' current' : '') + (!canSwitch ? ' locked' : '')
+
+      const indicator = document.createElement('span')
+      indicator.style.cssText = 'width:12px;flex-shrink:0;font-size:8px;text-align:center;color:#64B5F6'
+      indicator.textContent = isCurrent ? '●' : ''
+
+      const info = document.createElement('div')
+      info.className = 'project-info'
+      const nameEl = document.createElement('div')
+      nameEl.className = 'project-name'
+      nameEl.textContent = name
+      const pathEl = document.createElement('div')
+      pathEl.className = 'project-path'
+      pathEl.textContent = projPath
+      info.appendChild(nameEl)
+      info.appendChild(pathEl)
+
+      const star = document.createElement('span')
+      star.className = 'project-star' + (isDefault ? ' active' : '')
+      star.textContent = isDefault ? '★' : '☆'
+      star.title = 'Set as default for new sessions'
+      star.addEventListener('click', (e) => {
+        e.stopPropagation()
+        localStorage.setItem('pc-default-project', name)
+        projectsBody.querySelectorAll('.project-star').forEach(s => {
+          s.textContent = '☆'; s.classList.remove('active')
+        })
+        star.textContent = '★'; star.classList.add('active')
       })
-    })
 
-    // Remove button event
-    projectsBody.querySelectorAll('.project-remove').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const name = e.target.dataset.name
+      const removeBtn = document.createElement('button')
+      removeBtn.className = 'project-remove'
+      removeBtn.textContent = 'Remove'
+      removeBtn.addEventListener('click', async (e) => {
+        e.stopPropagation()
         if (!confirm(`Remove project "${name}"?`)) return
-
         try {
           await fetch('/api/projects/remove', {
             method: 'POST',
@@ -731,7 +798,23 @@ async function loadProjects() {
           projectError.style.display = 'block'
         }
       })
-    })
+
+      item.appendChild(indicator)
+      item.appendChild(info)
+      item.appendChild(star)
+      item.appendChild(removeBtn)
+
+      if (canSwitch && !isCurrent) {
+        item.addEventListener('click', () => {
+          updateSession(currentSessionId, { project: name })
+          updatePlaceholder()
+          projectsModal.classList.remove('open')
+          projectsBtn.classList.remove('active')
+        })
+      }
+
+      projectsBody.appendChild(item)
+    }
   } catch (err) {
     console.error('Failed to load projects:', err)
   }
@@ -835,11 +918,9 @@ function updatePlaceholder() {
   if (!currentSession) return
 
   const projectPath = _projectsCache[currentSession.project] || ''
-  if (projectPath) {
-    promptEl.placeholder = `Enter prompt... ${projectPath}`
-  } else {
-    promptEl.placeholder = 'Enter prompt...'
-  }
+  promptEl.placeholder = projectPath
+    ? `${projectPath}   (Ctrl+Enter to send)`
+    : 'Enter prompt... (Ctrl+Enter to send)'
 }
 
 async function refreshProjectsCache() {
@@ -1305,9 +1386,11 @@ stopBtn.addEventListener('click', () => {
 })
 
 addTabBtn.addEventListener('click', async () => {
-  // 現在のセッションのプロジェクトを引き継ぐ
-  const currentSession = getCurrentSession()
-  const project = currentSession?.project || Object.keys(_projectsCache)[0]
+  // デフォルトプロジェクト（★設定）を使う、なければ現在セッションを引き継ぐ
+  const defaultProject = localStorage.getItem('pc-default-project')
+  const project = (defaultProject && _projectsCache[defaultProject])
+    ? defaultProject
+    : (getCurrentSession()?.project || Object.keys(_projectsCache)[0])
 
   const newSession = {
     sessionId: crypto.randomUUID(),
@@ -1324,8 +1407,6 @@ addTabBtn.addEventListener('click', async () => {
   createTabEl(newSession)
   switchTab(newSession.sessionId)
 })
-
-closeTabBtn.addEventListener('click', () => { if (currentSessionId) deleteTab(currentSessionId) })
 
 sendBtn.addEventListener('click', send)
 promptEl.addEventListener('keydown', e => {
