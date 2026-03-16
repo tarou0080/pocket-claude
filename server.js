@@ -16,6 +16,37 @@ const PORT = process.env.PORT || config.port || 3333
 initDirectories()
 ensureDefaultTabs()
 
+// 起動時: 未完了ログを修復（start あり・done なし → 強制 done を追記）
+// サーバーが実行中に再起動した場合、UIが「生成中」で詰まるのを防ぐ
+function repairIncompleteLogs() {
+  const logsDir = config.LOGS_DIR
+  let repaired = 0
+  try {
+    const files = fs.readdirSync(logsDir).filter(f => f.endsWith('.jsonl'))
+    for (const file of files) {
+      const filePath = path.join(logsDir, file)
+      try {
+        const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim())
+        const events = lines.map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+        const hasStart = events.some(e => e.type === 'start')
+        const hasDone  = events.some(e => e.type === 'done')
+        if (hasStart && !hasDone) {
+          const syntheticDone = JSON.stringify({
+            type: 'done',
+            exitCode: -1,
+            timestamp: new Date().toISOString(),
+            reason: 'server_restart'
+          })
+          fs.appendFileSync(filePath, syntheticDone + '\n')
+          repaired++
+        }
+      } catch {}
+    }
+  } catch {}
+  if (repaired > 0) console.log(`[startup] Repaired ${repaired} incomplete log(s)`)
+}
+repairIncompleteLogs()
+
 app.use(express.json())
 
 // Root endpoint - serve index.html with dynamic lang attribute

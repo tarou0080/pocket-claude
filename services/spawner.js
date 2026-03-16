@@ -21,7 +21,7 @@ function getClaudeSessionId(sessionId) {
 }
 
 // claude プロセス起動
-function startClaude(sessionId, prompt, model, project, claudeSessionId) {
+function startClaude(sessionId, prompt, model, project, claudeSessionId, effort) {
   const projects = config.projects
   const projectDir = projects[project] || projects[Object.keys(projects)[0]]
   const s = getState(sessionId)
@@ -34,7 +34,8 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId) {
     '--verbose',
     '--include-partial-messages',
     '--permission-mode', permissionMode,
-    ...(model ? ['--model', model] : []),
+    ...(model  ? ['--model',  model]  : []),
+    ...(effort ? ['--effort', effort] : []),
   ]
 
   broadcast(sessionId, {
@@ -79,11 +80,13 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId) {
     if (s.pendingPrompt) {
       const pending = s.pendingPrompt
       const pendingModel = s.pendingModel
+      const pendingEffort = s.pendingEffort
       s.pendingPrompt = null
       s.pendingModel = null
+      s.pendingEffort = null
       broadcast(sessionId, { type: 'queued_sent', message: pending })
       broadcast(sessionId, { type: 'user_input', text: pending })
-      setTimeout(() => startClaude(sessionId, pending, pendingModel, project, getClaudeSessionId(sessionId)), 300)
+      setTimeout(() => startClaude(sessionId, pending, pendingModel, project, getClaudeSessionId(sessionId), pendingEffort), 300)
     }
   })
 
@@ -122,6 +125,7 @@ function stopPending(sessionId) {
   const s = getState(sessionId)
   s.pendingPrompt = null
   s.pendingModel = null
+  s.pendingEffort = null
 }
 
 module.exports = { startClaude, stopClaude, stopPending, injectPrompt, gitPull }

@@ -44,7 +44,7 @@
   #status-dot.running   { background: #FF9800; animation: pulse 1.2s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  #model-select {
+  #model-select, #effort-select {
     background: #333;
     color: #ccc;
     border: 1px solid #4a4a4a;
@@ -384,6 +384,7 @@
   #ctx-badge { font-size: 11px; color: #555; flex-shrink: 0; }
   #ctx-badge.warn { color: #FF9800; font-weight: bold; }
   .line-error   { color: #EF5350; }
+  .line-thinking { color: #7E57C2; font-size: 11px; font-style: italic; }
 
   /* マークダウン */
   .line-text p  { margin: 0 0 6px; }
@@ -455,6 +456,13 @@
       <option value="claude-sonnet-4-6">Sonnet 4.6</option>
       <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
     </select>
+    <select id="effort-select" title="Effort level">
+      <option value="">effort</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+      <option value="max">max</option>
+    </select>
     <button id="stop-btn" title="Stop execution">■</button>
     <button id="projects-btn" title="Projects">P</button>
     <button id="history-btn" title="Conversation history">⟳</button>
@@ -517,6 +525,7 @@ const promptEl        = document.getElementById('prompt')
 const sendBtn         = document.getElementById('send-btn')
 const statusDot       = document.getElementById('status-dot')
 const modelSel        = document.getElementById('model-select')
+const effortSel       = document.getElementById('effort-select')
 const stopBtn         = document.getElementById('stop-btn')
 const addTabBtn       = document.getElementById('add-tab-btn')
 const closeTabBtn     = document.getElementById('close-tab-btn')
@@ -865,7 +874,22 @@ function connectSSE(sessionId) {
       }
     } catch {}
   }
-  es.onerror = () => { if (currentSessionId === sessionId) statusDot.className = 'connected' }
+  es.onerror = () => {
+    if (currentSessionId !== sessionId) return
+    statusDot.className = 'connected'
+    // SSE切断時にサーバーの実行状態を確認してisRunningを補正
+    fetch(`/api/status?session=${encodeURIComponent(sessionId)}`)
+      .then(r => r.json())
+      .then(data => {
+        const ts = tabState[sessionId]
+        if (!ts) return
+        if (!data.running && ts.isRunning) {
+          ts.isRunning = false
+          updateUI()
+        }
+      })
+      .catch(() => {})
+  }
 }
 
 // ── イベント処理 ──
@@ -894,30 +918,44 @@ function handleEvent(sessionId, ev) {
     case 'stream_event': {
       const inner = ev.event
       switch (inner.type) {
-        case 'content_block_delta':
-          if (inner.delta?.type === 'text_delta') appendText(ts, inner.delta.text)
-          else if (inner.delta?.type === 'input_json_delta' && ts._currentToolEl) {
-            ts._currentToolInput = (ts._currentToolInput || '') + (inner.delta.partial_json || '')
-          }
-          break
         case 'content_block_start':
           finalizeText(ts)
           if (inner.content_block?.type === 'tool_use') {
             const toolName = inner.content_block.name || 'Tool'
             ts._currentToolEl = addToolLine(ts, toolName, inner.content_block.id)
             ts._currentToolInput = ''
+            ts._currentBlockType = 'tool_use'
+          } else if (inner.content_block?.type === 'thinking') {
+            ts._thinkingEl = addLine(ts, '[thinking...]', 'line-thinking')
+            ts._currentBlockType = 'thinking'
+          } else {
+            ts._currentBlockType = inner.content_block?.type || null
           }
+          break
+        case 'content_block_delta':
+          if (inner.delta?.type === 'text_delta') appendText(ts, inner.delta.text)
+          else if (inner.delta?.type === 'input_json_delta' && ts._currentToolEl) {
+            ts._currentToolInput = (ts._currentToolInput || '') + (inner.delta.partial_json || '')
+          }
+          // thinking_delta は ts._thinkingEl があれば表示更新（省略可 — 長いので折りたたみ）
           break
         case 'content_block_stop':
           finalizeText(ts)
-          if (ts._currentToolEl && ts._currentToolInput) {
-            try {
-              const params = JSON.parse(ts._currentToolInput)
-              updateToolDesc(ts._currentToolEl, params)
-            } catch {}
+          if (ts._currentBlockType === 'tool_use') {
+            if (ts._currentToolEl && ts._currentToolInput) {
+              try {
+                const params = JSON.parse(ts._currentToolInput)
+                updateToolDesc(ts._currentToolEl, params)
+              } catch {}
+            }
+            ts._currentToolEl = null
+            ts._currentToolInput = ''
+          } else if (ts._currentBlockType === 'thinking') {
+            // thinkingブロック終了 → 表示を折りたたみ済みに変更
+            if (ts._thinkingEl) ts._thinkingEl.textContent = '[thinking done]'
+            ts._thinkingEl = null
           }
-          ts._currentToolEl = null
-          ts._currentToolInput = ''
+          ts._currentBlockType = null
           break
         case 'message_start':
           if (inner.message && inner.message.usage) {
@@ -942,8 +980,11 @@ function handleEvent(sessionId, ev) {
       finalizeText(ts)
       ts.isRunning = false
       const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
-      const doneEl = addLine(ts, `✓ Done (exit ${ev.exitCode}) — ${pct}%`, 'line-done')
-      if (pct >= 50) doneEl.classList.add('warn')
+      const doneMsg = ev.reason === 'server_restart'
+        ? `⚠ Interrupted (server restarted)`
+        : `✓ Done (exit ${ev.exitCode}) — ${pct}%`
+      const doneEl = addLine(ts, doneMsg, 'line-done')
+      if (ev.reason === 'server_restart' || pct >= 50) doneEl.classList.add('warn')
       if (isActive) { updateCtxBadge(pct); updateUI() }
       break
     }
@@ -1245,7 +1286,8 @@ async function send() {
         prompt,
         sessionId: currentSessionId,
         project: currentSession.project,
-        model: modelSel.value || null
+        model: modelSel.value || null,
+        effort: effortSel.value || null
       })
     })
     if (!res.ok) {
