@@ -542,8 +542,7 @@
     font-size: 18px;
     padding: 8px 10px;
     cursor: pointer;
-    display: flex;
-    align-items: center;
+    order: 100;
   }
   #add-tab-btn:active { color: #ccc; background: #2a2a2a; }
 
@@ -671,6 +670,7 @@
     <button id="settings-btn" title="Settings">&#9881;&#xFE0E;</button>
   </div>
   <div id="tab-bar">
+    <button id="add-tab-btn" title="New conversation">+</button>
   </div>
 </div>
 
@@ -772,18 +772,12 @@ const statusDot       = document.getElementById('status-dot')
 const modelSel        = document.getElementById('model-select')
 const stopBtn         = document.getElementById('stop-btn')
 const tabBar          = document.getElementById('tab-bar')
+const addTabBtn       = document.getElementById('add-tab-btn')
 const outputCont      = document.getElementById('output-container')
 const effortIndicator = document.getElementById('effort-indicator')
 const settingsBtn     = document.getElementById('settings-btn')
 const settingsModal   = document.getElementById('settings-modal')
 const settingsClose   = document.getElementById('settings-close')
-
-// +ボタンを動的作成してタブバーの最後に配置
-const addTabBtn = document.createElement('button')
-addTabBtn.id = 'add-tab-btn'
-addTabBtn.title = 'New conversation'
-addTabBtn.textContent = '+'
-tabBar.appendChild(addTabBtn)
 
 // ── 設定管理 ──
 const ALL_MODELS = [
@@ -1106,8 +1100,7 @@ function createTabEl(session) {
   el.appendChild(closeBtn)
 
   el.addEventListener('click', () => switchTab(session.sessionId))
-  // +ボタンの直前に挿入
-  tabBar.insertBefore(el, tabBar.lastChild)
+  tabBar.insertBefore(el, addTabBtn)
   return el
 }
 
