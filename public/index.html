@@ -533,17 +533,17 @@
   }
   .tab-close:hover { color: #EF5350; }
 
-  #tab-bar #add-tab-btn {
+  #add-tab-btn {
     flex-shrink: 0;
     background: none;
     border: none;
     color: #666;
     font-size: 18px;
-    padding: 4px 12px;
+    padding: 8px 12px;
     cursor: pointer;
-    align-self: center;
+    border-bottom: 2px solid transparent;
   }
-  #tab-bar #add-tab-btn:active { color: #ccc; background: #2a2a2a; }
+  #add-tab-btn:active { color: #ccc; background: #2a2a2a; }
 
   @media (max-width: 480px) {
     .tab { max-width: none; padding: 8px 8px; }
@@ -669,7 +669,6 @@
     <button id="settings-btn" title="Settings">&#9881;&#xFE0E;</button>
   </div>
   <div id="tab-bar">
-    <button id="add-tab-btn" title="New conversation">+</button>
   </div>
 </div>
 
@@ -770,13 +769,19 @@ const sendBtn         = document.getElementById('send-btn')
 const statusDot       = document.getElementById('status-dot')
 const modelSel        = document.getElementById('model-select')
 const stopBtn         = document.getElementById('stop-btn')
-const addTabBtn       = document.getElementById('add-tab-btn')
 const tabBar          = document.getElementById('tab-bar')
 const outputCont      = document.getElementById('output-container')
 const effortIndicator = document.getElementById('effort-indicator')
 const settingsBtn     = document.getElementById('settings-btn')
 const settingsModal   = document.getElementById('settings-modal')
 const settingsClose   = document.getElementById('settings-close')
+
+// +ボタンを動的作成してタブバーの最後に配置
+const addTabBtn = document.createElement('button')
+addTabBtn.id = 'add-tab-btn'
+addTabBtn.title = 'New conversation'
+addTabBtn.textContent = '+'
+tabBar.appendChild(addTabBtn)
 
 // ── 設定管理 ──
 const ALL_MODELS = [
@@ -1099,7 +1104,8 @@ function createTabEl(session) {
   el.appendChild(closeBtn)
 
   el.addEventListener('click', () => switchTab(session.sessionId))
-  tabBar.insertBefore(el, addTabBtn)
+  // +ボタンの直前に挿入
+  tabBar.insertBefore(el, tabBar.lastChild)
   return el
 }
 
@@ -1422,6 +1428,17 @@ function handleEvent(sessionId, ev) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
       } else {
         addLine(ts, `> ${ev.text}`, 'line-user')
+        // 初回プロンプト時にタブタイトルを自動更新（'Claude Code'の場合のみ）
+        const currentSession = loadSessions().find(s => s.sessionId === sessionId)
+        if (currentSession && currentSession.name === 'Claude Code' && ev.text) {
+          const newTitle = ev.text.substring(0, 30)
+          updateSession(sessionId, { name: newTitle })
+          const tabEl = tabBar.querySelector(`[data-session-id="${sessionId}"]`)
+          if (tabEl) {
+            const nameEl = tabEl.querySelector('.tab-name')
+            if (nameEl) nameEl.textContent = newTitle
+          }
+        }
       }
       finalizeText(ts)
       break
@@ -1835,7 +1852,7 @@ addTabBtn.addEventListener('click', async () => {
 
   const newSession = {
     sessionId: crypto.randomUUID(),
-    name: 'New conversation',
+    name: 'Claude Code',
     project,
     lastUsed: Date.now()
   }
