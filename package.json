@@ -1,11 +1,31 @@
 {
   "name": "pocket-claude",
   "version": "1.0.0",
-  "description": "iPhone-friendly WebUI for Claude Code headless mode",
+  "description": "Lightweight, mobile-first Web UI for Claude Code CLI - optimized for iOS Safari",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tarou0080/pocket-claude.git"
+  },
+  "keywords": [
+    "claude-code",
+    "webui",
+    "mobile",
+    "ios",
+    "headless",
+    "safari",
+    "claude",
+    "anthropic"
+  ],
+  "author": "tarou0080",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tarou0080/pocket-claude/issues"
+  },
+  "homepage": "https://github.com/tarou0080/pocket-claude#readme",
   "dependencies": {
     "express": "^4.18.0"
   }

@@ -1,18 +1,48 @@
 # pocket-claude
 
-A lightweight, mobile-first Web UI for Claude Code, optimized for iOS Safari.
+**Use Claude Code from your browser, anywhere.**
 
-## ✨ Features
+pocket-claude is a web interface for Claude Code CLI. If you're using Claude Code, you can install this to get a browser-based UI instead of working in the terminal.
 
-- 📱 **Mobile-First Design** - Tested and optimized for iPhone Safari
-- 🪶 **Ultra-Lightweight** - Vanilla HTML/CSS/JS, no build step required
-- 🗂️ **Tab-Based Conversations** - Manage multiple conversations simultaneously
-- 📊 **Context Usage Tracking** - Real-time token usage visualization
-- 📜 **Integrated History Browser** - Browse and resume past sessions
-- 🔄 **SSE Streaming** - Real-time output with automatic reconnection
-- 🎨 **Markdown Rendering** - Clean, readable output formatting
+## What does it do?
 
-## 🎯 Why pocket-claude?
+Turn your Claude Code CLI into a web app:
+- **Browse to a URL** and chat with Claude Code through a clean web interface
+- **Use your phone or tablet** - especially optimized for iOS Safari
+- **Access from anywhere** - via VPN, SSH tunnel, or local network
+- **Keep conversations organized** - tab-based session management
+- **Works with CLAUDE.md** - Respects your project's CLAUDE.md configuration
+
+**This works for ANY Claude Code user:**
+- Local laptop, home server, cloud VM - anywhere Claude Code runs
+- Use browser instead of terminal
+- Access from your phone
+- Switch between multiple projects easily
+
+**No server required** - Just `npm install` and run it wherever your Claude Code is installed.
+
+## Features
+
+- **Mobile-First Design** - Tested and optimized for iPhone Safari
+- **Ultra-Lightweight** - Vanilla HTML/CSS/JS, no build step required
+- **Tab-Based Conversations** - Manage multiple conversations simultaneously
+- **Context Usage Tracking** - Real-time token usage visualization
+- **Integrated History Browser** - Browse and resume past sessions
+- **SSE Streaming** - Real-time output with automatic reconnection
+- **Markdown Rendering** - Clean, readable output formatting
+
+## Screenshots
+
+### Main Interface
+![Main Interface](./screenshots/main.png)
+
+### Project Management
+![Project Management](./screenshots/projects.png)
+
+### History Browser
+![History Browser](./screenshots/history.png)
+
+## Why pocket-claude?
 
 Existing solutions are feature-rich but heavyweight. pocket-claude takes a different approach:
 
@@ -21,38 +51,33 @@ Existing solutions are feature-rich but heavyweight. pocket-claude takes a diffe
 - **iOS-optimized** - visualViewport API for perfect keyboard handling
 - **Minimal dependencies** - Only marked.js for markdown rendering
 
-## 🚀 Quick Start
+## Quick Start
 
-### Prerequisites
-
-- Node.js v18+
-- [Claude Code CLI](https://code.claude.com/) installed and authenticated
-
-### Installation
+**Simplest installation (works with Claude Code):**
 
 ```bash
 git clone https://github.com/tarou0080/pocket-claude.git
 cd pocket-claude
 npm install
+npm start
 ```
 
-### Configuration
+Access at `http://localhost:3333`
 
-1. Copy example configs:
-```bash
-cp config.example.json config.json
-cp projects.example.json projects.json
-```
+That's it! It works out-of-the-box with sensible defaults.
 
-2. Edit `projects.json` to add your working directories:
+### Optional Configuration
+
+**Add custom project directories** (`projects.json`):
 ```json
 {
   "home": "/home/user",
-  "work": "/home/user/workspace"
+  "work": "/home/user/workspace",
+  "myproject": "/path/to/project"
 }
 ```
 
-3. (Optional) Edit `config.json`:
+**Change settings** (`config.json`):
 ```json
 {
   "port": 3333,
@@ -62,15 +87,53 @@ cp projects.example.json projects.json
 }
 ```
 
-### Run
+Copy from examples:
+```bash
+cp config.example.json config.json
+cp projects.example.json projects.json
+```
+
+### Prerequisites
+
+- Node.js v18+
+- [Claude Code CLI](https://code.claude.com/) installed and authenticated
+
+## Project Management
+
+pocket-claude allows you to manage project directories from the browser or configuration files.
+
+### Add from Browser (Recommended)
+
+1. Click the **P** button in the header
+2. Enter project name and directory path
+3. Click **Add Project**
+
+Settings are persisted across server restarts.
+
+### Manage via Configuration File
+
+Edit `projects.json` to define projects:
+
+```json
+{
+  "home": "/home/user",
+  "myapp": "/srv/shell/myapp",
+  "website": "/var/www/html"
+}
+```
+
+### Add via Environment Variable
+
+You can also add projects at startup using environment variables:
 
 ```bash
+export ADDITIONAL_ALLOWED_DIRS="/srv/shell:/opt/projects"
 npm start
 ```
 
-Access at `http://localhost:3333`
+These are automatically added as `env_0`, `env_1`, etc.
 
-## ⚙️ Configuration Options
+## Configuration Options
 
 ### Permission Modes
 
@@ -79,11 +142,7 @@ Access at `http://localhost:3333`
 
 ⚠️ **Security Warning**: `bypassPermissions` mode allows Claude Code to execute tools without confirmation. Only use in trusted environments with proper authentication (e.g., VPN + 2FA).
 
-### Projects
-
-Define working directories in `projects.json`. Each project appears as a selectable option when creating new conversations.
-
-## 🏗️ Architecture
+## Architecture
 
 ```
 [Mobile Browser]
@@ -100,7 +159,7 @@ Define working directories in `projects.json`. Each project appears as a selecta
 - **Communication**: Server-Sent Events (SSE) for streaming
 - **Session Management**: JSON files for persistence
 
-## 🔒 Security Considerations
+## Security Considerations
 
 pocket-claude is designed for **local/trusted network use**:
 
@@ -119,7 +178,7 @@ export ADDITIONAL_ALLOWED_DIRS="/srv/shell:/opt/projects"
 npm start
 ```
 
-## 🚫 Out of Scope
+## Out of Scope
 
 pocket-claude is intentionally minimal. The following features are **not planned**:
 
@@ -133,7 +192,7 @@ If you need these features, consider:
 - [claudecodeui](https://github.com/siteboon/claudecodeui) - Full-featured web IDE
 - [claude-relay](https://github.com/chadbyte/claude-relay) - More advanced features
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Claude CLI not found
 Ensure Claude Code CLI is installed and in your PATH:
@@ -157,11 +216,30 @@ Change the port in `config.json` or set `PORT` environment variable:
 PORT=3334 npm start
 ```
 
-## 📝 License
+### Project directory not accessible
+If adding a project fails:
+
+1. Check if the directory exists:
+   ```bash
+   ls -ld /path/to/project
+   ```
+
+2. Check if you have read permissions:
+   ```bash
+   # Run as the user running pocket-claude
+   cd /path/to/project
+   ```
+
+3. Check server logs for details:
+   ```
+   [WARNING] Invalid project path: myproject -> /srv/shell (No such file or directory)
+   ```
+
+## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [marked.js](https://github.com/markedjs/marked) - Markdown parser (MIT)
 - [Express](https://expressjs.com/) - Web framework (MIT)
@@ -171,11 +249,11 @@ Inspired by:
 - [claudecodeui](https://github.com/siteboon/claudecodeui) by siteboon
 - [claude-relay](https://github.com/chadbyte/claude-relay) by chadbyte
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please feel free to submit a Pull Request.
 
-## 📧 Support
+## Support
 
 - Issues: [GitHub Issues](https://github.com/tarou0080/pocket-claude/issues)
 - Discussions: [GitHub Discussions](https://github.com/tarou0080/pocket-claude/discussions)
