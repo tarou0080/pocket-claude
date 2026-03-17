@@ -44,7 +44,7 @@
   #status-dot.running   { background: #FF9800; animation: pulse 1.2s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  #model-select, #effort-select {
+  #model-select {
     background: #333;
     color: #ccc;
     border: 1px solid #4a4a4a;
@@ -53,6 +53,165 @@
     font-size: 12px;
     flex-shrink: 0;
   }
+
+  /* ── Effortインジケーター ── */
+  #effort-indicator {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid #4a4a4a;
+  }
+  #effort-indicator:active { background: #3a3a3a; }
+  .effort-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid #666;
+    background: transparent;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .effort-dot.filled { background: #64B5F6; border-color: #64B5F6; }
+
+  /* ── 設定ボタン ── */
+  #settings-btn {
+    background: transparent;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 16px;
+    color: #888;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1;
+    min-width: 30px;
+    text-align: center;
+    transition: color 0.2s, background 0.2s, border-color 0.2s;
+  }
+  #settings-btn:hover {
+    background: rgba(167,139,250,0.12);
+    border-color: #a78bfa;
+    color: #a78bfa;
+  }
+  #settings-btn:active { background: rgba(167,139,250,0.18); }
+  #settings-btn.active { color: #a78bfa; border-color: #a78bfa; }
+
+  /* ── 設定モーダル ── */
+  #settings-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0,0,0,0.8);
+    align-items: center;
+    justify-content: center;
+  }
+  #settings-modal.open { display: flex; }
+
+  #settings-content {
+    background: #252525;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 420px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #settings-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid #3a3a3a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  #settings-header h3 { font-size: 15px; color: #e0e0e0; }
+  #settings-close {
+    background: none; border: none; color: #888;
+    font-size: 20px; cursor: pointer; padding: 4px 8px;
+  }
+  #settings-close:active { color: #ccc; }
+
+  #settings-body {
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .settings-section-title {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+
+  /* フォントサイズ */
+  .font-size-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .font-size-row:last-child { margin-bottom: 0; }
+  .font-size-label { font-size: 13px; color: #ccc; }
+  .font-size-ctrl { display: flex; align-items: center; gap: 8px; }
+  .font-size-btn {
+    background: #333; border: 1px solid #4a4a4a; color: #ccc;
+    border-radius: 6px; width: 28px; height: 28px;
+    font-size: 16px; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .font-size-btn:active { background: #444; }
+  .font-size-val { font-size: 13px; color: #e0e0e0; min-width: 36px; text-align: center; }
+
+  /* モデル設定 */
+  .model-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #1e1e1e;
+    margin-bottom: 6px;
+  }
+  .model-row:last-child { margin-bottom: 0; }
+  .model-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #64B5F6; flex-shrink: 0; }
+  .model-row-name { flex: 1; font-size: 13px; color: #ccc; }
+  .model-row input[type="radio"] { width: 16px; height: 16px; cursor: pointer; accent-color: #64B5F6; flex-shrink: 0; }
+  .model-row-default-label { font-size: 11px; color: #64B5F6; margin-left: 2px; min-width: 44px; text-align: right; }
+
+  /* Effort設定 */
+  .effort-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #1e1e1e;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .effort-option:last-child { margin-bottom: 0; }
+  .effort-option:active { background: #2a2a2a; }
+  .effort-option.selected { background: #1a2535; }
+  .effort-dots { display: flex; gap: 3px; flex-shrink: 0; }
+  .effort-dots .d {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    border: 1.5px solid #555;
+    background: transparent;
+  }
+  .effort-dots .d.on { background: #64B5F6; border-color: #64B5F6; }
+  .effort-option-label { font-size: 13px; color: #ccc; flex: 1; }
+  .effort-option.selected .effort-option-label { color: #e0e0e0; }
 
   #stop-btn, #history-btn, #projects-btn {
     background: none;
@@ -458,15 +617,16 @@
     background: #333;
     color: #e0e0e0;
     border: 1px solid #4a4a4a;
-    border-radius: 10px;
-    padding: 10px 12px;
+    border-radius: 12px;
+    padding: 10px 14px;
     font-size: 16px;
-    line-height: 1.4;
+    line-height: 1.5;
     resize: none;
     min-height: 42px;
     max-height: 160px;
     font-family: -apple-system, sans-serif;
     outline: none;
+    transition: border-color 0.2s;
   }
   #prompt:focus { border-color: #1565C0; }
 
@@ -474,15 +634,20 @@
     background: #1565C0;
     color: white;
     border: none;
-    border-radius: 10px;
-    padding: 11px 14px;
-    font-size: 14px;
+    border-radius: 12px;
+    padding: 0 16px;
+    font-size: 17px;
     cursor: pointer;
     flex-shrink: 0;
-    line-height: 1;
     white-space: nowrap;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-end;
+    transition: opacity 0.2s, transform 0.1s;
   }
-  #send-btn:active { background: #0D47A1; }
+  #send-btn:active { opacity: 0.8; transform: scale(0.96); }
 </style>
 </head>
 <body>
@@ -491,22 +656,17 @@
   <div id="header">
     <div id="status-dot"></div>
     <span id="ctx-badge"></span>
-    <select id="model-select">
-      <option value="">model: default</option>
-      <option value="claude-opus-4-6">Opus 4.6</option>
-      <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-      <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
-    </select>
-    <select id="effort-select" title="Effort level">
-      <option value="">effort: default</option>
-      <option value="low">low</option>
-      <option value="medium">medium</option>
-      <option value="high">high</option>
-      <option value="max">max</option>
-    </select>
+    <select id="model-select"></select>
+    <div id="effort-indicator" title="Effort level">
+      <span class="effort-dot" data-idx="0"></span>
+      <span class="effort-dot" data-idx="1"></span>
+      <span class="effort-dot" data-idx="2"></span>
+      <span class="effort-dot" data-idx="3"></span>
+    </div>
     <button id="stop-btn" title="Stop execution">■</button>
     <button id="projects-btn" title="Projects">P</button>
     <button id="history-btn" title="Conversation history">⟳</button>
+    <button id="settings-btn" title="Settings">&#9881;&#xFE0E;</button>
   </div>
   <div id="tab-bar">
     <button id="add-tab-btn" title="New conversation">+</button>
@@ -540,6 +700,48 @@
   </div>
 </div>
 
+<!-- 設定モーダル -->
+<div id="settings-modal">
+  <div id="settings-content">
+    <div id="settings-header">
+      <h3>Settings</h3>
+      <button id="settings-close">✕</button>
+    </div>
+    <div id="settings-body">
+      <!-- Font Size -->
+      <div>
+        <div class="settings-section-title">Font Size</div>
+        <div class="font-size-row">
+          <span class="font-size-label">Prompt</span>
+          <div class="font-size-ctrl">
+            <button class="font-size-btn" id="prompt-font-dec">−</button>
+            <span class="font-size-val" id="prompt-font-val">16px</span>
+            <button class="font-size-btn" id="prompt-font-inc">＋</button>
+          </div>
+        </div>
+        <div class="font-size-row">
+          <span class="font-size-label">Output</span>
+          <div class="font-size-ctrl">
+            <button class="font-size-btn" id="output-font-dec">−</button>
+            <span class="font-size-val" id="output-font-val">13px</span>
+            <button class="font-size-btn" id="output-font-inc">＋</button>
+          </div>
+        </div>
+      </div>
+      <!-- Model -->
+      <div>
+        <div class="settings-section-title">Model</div>
+        <div id="settings-model-list"></div>
+      </div>
+      <!-- Effort -->
+      <div>
+        <div class="settings-section-title">Effort</div>
+        <div id="settings-effort-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="output-container"></div>
 
 <div id="input-area">
@@ -567,11 +769,237 @@ const promptEl        = document.getElementById('prompt')
 const sendBtn         = document.getElementById('send-btn')
 const statusDot       = document.getElementById('status-dot')
 const modelSel        = document.getElementById('model-select')
-const effortSel       = document.getElementById('effort-select')
 const stopBtn         = document.getElementById('stop-btn')
 const addTabBtn       = document.getElementById('add-tab-btn')
 const tabBar          = document.getElementById('tab-bar')
 const outputCont      = document.getElementById('output-container')
+const effortIndicator = document.getElementById('effort-indicator')
+const settingsBtn     = document.getElementById('settings-btn')
+const settingsModal   = document.getElementById('settings-modal')
+const settingsClose   = document.getElementById('settings-close')
+
+// ── 設定管理 ──
+const ALL_MODELS = [
+  { value: '', label: '(claude default)' },
+  { value: 'claude-opus-4-6',         label: 'Opus 4.6' },
+  { value: 'claude-sonnet-4-6',       label: 'Sonnet 4.6' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+]
+const EFFORT_OPTIONS = [
+  { value: '',      dots: [0,0,0,0], label: 'default' },
+  { value: 'low',   dots: [1,0,0,0], label: 'low' },
+  { value: 'medium',dots: [1,1,0,0], label: 'medium' },
+  { value: 'high',  dots: [1,1,1,0], label: 'high' },
+  { value: 'max',   dots: [1,1,1,1], label: 'max' },
+]
+
+function loadSettings() {
+  const defaults = {
+    promptFontSize: 16,
+    outputFontSize: 13,
+    effort: '',
+    defaultModel: '',
+    enabledModels: ALL_MODELS.map(m => m.value),
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem('pc-settings') || '{}')
+    return { ...defaults, ...saved }
+  } catch { return defaults }
+}
+
+function saveSettings(s) {
+  localStorage.setItem('pc-settings', JSON.stringify(s))
+}
+
+let appSettings = loadSettings()
+
+function applyFontSizes() {
+  promptEl.style.fontSize = appSettings.promptFontSize + 'px'
+  document.querySelectorAll('.output-pane').forEach(p => {
+    p.style.fontSize = appSettings.outputFontSize + 'px'
+  })
+}
+
+function applyFontSizesToPane(pane) {
+  pane.style.fontSize = appSettings.outputFontSize + 'px'
+}
+
+function rebuildModelSelect() {
+  const prev = modelSel.value
+  modelSel.innerHTML = ''
+  ALL_MODELS.forEach(m => {
+    if (!appSettings.enabledModels.includes(m.value)) return
+    const opt = document.createElement('option')
+    opt.value = m.value
+    opt.textContent = m.label
+    modelSel.appendChild(opt)
+  })
+  // デフォルトモデルを適用
+  const def = appSettings.defaultModel
+  if (prev && [...modelSel.options].some(o => o.value === prev)) {
+    modelSel.value = prev
+  } else if ([...modelSel.options].some(o => o.value === def)) {
+    modelSel.value = def
+  } else if (modelSel.options.length > 0) {
+    modelSel.value = modelSel.options[0].value
+  }
+}
+
+function updateEffortIndicator() {
+  const opt = EFFORT_OPTIONS.find(o => o.value === appSettings.effort) || EFFORT_OPTIONS[0]
+  effortIndicator.querySelectorAll('.effort-dot').forEach((dot, i) => {
+    dot.classList.toggle('filled', opt.dots[i] === 1)
+  })
+  effortIndicator.title = `Effort: ${opt.label}`
+}
+
+// ── 設定モーダル操作 ──
+function openSettings() {
+  settingsModal.classList.add('open')
+  settingsBtn.classList.add('active')
+  renderSettingsModal()
+}
+
+function closeSettings() {
+  settingsModal.classList.remove('open')
+  settingsBtn.classList.remove('active')
+}
+
+function renderSettingsModal() {
+  // Font size
+  document.getElementById('prompt-font-val').textContent = appSettings.promptFontSize + 'px'
+  document.getElementById('output-font-val').textContent = appSettings.outputFontSize + 'px'
+
+  // Model list
+  const modelList = document.getElementById('settings-model-list')
+  modelList.innerHTML = ''
+  ALL_MODELS.forEach(m => {
+    const row = document.createElement('div')
+    row.className = 'model-row'
+
+    const chk = document.createElement('input')
+    chk.type = 'checkbox'
+    chk.checked = appSettings.enabledModels.includes(m.value)
+    chk.addEventListener('change', () => {
+      if (chk.checked) {
+        if (!appSettings.enabledModels.includes(m.value))
+          appSettings.enabledModels.push(m.value)
+      } else {
+        // 最低1つは残す
+        if (appSettings.enabledModels.length <= 1) { chk.checked = true; return }
+        appSettings.enabledModels = appSettings.enabledModels.filter(v => v !== m.value)
+        // デフォルトが非表示になったらリセット
+        if (appSettings.defaultModel === m.value)
+          appSettings.defaultModel = appSettings.enabledModels[0]
+        renderSettingsModal()
+      }
+      saveSettings(appSettings)
+      rebuildModelSelect()
+    })
+
+    const name = document.createElement('span')
+    name.className = 'model-row-name'
+    name.textContent = m.label
+
+    const radio = document.createElement('input')
+    radio.type = 'radio'
+    radio.name = 'default-model'
+    radio.value = m.value
+    radio.checked = appSettings.defaultModel === m.value
+    radio.disabled = !appSettings.enabledModels.includes(m.value)
+    radio.addEventListener('change', () => {
+      if (radio.checked) {
+        appSettings.defaultModel = m.value
+        saveSettings(appSettings)
+        rebuildModelSelect()
+        // ラベル更新
+        modelList.querySelectorAll('.model-row-default-label').forEach(l => l.textContent = '')
+        row.querySelector('.model-row-default-label').textContent = 'default'
+      }
+    })
+
+    const defLabel = document.createElement('span')
+    defLabel.className = 'model-row-default-label'
+    defLabel.textContent = appSettings.defaultModel === m.value ? 'default' : ''
+
+    row.appendChild(chk)
+    row.appendChild(name)
+    row.appendChild(radio)
+    row.appendChild(defLabel)
+    modelList.appendChild(row)
+  })
+
+  // Effort list
+  const effortList = document.getElementById('settings-effort-list')
+  effortList.innerHTML = ''
+  EFFORT_OPTIONS.forEach(opt => {
+    const row = document.createElement('div')
+    row.className = 'effort-option' + (appSettings.effort === opt.value ? ' selected' : '')
+    row.addEventListener('click', () => {
+      appSettings.effort = opt.value
+      saveSettings(appSettings)
+      updateEffortIndicator()
+      effortList.querySelectorAll('.effort-option').forEach(r => r.classList.remove('selected'))
+      row.classList.add('selected')
+    })
+
+    const dots = document.createElement('div')
+    dots.className = 'effort-dots'
+    opt.dots.forEach(filled => {
+      const d = document.createElement('span')
+      d.className = 'd' + (filled ? ' on' : '')
+      dots.appendChild(d)
+    })
+
+    const label = document.createElement('span')
+    label.className = 'effort-option-label'
+    label.textContent = opt.label
+
+    row.appendChild(dots)
+    row.appendChild(label)
+    effortList.appendChild(row)
+  })
+}
+
+settingsBtn.addEventListener('click', () => {
+  if (settingsModal.classList.contains('open')) closeSettings()
+  else openSettings()
+})
+settingsClose.addEventListener('click', closeSettings)
+settingsModal.addEventListener('click', e => {
+  if (e.target === settingsModal) closeSettings()
+})
+effortIndicator.addEventListener('click', openSettings)
+
+// フォントサイズボタン
+document.getElementById('prompt-font-dec').addEventListener('click', () => {
+  if (appSettings.promptFontSize <= 10) return
+  appSettings.promptFontSize--
+  saveSettings(appSettings)
+  applyFontSizes()
+  document.getElementById('prompt-font-val').textContent = appSettings.promptFontSize + 'px'
+})
+document.getElementById('prompt-font-inc').addEventListener('click', () => {
+  if (appSettings.promptFontSize >= 24) return
+  appSettings.promptFontSize++
+  saveSettings(appSettings)
+  applyFontSizes()
+  document.getElementById('prompt-font-val').textContent = appSettings.promptFontSize + 'px'
+})
+document.getElementById('output-font-dec').addEventListener('click', () => {
+  if (appSettings.outputFontSize <= 10) return
+  appSettings.outputFontSize--
+  saveSettings(appSettings)
+  applyFontSizes()
+  document.getElementById('output-font-val').textContent = appSettings.outputFontSize + 'px'
+})
+document.getElementById('output-font-inc').addEventListener('click', () => {
+  if (appSettings.outputFontSize >= 24) return
+  appSettings.outputFontSize++
+  saveSettings(appSettings)
+  applyFontSizes()
+  document.getElementById('output-font-val').textContent = appSettings.outputFontSize + 'px'
+})
 
 const tabState = {}   // sessionId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane, autoScroll }
 const CTX_MAX = 200000
@@ -609,6 +1037,7 @@ function ensureTabState(session) {
   const pane = document.createElement('div')
   pane.className = 'output-pane'
   pane.dataset.sessionId = session.sessionId
+  applyFontSizesToPane(pane)
   outputCont.appendChild(pane)
   tabState[session.sessionId] = {
     isRunning: false,
@@ -875,6 +1304,9 @@ projectAddBtn.addEventListener('click', async () => {
 
 // ── 初期化 ──
 async function init() {
+  rebuildModelSelect()
+  applyFontSizes()
+  updateEffortIndicator()
   await refreshProjectsCache()
   let sessions = loadSessions()
 
@@ -986,7 +1418,11 @@ function handleEvent(sessionId, ev) {
 
   switch (ev.type) {
     case 'user_input':
-      addLine(ts, `> ${ev.text}`, 'line-user')
+      if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
+        addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
+      } else {
+        addLine(ts, `> ${ev.text}`, 'line-user')
+      }
       finalizeText(ts)
       break
 
@@ -1373,7 +1809,7 @@ async function send() {
         sessionId: currentSessionId,
         project: currentSession.project,
         model: modelSel.value || null,
-        effort: effortSel.value || null
+        effort: appSettings.effort || null
       })
     })
     if (!res.ok) {

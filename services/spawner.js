@@ -35,7 +35,7 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort)
     '--include-partial-messages',
     '--permission-mode', permissionMode,
     ...(model  ? ['--model',  model]  : []),
-    ...(effort ? ['--effort', effort] : []),
+    ...(effort ? ['--settings', JSON.stringify({ effort })] : []),
   ]
 
   broadcast(sessionId, {
