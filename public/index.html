@@ -5,13 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>pocket-claude</title>
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+<script src="themes.js"></script>
 <style>
+  :root {
+    /* Theme colors (will be overridden by themes.js) */
+    --bg: #1a1a1a;
+    --surface: #252525;
+    --surface2: #2a2a2a;
+    --surface3: #333;
+    --border: #3a3a3a;
+    --border-soft: #2a2a2a;
+    --border-input: #4a4a4a;
+    --text: #e0e0e0;
+    --text-muted: #ccc;
+    --text-dim: #888;
+    --text-darker: #666;
+    --accent: #64B5F6;
+    --accent-hover: rgba(100, 181, 246, 0.12);
+    --accent-active: rgba(100, 181, 246, 0.18);
+    --accent-bg: #1a2535;
+    --primary: #1565C0;
+    --primary-dark: #0D47A1;
+    --purple: #a78bfa;
+    --purple-hover: rgba(167, 139, 250, 0.12);
+    --purple-active: rgba(167, 139, 250, 0.18);
+    --green: #4CAF50;
+    --green-user: #81C784;
+    --green-user-bg: #1e2a1e;
+    --orange: #FF9800;
+    --red: #EF5350;
+    --red-bg: #3a2020;
+    --effort-border: #666;
+    --effort-empty: #555;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #1a1a1a;
-    color: #e0e0e0;
+    background: var(--bg);
+    color: var(--text);
     height: 100%;
     overflow: hidden;
   }
@@ -25,33 +58,54 @@
 
   /* ── ヘッダー ── */
   #header {
-    background: #252525;
+    background: var(--surface);
     padding: 8px 12px;
     display: flex;
     align-items: center;
     gap: 10px;
-    border-bottom: 1px solid #3a3a3a;
+    border-bottom: 1px solid var(--border);
   }
 
   #status-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
-    background: #555;
+    background: var(--effort-empty);
     flex-shrink: 0;
-    transition: background 0.3s;
+    transition: background 0.3s, width 0.3s, height 0.3s, border-radius 0.3s, padding 0.3s;
   }
-  #status-dot.connected { background: #4CAF50; }
-  #status-dot.running   { background: #FF9800; animation: pulse 1.2s infinite; }
+  #status-dot.connected { background: var(--green); }
+  #status-dot.running   { background: var(--orange); animation: pulse 1.2s infinite; }
+  #status-dot.disconnected {
+    width: auto; height: auto;
+    border-radius: 6px;
+    background: none;
+    border: 1px solid var(--border-input);
+    padding: 4px 8px;
+    font-size: 14px;
+    color: var(--text-dim);
+    cursor: pointer;
+    min-width: 32px;
+    text-align: center;
+  }
+  #status-dot.disconnected:active { background: var(--border); color: var(--text-muted); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
   #model-select {
-    background: #333;
-    color: #ccc;
-    border: 1px solid #4a4a4a;
-    padding: 4px 7px;
+    background: var(--surface3);
+    color: var(--text-muted);
+    border: 1px solid var(--border-input);
+    padding: 4px 8px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 14px;
     flex-shrink: 0;
+    min-width: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  #model-select:hover {
+    background: var(--border);
+    border-color: var(--accent);
   }
 
   /* ── Effortインジケーター ── */
@@ -61,42 +115,49 @@
     align-items: center;
     flex-shrink: 0;
     cursor: pointer;
-    padding: 4px 6px;
+    padding: 4px 8px;
     border-radius: 6px;
-    border: 1px solid #4a4a4a;
+    border: 1px solid var(--border-input);
+    min-height: 30px;
+    transition: background 0.2s, border-color 0.2s;
   }
-  #effort-indicator:active { background: #3a3a3a; }
+  #effort-indicator:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent);
+  }
+  #effort-indicator:active { background: var(--border); }
   .effort-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
-    border: 1.5px solid #666;
+    border: 1.5px solid var(--effort-border);
     background: transparent;
     transition: background 0.15s, border-color 0.15s;
   }
-  .effort-dot.filled { background: #64B5F6; border-color: #64B5F6; }
+  .effort-dot.filled { background: var(--accent); border-color: var(--accent); }
 
   /* ── 設定ボタン ── */
   #settings-btn {
     background: transparent;
-    border: 1px solid #3a3a3a;
-    border-radius: 8px;
-    padding: 5px 8px;
-    font-size: 16px;
-    color: #888;
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 14px;
+    color: var(--text-dim);
     cursor: pointer;
     flex-shrink: 0;
-    line-height: 1;
-    min-width: 30px;
-    text-align: center;
+    min-width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: color 0.2s, background 0.2s, border-color 0.2s;
   }
   #settings-btn:hover {
-    background: rgba(167,139,250,0.12);
-    border-color: #a78bfa;
-    color: #a78bfa;
+    background: var(--accent-hover);
+    border-color: var(--accent);
+    color: var(--accent);
   }
-  #settings-btn:active { background: rgba(167,139,250,0.18); }
-  #settings-btn.active { color: #a78bfa; border-color: #a78bfa; }
+  #settings-btn:active { background: var(--accent-active); }
+  #settings-btn.active { color: var(--accent); border-color: var(--accent); }
 
   /* ── 設定モーダル ── */
   #settings-modal {
@@ -111,7 +172,7 @@
   #settings-modal.open { display: flex; }
 
   #settings-content {
-    background: #252525;
+    background: var(--surface);
     border-radius: 12px;
     width: 90%;
     max-width: 420px;
@@ -123,18 +184,18 @@
 
   #settings-header {
     padding: 14px 16px;
-    border-bottom: 1px solid #3a3a3a;
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
   }
-  #settings-header h3 { font-size: 15px; color: #e0e0e0; }
+  #settings-header h3 { font-size: 15px; color: var(--text); }
   #settings-close {
-    background: none; border: none; color: #888;
+    background: none; border: none; color: var(--text-dim);
     font-size: 20px; cursor: pointer; padding: 4px 8px;
   }
-  #settings-close:active { color: #ccc; }
+  #settings-close:active { color: var(--text-muted); }
 
   #settings-body {
     overflow-y: auto;
@@ -146,7 +207,7 @@
 
   .settings-section-title {
     font-size: 11px;
-    color: #888;
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     margin-bottom: 10px;
@@ -160,16 +221,16 @@
     margin-bottom: 8px;
   }
   .font-size-row:last-child { margin-bottom: 0; }
-  .font-size-label { font-size: 13px; color: #ccc; }
+  .font-size-label { font-size: 13px; color: var(--text-muted); }
   .font-size-ctrl { display: flex; align-items: center; gap: 8px; }
   .font-size-btn {
-    background: #333; border: 1px solid #4a4a4a; color: #ccc;
+    background: var(--surface3); border: 1px solid var(--border-input); color: var(--text-muted);
     border-radius: 6px; width: 28px; height: 28px;
     font-size: 16px; cursor: pointer; display: flex;
     align-items: center; justify-content: center; flex-shrink: 0;
   }
-  .font-size-btn:active { background: #444; }
-  .font-size-val { font-size: 13px; color: #e0e0e0; min-width: 36px; text-align: center; }
+  .font-size-btn:active { background: var(--border); }
+  .font-size-val { font-size: 13px; color: var(--text); min-width: 36px; text-align: center; }
 
   /* モデル設定 */
   .model-row {
@@ -178,14 +239,14 @@
     gap: 10px;
     padding: 8px 10px;
     border-radius: 8px;
-    background: #1e1e1e;
+    background: var(--surface2);
     margin-bottom: 6px;
   }
   .model-row:last-child { margin-bottom: 0; }
-  .model-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #64B5F6; flex-shrink: 0; }
-  .model-row-name { flex: 1; font-size: 13px; color: #ccc; }
-  .model-row input[type="radio"] { width: 16px; height: 16px; cursor: pointer; accent-color: #64B5F6; flex-shrink: 0; }
-  .model-row-default-label { font-size: 11px; color: #64B5F6; margin-left: 2px; min-width: 44px; text-align: right; }
+  .model-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0; }
+  .model-row-name { flex: 1; font-size: 13px; color: var(--text-muted); }
+  .model-row input[type="radio"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0; }
+  .model-row-default-label { font-size: 11px; color: var(--accent); margin-left: 2px; min-width: 44px; text-align: right; }
 
   /* Effort設定 */
   .effort-option {
@@ -194,49 +255,52 @@
     gap: 12px;
     padding: 8px 10px;
     border-radius: 8px;
-    background: #1e1e1e;
+    background: var(--surface2);
     margin-bottom: 6px;
     cursor: pointer;
     transition: background 0.15s;
   }
   .effort-option:last-child { margin-bottom: 0; }
-  .effort-option:active { background: #2a2a2a; }
-  .effort-option.selected { background: #1a2535; }
+  .effort-option:active { background: var(--border-soft); }
+  .effort-option.selected { background: var(--accent-bg); }
   .effort-dots { display: flex; gap: 3px; flex-shrink: 0; }
   .effort-dots .d {
     width: 9px; height: 9px;
     border-radius: 50%;
-    border: 1.5px solid #555;
+    border: 1.5px solid var(--effort-empty);
     background: transparent;
   }
-  .effort-dots .d.on { background: #64B5F6; border-color: #64B5F6; }
-  .effort-option-label { font-size: 13px; color: #ccc; flex: 1; }
-  .effort-option.selected .effort-option-label { color: #e0e0e0; }
+  .effort-dots .d.on { background: var(--accent); border-color: var(--accent); }
+  .effort-option-label { font-size: 13px; color: var(--text-muted); flex: 1; }
+  .effort-option.selected .effort-option-label { color: var(--text); }
 
   #stop-btn, #history-btn, #projects-btn {
     background: none;
-    border: 1px solid #4a4a4a;
+    border: 1px solid var(--border-input);
     border-radius: 6px;
-    padding: 4px 9px;
-    font-size: 12px;
+    padding: 4px 8px;
+    font-size: 14px;
     cursor: pointer;
     flex-shrink: 0;
-  }
-  #stop-btn { color: #EF5350; border-color: #EF5350; opacity: 0.3; pointer-events: none; }
-  #stop-btn.running { opacity: 1; pointer-events: auto; }
-  #stop-btn:active { background: #3a2020; }
-
-  #history-btn, #projects-btn {
-    font-size: 14px;
-    padding: 4px 8px;
-    color: #888;
     min-width: 32px;
     text-align: center;
-    border: 1px solid #4a4a4a;
-    border-radius: 6px;
   }
-  #history-btn:active, #projects-btn:active { background: #3a3a3a; color: #ccc; }
-  #history-btn.active, #projects-btn.active { color: #64B5F6; border-color: #64B5F6; }
+  #stop-btn { color: var(--red); border-color: var(--red); opacity: 0.3; pointer-events: none; transition: background 0.2s, opacity 0.2s; }
+  #stop-btn.running { opacity: 1; pointer-events: auto; }
+  #stop-btn.running:hover { background: var(--red-bg); }
+  #stop-btn:active { background: var(--red-bg); }
+
+  #history-btn, #projects-btn {
+    color: var(--text-dim);
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+  }
+  #history-btn:hover, #projects-btn:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  #history-btn:active, #projects-btn:active { background: var(--border); color: var(--text-muted); }
+  #history-btn.active, #projects-btn.active { color: var(--accent); border-color: var(--accent); }
 
   /* ── 履歴パネル ── */
   #history-panel {
@@ -244,33 +308,33 @@
     position: fixed;
     inset: 0;
     z-index: 30;
-    background: #1a1a1a;
+    background: var(--bg);
     flex-direction: column;
   }
   #history-panel.open { display: flex; }
 
   #history-header {
-    background: #252525;
+    background: var(--surface);
     padding: 10px 12px;
     display: flex;
     align-items: center;
     gap: 10px;
-    border-bottom: 1px solid #3a3a3a;
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
   #history-back {
     background: none;
     border: none;
-    color: #64B5F6;
+    color: var(--accent);
     font-size: 14px;
     cursor: pointer;
     padding: 4px 6px;
     border-radius: 6px;
   }
-  #history-back:active { background: #2a2a2a; }
+  #history-back:active { background: var(--border-soft); }
   #history-title {
     font-size: 14px;
-    color: #e0e0e0;
+    color: var(--text);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -286,14 +350,14 @@
   /* 一覧 */
   .history-item {
     padding: 12px 14px;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--border-soft);
     cursor: pointer;
     user-select: none;
   }
-  .history-item:active { background: #252525; }
+  .history-item:active { background: var(--surface); }
   .history-item-title {
     font-size: 13px;
-    color: #e0e0e0;
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -301,26 +365,26 @@
   }
   .history-item-meta {
     font-size: 11px;
-    color: #666;
+    color: var(--text-darker);
   }
 
   /* 詳細 */
   .history-msg {
     padding: 10px 14px;
-    border-bottom: 1px solid #252525;
+    border-bottom: 1px solid var(--surface);
     font-size: 13px;
     line-height: 1.6;
     white-space: pre-wrap;
     word-break: break-word;
   }
-  .history-msg-user { color: #81C784; background: #1e2a1e; }
-  .history-msg-assistant { color: #e0e0e0; }
+  .history-msg-user { color: var(--green-user); background: var(--green-user-bg); }
+  .history-msg-assistant { color: var(--text); }
 
   /* 再開ボタン */
   #resume-btn {
     margin: 20px 14px;
     padding: 14px 20px;
-    background: #1565C0;
+    background: var(--primary);
     color: white;
     border: none;
     border-radius: 10px;
@@ -329,7 +393,7 @@
     width: calc(100% - 28px);
     text-align: center;
   }
-  #resume-btn:active { background: #0D47A1; }
+  #resume-btn:active { background: var(--primary-dark); }
 
   /* ── プロジェクトモーダル ── */
   #projects-modal {
@@ -344,7 +408,7 @@
   #projects-modal.open { display: flex; }
 
   #projects-content {
-    background: #252525;
+    background: var(--surface);
     border-radius: 12px;
     width: 90%;
     max-width: 500px;
@@ -355,7 +419,7 @@
 
   #projects-header {
     padding: 16px;
-    border-bottom: 1px solid #3a3a3a;
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -363,18 +427,18 @@
 
   #projects-header h3 {
     font-size: 16px;
-    color: #e0e0e0;
+    color: var(--text);
   }
 
   #projects-close {
     background: none;
     border: none;
-    color: #888;
+    color: var(--text-dim);
     font-size: 20px;
     cursor: pointer;
     padding: 4px 8px;
   }
-  #projects-close:active { color: #ccc; }
+  #projects-close:active { color: var(--text-muted); }
 
   #projects-body {
     flex: 1;
@@ -384,7 +448,7 @@
 
   .project-item {
     padding: 12px;
-    background: #1e1e1e;
+    background: var(--surface2);
     border-radius: 8px;
     margin-bottom: 10px;
     display: flex;
@@ -399,14 +463,14 @@
 
   .project-name {
     font-size: 14px;
-    color: #e0e0e0;
+    color: var(--text);
     font-weight: 500;
     margin-bottom: 4px;
   }
 
   .project-path {
     font-size: 12px;
-    color: #888;
+    color: var(--text-dim);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -414,8 +478,8 @@
 
   .project-remove {
     background: none;
-    border: 1px solid #EF5350;
-    color: #EF5350;
+    border: 1px solid var(--red);
+    color: var(--red);
     border-radius: 6px;
     padding: 6px 12px;
     font-size: 12px;
@@ -423,42 +487,42 @@
     flex-shrink: 0;
     margin-left: 10px;
   }
-  .project-remove:active { background: #3a2020; }
+  .project-remove:active { background: var(--red-bg); }
 
   #project-add-form {
     padding: 16px;
-    border-top: 1px solid #3a3a3a;
+    border-top: 1px solid var(--border);
   }
 
   #project-add-form input {
     width: 100%;
     padding: 10px;
-    background: #1e1e1e;
-    border: 1px solid #4a4a4a;
+    background: var(--surface2);
+    border: 1px solid var(--border-input);
     border-radius: 6px;
-    color: #e0e0e0;
+    color: var(--text);
     font-size: 14px;
     margin-bottom: 10px;
   }
 
   #project-add-form input::placeholder {
-    color: #666;
+    color: var(--text-darker);
   }
 
   #project-add-btn {
     width: 100%;
     padding: 12px;
-    background: #1565C0;
+    background: var(--primary);
     color: white;
     border: none;
     border-radius: 8px;
     font-size: 14px;
     cursor: pointer;
   }
-  #project-add-btn:active { background: #0D47A1; }
+  #project-add-btn:active { background: var(--primary-dark); }
 
   #project-error {
-    color: #EF5350;
+    color: var(--red);
     font-size: 12px;
     margin-top: 8px;
     display: none;
@@ -466,18 +530,18 @@
 
   #projects-note {
     font-size: 12px;
-    color: #888;
+    color: var(--text-dim);
     padding: 8px 16px 0;
     flex-shrink: 0;
   }
 
-  .project-item.current .project-name { color: #64B5F6; }
+  .project-item.current .project-name { color: var(--accent); }
   .project-item.locked { cursor: default; }
-  .project-item:not(.locked):not(.current):hover { background: #2a2a2a; cursor: pointer; }
+  .project-item:not(.locked):not(.current):hover { background: var(--border-soft); cursor: pointer; }
 
   .project-star {
     font-size: 16px;
-    color: #555;
+    color: var(--effort-empty);
     cursor: pointer;
     padding: 0 4px;
     flex-shrink: 0;
@@ -487,8 +551,8 @@
 
   /* ── タブバー ── */
   #tab-bar {
-    background: #1e1e1e;
-    border-bottom: 1px solid #3a3a3a;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: stretch;
     overflow-x: auto;
@@ -502,7 +566,7 @@
     gap: 6px;
     padding: 8px 10px;
     font-size: 13px;
-    color: #888;
+    color: var(--text-dim);
     cursor: pointer;
     border-bottom: 2px solid transparent;
     user-select: none;
@@ -511,10 +575,10 @@
     max-width: 300px;
     overflow: hidden;
   }
-  .tab:active { background: #2a2a2a; }
-  .tab.active { color: #e0e0e0; border-bottom-color: #1565C0; }
-  .tab.running { color: #FF9800; }
-  .tab.running.active { border-bottom-color: #FF9800; }
+  .tab:active { background: var(--border-soft); }
+  .tab.active { color: var(--text); border-bottom-color: var(--primary); }
+  .tab.running { color: var(--orange); }
+  .tab.running.active { border-bottom-color: var(--orange); }
 
   .tab-name {
     flex: 1;
@@ -525,13 +589,13 @@
 
   .tab-close {
     font-size: 14px;
-    color: #555;
+    color: var(--effort-empty);
     border-radius: 3px;
     padding: 0 2px;
     flex-shrink: 0;
     line-height: 1;
   }
-  .tab-close:hover { color: #EF5350; }
+  .tab-close:hover { color: var(--red); }
 
   #add-tab-btn {
     -webkit-appearance: none;
@@ -540,7 +604,7 @@
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    color: #666;
+    color: var(--text-darker);
     font-size: 18px;
     padding: 8px 10px;
     cursor: pointer;
@@ -549,7 +613,7 @@
     align-items: center;
     justify-content: center;
   }
-  #add-tab-btn:active { color: #ccc; background: #2a2a2a; }
+  #add-tab-btn:active { color: var(--text-muted); background: var(--border-soft); }
 
   @media (max-width: 480px) {
     .tab { max-width: none; padding: 8px 8px; }
@@ -576,43 +640,43 @@
   .output-pane.active { display: block; }
 
   .line { margin-bottom: 2px; word-break: break-word; white-space: pre-wrap; }
-  .line-user    { color: #81C784; }
-  .line-text    { color: #e0e0e0; white-space: normal; }
-  .line-tool    { color: #64B5F6; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+  .line-user    { color: var(--green-user); }
+  .line-text    { color: var(--text); white-space: normal; }
+  .line-tool    { color: var(--accent); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
   .line-tool .tool-name { font-style: italic; flex-shrink: 0; }
-  .line-tool .tool-desc { color: #888; font-size: 11px; font-style: normal; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .line-tool .tool-toggle { font-size: 10px; color: #666; flex-shrink: 0; }
-  .tool-result { color: #777; font-size: 11px; margin-left: 20px; margin-top: 2px; white-space: pre-wrap; overflow-x: auto; max-height: 0; overflow-y: hidden; transition: max-height 0.2s; }
+  .line-tool .tool-desc { color: var(--text-dim); font-size: 11px; font-style: normal; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .line-tool .tool-toggle { font-size: 10px; color: var(--text-darker); flex-shrink: 0; }
+  .tool-result { color: var(--text-dim); font-size: 11px; margin-left: 20px; margin-top: 2px; white-space: pre-wrap; overflow-x: auto; max-height: 0; overflow-y: hidden; transition: max-height 0.2s; }
   .tool-result.expanded { max-height: 500px; overflow-y: auto; }
-  .line-system  { color: #777; font-size: 11px; }
-  .line-done    { color: #4CAF50; border-top: 1px solid #333; margin-top: 6px; padding-top: 6px; }
-  .line-done.warn { color: #FF9800; }
-  #ctx-badge { font-size: 11px; color: #555; flex-shrink: 0; }
-  #ctx-badge.warn { color: #FF9800; font-weight: bold; }
-  .line-error   { color: #EF5350; }
-  .line-thinking { color: #7E57C2; font-size: 11px; font-style: italic; }
+  .line-system  { color: var(--text-dim); font-size: 11px; }
+  .line-done    { color: var(--green); border-top: 1px solid var(--surface3); margin-top: 6px; padding-top: 6px; }
+  .line-done.warn { color: var(--orange); }
+  #ctx-badge { font-size: 11px; color: var(--effort-empty); flex-shrink: 0; }
+  #ctx-badge.warn { color: var(--orange); font-weight: bold; }
+  .line-error   { color: var(--red); }
+  .line-thinking { color: var(--purple); font-size: 11px; font-style: italic; }
 
   /* マークダウン */
   .line-text p  { margin: 0 0 6px; }
   .line-text p:last-child { margin-bottom: 0; }
-  .line-text h1,.line-text h2,.line-text h3 { margin: 8px 0 4px; font-size: 1em; color: #90CAF9; }
+  .line-text h1,.line-text h2,.line-text h3 { margin: 8px 0 4px; font-size: 1em; color: var(--accent); }
   .line-text ul,.line-text ol { padding-left: 18px; margin: 4px 0; }
   .line-text li { margin: 2px 0; }
-  .line-text code { background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 3px; padding: 1px 4px; font-family: 'Menlo','Courier New',monospace; font-size: 12px; }
-  .line-text pre { background: #222; border: 1px solid #3a3a3a; border-radius: 6px; padding: 10px 12px; margin: 6px 0; overflow-x: auto; }
+  .line-text code { background: var(--border-soft); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; font-family: 'Menlo','Courier New',monospace; font-size: 12px; }
+  .line-text pre { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 6px 0; overflow-x: auto; }
   .line-text pre code { background: none; border: none; padding: 0; font-size: 12px; }
   .line-text strong { color: #fff; }
-  .line-text a { color: #64B5F6; }
-  .line-text blockquote { border-left: 3px solid #555; padding-left: 10px; color: #aaa; margin: 4px 0; }
+  .line-text a { color: var(--accent); }
+  .line-text blockquote { border-left: 3px solid var(--effort-empty); padding-left: 10px; color: var(--text-muted); margin: 4px 0; }
 
   /* ── 入力エリア ── */
   #input-area {
     position: fixed;
     bottom: 0; left: 0; right: 0;
-    background: #252525;
+    background: var(--surface);
     padding: 10px 12px;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
-    border-top: 1px solid #3a3a3a;
+    border-top: 1px solid var(--border);
     z-index: 20;
   }
 
@@ -620,9 +684,9 @@
 
   #prompt {
     flex: 1;
-    background: #333;
-    color: #e0e0e0;
-    border: 1px solid #4a4a4a;
+    background: var(--surface3);
+    color: var(--text);
+    border: 1px solid var(--border-input);
     border-radius: 12px;
     padding: 10px 14px;
     font-size: 16px;
@@ -634,10 +698,10 @@
     outline: none;
     transition: border-color 0.2s;
   }
-  #prompt:focus { border-color: #1565C0; }
+  #prompt:focus { border-color: var(--primary); }
 
   #send-btn {
-    background: #1565C0;
+    background: var(--primary);
     color: white;
     border: none;
     border-radius: 12px;
@@ -744,6 +808,11 @@
         <div class="settings-section-title">Effort</div>
         <div id="settings-effort-list"></div>
       </div>
+      <!-- Theme -->
+      <div>
+        <div class="settings-section-title">Theme</div>
+        <div id="settings-theme-list"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -806,6 +875,7 @@ function loadSettings() {
     effort: '',
     defaultModel: '',
     enabledModels: ALL_MODELS.map(m => m.value),
+    theme: window.DEFAULT_THEME || 'pocket-claude',
   }
   try {
     const saved = JSON.parse(localStorage.getItem('pc-settings') || '{}')
@@ -857,6 +927,16 @@ function updateEffortIndicator() {
     dot.classList.toggle('filled', opt.dots[i] === 1)
   })
   effortIndicator.title = `Effort: ${opt.label}`
+}
+
+function applyTheme() {
+  const themeName = appSettings.theme || window.DEFAULT_THEME || 'pocket-claude'
+  const theme = window.THEMES && window.THEMES[themeName]
+  if (!theme) return
+  const root = document.documentElement
+  Object.entries(theme.vars).forEach(([key, val]) => {
+    root.style.setProperty(key, val)
+  })
 }
 
 // ── 設定モーダル操作 ──
@@ -965,6 +1045,31 @@ function renderSettingsModal() {
     row.appendChild(label)
     effortList.appendChild(row)
   })
+
+  // Theme list
+  const themeList = document.getElementById('settings-theme-list')
+  themeList.innerHTML = ''
+  if (window.THEMES) {
+    Object.entries(window.THEMES).forEach(([key, theme]) => {
+      const row = document.createElement('div')
+      row.className = 'effort-option' + (appSettings.theme === key ? ' selected' : '')
+      row.addEventListener('click', () => {
+        appSettings.theme = key
+        saveSettings(appSettings)
+        applyTheme()
+        themeList.querySelectorAll('.effort-option').forEach(r => r.classList.remove('selected'))
+        row.classList.add('selected')
+      })
+
+      const label = document.createElement('span')
+      label.className = 'effort-option-label'
+      label.textContent = theme.name
+      label.style.marginLeft = '0'
+
+      row.appendChild(label)
+      themeList.appendChild(row)
+    })
+  }
 }
 
 settingsBtn.addEventListener('click', () => {
@@ -1013,6 +1118,11 @@ const ctxBadge = document.getElementById('ctx-badge')
 let currentSessionId = null
 let currentES = null
 let _projectsCache = {}
+let reconnectTimer = null
+let reconnectAttempts = 0
+const MAX_RECONNECT_DELAY = 15000
+let connectionCheckTimer = null
+let lastHeartbeat = Date.now()
 
 // ── localStorage管理 ──
 function loadSessions() {
@@ -1310,6 +1420,7 @@ projectAddBtn.addEventListener('click', async () => {
 
 // ── 初期化 ──
 async function init() {
+  applyTheme()
   rebuildModelSelect()
   applyFontSizes()
   updateEffortIndicator()
@@ -1339,6 +1450,9 @@ async function init() {
   const lastSessionId = localStorage.getItem('currentSessionId')
   const startSession = sessions.find(s => s.sessionId === lastSessionId) || sessions[0]
   switchTab(startSession.sessionId)
+
+  // ネットワーク監視を開始
+  startNetworkMonitoring()
 }
 
 // ── UI更新 ──
@@ -1347,7 +1461,11 @@ function getTS() { return tabState[currentSessionId] || {} }
 function updateUI() {
   const ts = getTS()
   const running = ts.isRunning || false
-  statusDot.className = running ? 'running' : 'connected'
+  // disconnected状態を維持（再接続中は上書きしない）
+  if (!statusDot.classList.contains('disconnected')) {
+    statusDot.className = running ? 'running' : 'connected'
+    statusDot.textContent = ''
+  }
   stopBtn.classList.toggle('running', running)
   tabBar.querySelectorAll('.tab').forEach(el => {
     const ts2 = tabState[el.dataset.sessionId]
@@ -1376,13 +1494,37 @@ async function refreshProjectsCache() {
 }
 
 // ── SSE接続 ──
-function connectSSE(sessionId) {
+function connectSSE(sessionId, isReconnect = false) {
+  // 既存の接続をクローズ
+  if (currentES) {
+    currentES.close()
+    currentES = null
+  }
+
+  // 再接続タイマーをクリア
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
   const es = new EventSource(`/api/stream?session=${encodeURIComponent(sessionId)}`)
   currentES = es
   let firstMessage = true
-  es.onopen = () => { if (currentSessionId === sessionId) updateUI() }
+
+  es.onopen = () => {
+    // 接続成功時に再接続カウンターをリセット
+    reconnectAttempts = 0
+    lastHeartbeat = Date.now()
+    if (currentSessionId === sessionId) {
+      statusDot.className = 'connected'
+      statusDot.textContent = ''
+      updateUI()
+    }
+  }
+
   es.onmessage = e => {
     try {
+      lastHeartbeat = Date.now()
       handleEvent(sessionId, JSON.parse(e.data))
       // 最初のメッセージ受信時（ログファイル復元後）に自動スクロール
       if (firstMessage && currentSessionId === sessionId) {
@@ -1398,22 +1540,103 @@ function connectSSE(sessionId) {
       }
     } catch {}
   }
+
   es.onerror = () => {
-    if (currentSessionId !== sessionId) return
-    statusDot.className = 'connected'
-    // SSE切断時にサーバーの実行状態を確認してisRunningを補正
-    fetch(`/api/status?session=${encodeURIComponent(sessionId)}`)
-      .then(r => r.json())
-      .then(data => {
-        const ts = tabState[sessionId]
-        if (!ts) return
-        if (!data.running && ts.isRunning) {
-          ts.isRunning = false
-          updateUI()
-        }
-      })
-      .catch(() => {})
+    handleDisconnection(sessionId, true)
   }
+}
+
+// 切断処理の共通化
+function handleDisconnection(sessionId, isAutoReconnect = true) {
+  if (currentSessionId !== sessionId) return
+
+  // 切断状態を表示
+  statusDot.className = 'disconnected'
+  statusDot.textContent = '↻'
+
+  // SSE切断時にサーバーの実行状態を確認してisRunningを補正
+  fetch(`/api/status?session=${encodeURIComponent(sessionId)}`)
+    .then(r => r.json())
+    .then(data => {
+      const ts = tabState[sessionId]
+      if (!ts) return
+      if (!data.running && ts.isRunning) {
+        ts.isRunning = false
+        updateUI()
+      }
+    })
+    .catch(() => {})
+
+  // 既存の接続をクローズ
+  if (currentES) {
+    currentES.close()
+    currentES = null
+  }
+
+  // 自動再接続が有効な場合のみ再接続
+  if (isAutoReconnect) {
+    // 指数バックオフで再接続
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY)
+    reconnectAttempts++
+
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = setTimeout(() => {
+      if (currentSessionId === sessionId) {
+        connectSSE(sessionId, true)
+      }
+    }, delay)
+  }
+}
+
+// 手動再接続（ステータスドットクリック時）
+function manualReconnect() {
+  if (!currentSessionId) return
+  reconnectAttempts = 0
+  connectSSE(currentSessionId, true)
+}
+
+// ── ネットワーク監視 ──
+function startNetworkMonitoring() {
+  // 1. ブラウザのオンライン/オフラインイベント監視
+  window.addEventListener('online', () => {
+    // オンライン復帰時は即座に再接続
+    if (currentSessionId && (!currentES || currentES.readyState === EventSource.CLOSED)) {
+      reconnectAttempts = 0
+      connectSSE(currentSessionId, true)
+    }
+  })
+
+  window.addEventListener('offline', () => {
+    // オフライン時は切断状態を表示（自動再接続しない）
+    if (currentSessionId) {
+      handleDisconnection(currentSessionId, false)
+    }
+  })
+
+  // 2. ページ表示復帰時の接続確認（バックグラウンドから復帰）
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && currentSessionId) {
+      // ページ表示時に接続状態をチェック
+      if (currentES && currentES.readyState === EventSource.CLOSED) {
+        handleDisconnection(currentSessionId, true)
+      } else if (!currentES) {
+        // EventSourceが存在しない場合は再接続
+        reconnectAttempts = 0
+        connectSSE(currentSessionId, true)
+      }
+    }
+  })
+
+  // 3. 定期的なreadyStateチェック（5秒ごと）
+  if (connectionCheckTimer) clearInterval(connectionCheckTimer)
+  connectionCheckTimer = setInterval(() => {
+    if (!currentSessionId || !currentES) return
+
+    // EventSourceがCLOSED状態になっていれば切断処理
+    if (currentES.readyState === EventSource.CLOSED) {
+      handleDisconnection(currentSessionId, true)
+    }
+  }, 5000)
 }
 
 // ── イベント処理 ──
@@ -1444,7 +1667,22 @@ function handleEvent(sessionId, ev) {
       break
 
     case 'user':
-      // user_inputイベントで既に表示されるため、ここでは何もしない
+      // tool_resultを処理
+      if (ev.message?.content) {
+        ev.message.content.forEach(item => {
+          if (item.type === 'tool_result') {
+            const toolId = item.tool_use_id
+            const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
+            if (toolEl && toolEl._resultDiv) {
+              toolEl._resultDiv.textContent = item.content || ev.tool_use_result || '(no output)'
+              // エラーの場合は色を変える
+              if (item.is_error) {
+                toolEl._resultDiv.style.color = 'var(--red)'
+              }
+            }
+          }
+        })
+      }
       break
 
     case 'start':
@@ -1541,6 +1779,29 @@ function handleEvent(sessionId, ev) {
 
     case 'stderr':
       if (ev.text?.trim()) addLine(ts, `[err] ${ev.text}`, 'line-system')
+      break
+
+    case 'raw':
+      // rawイベントの中にJSONエンコードされたtool_resultが含まれる場合がある（Editツール等）
+      if (ev.text) {
+        try {
+          const parsed = JSON.parse(ev.text)
+          if (parsed.type === 'user' && parsed.message?.content) {
+            parsed.message.content.forEach(item => {
+              if (item.type === 'tool_result') {
+                const toolId = item.tool_use_id
+                const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
+                if (toolEl && toolEl._resultDiv) {
+                  toolEl._resultDiv.textContent = item.content || parsed.tool_use_result || '(no output)'
+                  if (item.is_error) {
+                    toolEl._resultDiv.style.color = 'var(--red)'
+                  }
+                }
+              }
+            })
+          }
+        } catch {}
+      }
       break
   }
 }
@@ -1737,19 +1998,23 @@ async function openHistoryDetail(session) {
 
 async function resumeConversation(sessionId) {
   try {
-    // 過去のメッセージを取得して表示
-    const msgs = await fetch(`/api/history/${encodeURIComponent(sessionId)}`).then(r => r.json())
+    // 全イベントを取得（logs/<sessionId>.jsonl から）
+    const events = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`).then(r => r.json())
 
     // 既存セッションをチェック
     const sessions = loadSessions()
     let targetSession = sessions.find(s => s.sessionId === sessionId)
 
     if (!targetSession) {
+      // タイトル取得（user_inputイベントから）
+      const firstUserInput = events.find(e => e.type === 'user_input')
+      const title = firstUserInput?.text?.substring(0, 30) || 'Resumed conversation'
+
       // 新規セッションとして作成
       const currentProj = getCurrentSession()?.project || Object.keys(_projectsCache)[0]
       targetSession = {
         sessionId,
-        name: msgs[0]?.text.substring(0, 30) || 'Resumed conversation',
+        name: title,
         project: currentProj,
         lastUsed: Date.now()
       }
@@ -1768,18 +2033,10 @@ async function resumeConversation(sessionId) {
 
     switchTab(sessionId)
 
-    // メッセージ表示
+    // 全イベントを再生（実セッションと同じ処理）
     const ts = getTS()
-    for (const m of msgs) {
-      if (m.role === 'user') {
-        addLine(ts, `> ${m.text}`, 'line-user')
-      } else {
-        // assistantメッセージはマークダウンレンダリング
-        const div = document.createElement('div')
-        div.className = 'line line-text'
-        div.innerHTML = marked.parse(m.text)
-        ts.pane.appendChild(div)
-      }
+    for (const ev of events) {
+      handleEvent(sessionId, ev)
     }
 
     // 最下部にスクロール
@@ -1838,6 +2095,12 @@ async function send() {
 }
 
 // ── ボタン ──
+statusDot.addEventListener('click', () => {
+  if (statusDot.classList.contains('disconnected')) {
+    manualReconnect()
+  }
+})
+
 stopBtn.addEventListener('click', () => {
   fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session: currentSessionId }) })
