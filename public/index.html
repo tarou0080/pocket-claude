@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>pocket-claude</title>
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <script src="themes.js"></script>
 <style>
   :root {
@@ -1964,7 +1965,7 @@ function finalizeText(ts) {
     // <thinking>...</thinking> タグで囲まれた思考内容を除去
     // Extended Thinking機能により、思考内容が通常のテキストとして含まれる場合がある
     const cleanedText = ts._rawText.replace(/<thinking>[\s\S]*?<\/thinking>\n*/g, '')
-    ts.currentTextEl.innerHTML = marked.parse(cleanedText)
+    ts.currentTextEl.innerHTML = DOMPurify.sanitize(marked.parse(cleanedText))
     ts._rawText = ''
     // マークダウンレンダリングで高さが変わるので、autoScroll中なら追従
     scrollToBottom(ts)

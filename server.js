@@ -10,7 +10,11 @@ const historyRouter = require('./routes/history')
 const projectsRouter = require('./routes/projects')
 
 const app = express()
-const PORT = process.env.PORT || config.port || 3333
+const PORT = parseInt(process.env.PORT || config.port || 3333, 10)
+if (isNaN(PORT) || PORT < 1024 || PORT > 65535) {
+  console.error(`[startup] Invalid PORT: ${process.env.PORT || config.port}`)
+  process.exit(1)
+}
 
 // ディレクトリ初期化
 initDirectories()
