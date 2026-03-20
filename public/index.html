@@ -731,6 +731,7 @@
       <span class="effort-dot" data-idx="0"></span>
       <span class="effort-dot" data-idx="1"></span>
       <span class="effort-dot" data-idx="2"></span>
+      <span class="effort-dot" data-idx="3" style="display:none"></span>
     </div>
     <button id="stop-btn" title="Stop execution">■</button>
     <button id="projects-btn" title="Projects">P</button>
@@ -859,12 +860,22 @@ const ALL_MODELS = [
   { value: 'claude-sonnet-4-6',       label: 'Sonnet 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ]
-const EFFORT_OPTIONS = [
-  { value: '',       dots: [0,0,0], label: 'Auto' },
-  { value: 'low',    dots: [1,0,0], label: 'Low' },
-  { value: 'medium', dots: [1,1,0], label: 'Medium' },
-  { value: 'high',   dots: [1,1,1], label: 'High' },
+const EFFORT_OPTIONS_BASE = [
+  { value: '',       dots: [0,0,0,0], label: 'Auto' },
+  { value: 'low',    dots: [1,0,0,0], label: 'Low' },
+  { value: 'medium', dots: [1,1,0,0], label: 'Medium' },
+  { value: 'high',   dots: [1,1,1,0], label: 'High' },
 ]
+const EFFORT_OPTIONS_OPUS = [
+  { value: '',       dots: [0,0,0,0], label: 'Auto' },
+  { value: 'low',    dots: [1,0,0,0], label: 'Low' },
+  { value: 'medium', dots: [1,1,0,0], label: 'Medium' },
+  { value: 'high',   dots: [1,1,1,0], label: 'High' },
+  { value: 'max',    dots: [1,1,1,1], label: 'Max' },
+]
+function getEffortOptions() {
+  return (modelSel.value || '').includes('opus') ? EFFORT_OPTIONS_OPUS : EFFORT_OPTIONS_BASE
+}
 
 function loadSettings() {
   const defaults = {
@@ -920,7 +931,17 @@ function rebuildModelSelect() {
 }
 
 function updateEffortIndicator() {
-  const opt = EFFORT_OPTIONS.find(o => o.value === appSettings.effort) || EFFORT_OPTIONS[0]
+  const opts = getEffortOptions()
+  const isOpus = opts === EFFORT_OPTIONS_OPUS
+  // 4つ目のdotはOpusのみ表示
+  const dot3 = effortIndicator.querySelector('.effort-dot[data-idx="3"]')
+  if (dot3) dot3.style.display = isOpus ? '' : 'none'
+  // maxが選択中だが非Opusに切り替わった場合はリセット
+  if (!isOpus && appSettings.effort === 'max') {
+    appSettings.effort = ''
+    saveSettings(appSettings)
+  }
+  const opt = opts.find(o => o.value === appSettings.effort) || opts[0]
   effortIndicator.querySelectorAll('.effort-dot').forEach((dot, i) => {
     dot.classList.toggle('filled', opt.dots[i] === 1)
   })
@@ -1016,7 +1037,7 @@ function renderSettingsModal() {
   // Effort list
   const effortList = document.getElementById('settings-effort-list')
   effortList.innerHTML = ''
-  EFFORT_OPTIONS.forEach(opt => {
+  getEffortOptions().forEach(opt => {
     const row = document.createElement('div')
     row.className = 'effort-option' + (appSettings.effort === opt.value ? ' selected' : '')
     row.addEventListener('click', () => {
@@ -1079,6 +1100,11 @@ settingsModal.addEventListener('click', e => {
   if (e.target === settingsModal) closeSettings()
 })
 effortIndicator.addEventListener('click', openSettings)
+modelSel.addEventListener('change', () => {
+  updateEffortIndicator()
+  // 設定モーダルが開いていれば再描画
+  if (settingsModal.classList.contains('open')) renderSettingsModal()
+})
 
 // フォントサイズボタン
 document.getElementById('prompt-font-dec').addEventListener('click', () => {
