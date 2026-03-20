@@ -110,4 +110,51 @@ function getSessionMessages(sessionId) {
   return messages
 }
 
-module.exports = { listSessions, getSessionMessages, UUID_RE, CLAUDE_PROJECTS_DIR }
+// 特定セッションの全イベント取得（履歴再開用）
+function getSessionEvents(sessionId) {
+  if (!UUID_RE.test(sessionId)) {
+    throw new Error('invalid sessionId')
+  }
+
+  const path = require('path')
+  const config = require('../config/index')
+  const sessionsDir = path.join(__dirname, '..', 'sessions')
+
+  function readLogFile(logPath) {
+    try {
+      return fs.readFileSync(logPath, 'utf8').split('\n').filter(l => l.trim()).map(l => {
+        try { return JSON.parse(l) } catch { return null }
+      }).filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+
+  // sessions/ を逆引き: claudeSessionId === sessionId となる pocketSessionId を探す
+  // self-mapping（pocketSessionId === sessionId）は除外し、オリジナルのログを探す
+  let originalPocketId = null
+  try {
+    const files = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.json'))
+    for (const file of files) {
+      const pocketId = file.replace('.json', '')
+      if (pocketId === sessionId) continue  // self-mapping除外
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(sessionsDir, file), 'utf8'))
+        if (data.claudeSessionId === sessionId) {
+          originalPocketId = pocketId
+          break
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // オリジナルのログ（履歴復帰前）＋直接ログ（履歴復帰後の新会話）をマージ
+  const originalEvents = originalPocketId
+    ? readLogFile(path.join(config.LOGS_DIR, `${originalPocketId}.jsonl`))
+    : []
+  const directEvents = readLogFile(path.join(config.LOGS_DIR, `${sessionId}.jsonl`))
+
+  return [...originalEvents, ...directEvents]
+}
+
+module.exports = { listSessions, getSessionMessages, getSessionEvents, UUID_RE, CLAUDE_PROJECTS_DIR }

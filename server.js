@@ -67,6 +67,61 @@ app.use('/api/stream', streamRouter)
 app.use('/api/history', historyRouter)
 app.use('/api/projects', projectsRouter)
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`pocket-claude v4 (modular) running on port ${PORT}`)
 })
+
+// Graceful shutdown: SIGTERM/SIGINT時に実行中のプロセスを適切に終了
+function gracefulShutdown(signal) {
+  console.log(`\n[${signal}] Graceful shutdown initiated...`)
+
+  // 1. 新規リクエストを拒否
+  server.close(() => {
+    console.log('[shutdown] HTTP server closed')
+  })
+
+  // 2. 実行中のすべてのセッションに done イベントを送信
+  const { getState, broadcast } = require('./services/stream')
+  const { stopClaude } = require('./services/spawner')
+
+  // state オブジェクトから全セッションIDを取得（stream.jsのstateは外部公開されていないため、
+  // 実行中プロセスを持つセッションのみ処理）
+  const logsDir = config.LOGS_DIR
+  try {
+    const files = fs.readdirSync(logsDir).filter(f => f.endsWith('.jsonl'))
+    for (const file of files) {
+      const sessionId = path.basename(file, '.jsonl')
+      const s = getState(sessionId)
+
+      // 実行中プロセスがあれば終了
+      if (s.process) {
+        console.log(`[shutdown] Stopping session: ${sessionId}`)
+        broadcast(sessionId, {
+          type: 'done',
+          exitCode: -1,
+          timestamp: new Date().toISOString(),
+          reason: 'server_shutdown'
+        })
+        stopClaude(sessionId)
+      }
+
+      // SSEクライアントに終了を通知
+      s.sseClients.forEach(res => {
+        try {
+          res.end()
+        } catch {}
+      })
+    }
+  } catch (err) {
+    console.error('[shutdown] Error during cleanup:', err.message)
+  }
+
+  // 3. プロセス終了
+  setTimeout(() => {
+    console.log('[shutdown] Forcing exit')
+    process.exit(0)
+  }, 3000)
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'))

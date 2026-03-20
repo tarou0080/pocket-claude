@@ -1,6 +1,6 @@
 const express = require('express')
 const router = express.Router()
-const { listSessions, getSessionMessages } = require('../services/history')
+const { listSessions, getSessionMessages, getSessionEvents } = require('../services/history')
 
 // セッション一覧
 router.get('/', (_req, res) => {
@@ -13,7 +13,7 @@ router.get('/', (_req, res) => {
   }
 })
 
-// 特定セッションの会話内容
+// 特定セッションの会話内容（テキストのみ）
 router.get('/:sessionId', (req, res) => {
   const { sessionId } = req.params
   try {
@@ -28,6 +28,21 @@ router.get('/:sessionId', (req, res) => {
     }
     console.error('[ERROR] Failed to get session messages:', err)
     res.status(500).json({ error: 'failed to get session messages' })
+  }
+})
+
+// 特定セッションの全イベント（履歴再開用）
+router.get('/:sessionId/events', (req, res) => {
+  const { sessionId } = req.params
+  try {
+    const events = getSessionEvents(sessionId)
+    res.json(events)
+  } catch (err) {
+    if (err.message === 'invalid sessionId') {
+      return res.status(400).json({ error: err.message })
+    }
+    console.error('[ERROR] Failed to get session events:', err)
+    res.status(500).json({ error: 'failed to get session events' })
   }
 })
 

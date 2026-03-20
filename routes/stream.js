@@ -11,15 +11,18 @@ router.get('/', (req, res) => {
   }
 
   const s = getState(sessionId)
+  const skipHistory = req.query.skipHistory === '1'
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.setHeader('X-Accel-Buffering', 'no')
 
-  // 常にログファイルから復元（サービス再起動後もすべての履歴を配信）
-  const logEvents = loadLogFile(sessionId)
-  logEvents.forEach(ev => res.write(`data: ${JSON.stringify(ev)}\n\n`))
+  // skipHistory=1の場合は履歴をスキップ（完了済みセッションの再接続時に使用）
+  if (!skipHistory) {
+    const logEvents = loadLogFile(sessionId)
+    logEvents.forEach(ev => res.write(`data: ${JSON.stringify(ev)}\n\n`))
+  }
   registerSSEClient(sessionId, res)
 
   const heartbeat = setInterval(() => {

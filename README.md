@@ -2,6 +2,14 @@
 
 **Use Claude Code from your browser, anywhere.**
 
+> ## ⚠️ Security Notice
+>
+> **This tool is designed for local/trusted network use ONLY.**
+>
+> - Do **NOT** expose to the public internet without additional security layers (VPN, firewall, authentication proxy)
+> - No built-in authentication — anyone with network access can use it
+> - Use with a VPN or SSH tunnel for remote access
+
 pocket-claude is a web interface for Claude Code CLI. If you're using Claude Code, you can install this to get a browser-based UI instead of working in the terminal.
 
 ## What does it do?
