@@ -1161,7 +1161,8 @@ function ensureTabState(session) {
     _rawText: '',
     _ctxTokens: 0,
     pane,
-    autoScroll: true  // デフォルトで自動スクロール有効
+    autoScroll: true,  // デフォルトで自動スクロール有効
+    _initialLoaded: false  // 一括描画済みフラグ
   }
 
   // ユーザーが手動でスクロールしたら自動スクロールを無効化
@@ -1494,7 +1495,49 @@ async function refreshProjectsCache() {
 }
 
 // ── SSE接続 ──
-function connectSSE(sessionId, isReconnect = false) {
+async function connectSSE(sessionId, isReconnect = false) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+
+  // 完了済みセッション（実行中でない）かつ初回接続の場合は一括描画
+  if (!ts.isRunning && !isReconnect && !ts._initialLoaded) {
+    await loadHistoryBulk(sessionId)
+    ts._initialLoaded = true
+    // 一括描画後はskipHistory=1でSSE接続（新イベント監視のみ）
+    connectSSEStream(sessionId, true)
+  } else {
+    connectSSEStream(sessionId, false)
+  }
+}
+
+// 完了済みセッションの一括描画
+async function loadHistoryBulk(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+
+  try {
+    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`)
+    if (!res.ok) {
+      // 履歴がない場合は通常のSSE接続にフォールバック
+      return
+    }
+    const events = await res.json()
+
+    // 全イベントを一括処理
+    events.forEach(ev => handleEvent(sessionId, ev))
+
+    // 一括描画完了後に最下部へスクロール
+    ts.autoScroll = true
+    requestAnimationFrame(() => {
+      ts.pane.scrollTop = ts.pane.scrollHeight
+    })
+  } catch (err) {
+    console.error('Failed to load history bulk:', err)
+  }
+}
+
+// SSE接続（実際のストリーム処理）
+function connectSSEStream(sessionId, skipHistory = false) {
   // 既存の接続をクローズ
   if (currentES) {
     currentES.close()
@@ -1507,7 +1550,8 @@ function connectSSE(sessionId, isReconnect = false) {
     reconnectTimer = null
   }
 
-  const es = new EventSource(`/api/stream?session=${encodeURIComponent(sessionId)}`)
+  const url = `/api/stream?session=${encodeURIComponent(sessionId)}${skipHistory ? '&skipHistory=1' : ''}`
+  const es = new EventSource(url)
   currentES = es
   let firstMessage = true
 
@@ -1526,8 +1570,8 @@ function connectSSE(sessionId, isReconnect = false) {
     try {
       lastHeartbeat = Date.now()
       handleEvent(sessionId, JSON.parse(e.data))
-      // 最初のメッセージ受信時（ログファイル復元後）に自動スクロール
-      if (firstMessage && currentSessionId === sessionId) {
+      // skipHistoryでない場合のみ、最初のメッセージ受信時に自動スクロール
+      if (!skipHistory && firstMessage && currentSessionId === sessionId) {
         firstMessage = false
         const ts = tabState[sessionId]
         if (ts) {
@@ -1639,6 +1683,18 @@ function startNetworkMonitoring() {
   }, 5000)
 }
 
+// ── ツール結果テキスト変換 ──
+function resolveToolContent(content, toolUseResult) {
+  if (Array.isArray(content)) {
+    // Agent等: [{type:"text", text:"..."}, ...] → textブロックを結合
+    const text = content.filter(b => b.type === 'text').map(b => b.text).join('\n')
+    return text || '(no output)'
+  }
+  if (typeof content === 'string' && content !== '') return content
+  // 空文字列のフォールバック（Bash出力なし等）
+  return '(no output)'
+}
+
 // ── イベント処理 ──
 function handleEvent(sessionId, ev) {
   const ts = tabState[sessionId]
@@ -1674,7 +1730,7 @@ function handleEvent(sessionId, ev) {
             const toolId = item.tool_use_id
             const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
             if (toolEl && toolEl._resultDiv) {
-              toolEl._resultDiv.textContent = item.content || ev.tool_use_result || '(no output)'
+              toolEl._resultDiv.textContent = resolveToolContent(item.content, ev.tool_use_result)
               // エラーの場合は色を変える
               if (item.is_error) {
                 toolEl._resultDiv.style.color = 'var(--red)'
@@ -1792,7 +1848,7 @@ function handleEvent(sessionId, ev) {
                 const toolId = item.tool_use_id
                 const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
                 if (toolEl && toolEl._resultDiv) {
-                  toolEl._resultDiv.textContent = item.content || parsed.tool_use_result || '(no output)'
+                  toolEl._resultDiv.textContent = resolveToolContent(item.content, parsed.tool_use_result)
                   if (item.is_error) {
                     toolEl._resultDiv.style.color = 'var(--red)'
                   }
@@ -2031,16 +2087,19 @@ async function resumeConversation(sessionId) {
       })
     }
 
+    // loadHistoryBulk（connectSSE内）による二重描画を防ぐため先にフラグをセット
+    const ts = tabState[sessionId]
+    if (ts) ts._initialLoaded = true
+
     switchTab(sessionId)
 
     // 全イベントを再生（実セッションと同じ処理）
-    const ts = getTS()
     for (const ev of events) {
       handleEvent(sessionId, ev)
     }
 
     // 最下部にスクロール
-    ts.autoScroll = true
+    if (ts) ts.autoScroll = true
     scrollToBottom(ts)
 
     closeHistory()
