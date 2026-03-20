@@ -1912,7 +1912,10 @@ function appendText(ts, text) {
 
 function finalizeText(ts) {
   if (ts.currentTextEl && ts._rawText) {
-    ts.currentTextEl.innerHTML = marked.parse(ts._rawText)
+    // <thinking>...</thinking> タグで囲まれた思考内容を除去
+    // Extended Thinking機能により、思考内容が通常のテキストとして含まれる場合がある
+    const cleanedText = ts._rawText.replace(/<thinking>[\s\S]*?<\/thinking>\n*/g, '')
+    ts.currentTextEl.innerHTML = marked.parse(cleanedText)
     ts._rawText = ''
     // マークダウンレンダリングで高さが変わるので、autoScroll中なら追従
     scrollToBottom(ts)
@@ -2170,10 +2173,18 @@ async function send() {
       })
     })
     if (!res.ok) {
-      addLine(ts, `Send failed: ${(await res.json()).error}`, 'line-error')
+      promptEl.value = prompt
+      promptEl.style.height = 'auto'
+      promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
+      let errMsg = `サーバーエラー (${res.status}) — プロンプトを保持しています`
+      try { const j = await res.json(); if (j.error) errMsg = `Send failed: ${j.error} — プロンプトを保持しています` } catch (_) {}
+      addLine(ts, errMsg, 'line-error')
     }
   } catch (e) {
-    addLine(ts, `Network error: ${e.message}`, 'line-error')
+    promptEl.value = prompt
+    promptEl.style.height = 'auto'
+    promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
+    addLine(ts, `サーバーに接続できません — プロンプトを保持しています`, 'line-error')
   }
 }
 
