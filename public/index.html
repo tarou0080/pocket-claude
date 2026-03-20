@@ -731,7 +731,6 @@
       <span class="effort-dot" data-idx="0"></span>
       <span class="effort-dot" data-idx="1"></span>
       <span class="effort-dot" data-idx="2"></span>
-      <span class="effort-dot" data-idx="3"></span>
     </div>
     <button id="stop-btn" title="Stop execution">■</button>
     <button id="projects-btn" title="Projects">P</button>
@@ -861,11 +860,10 @@ const ALL_MODELS = [
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ]
 const EFFORT_OPTIONS = [
-  { value: '',      dots: [0,0,0,0], label: 'default' },
-  { value: 'low',   dots: [1,0,0,0], label: 'low' },
-  { value: 'medium',dots: [1,1,0,0], label: 'medium' },
-  { value: 'high',  dots: [1,1,1,0], label: 'high' },
-  { value: 'max',   dots: [1,1,1,1], label: 'max' },
+  { value: '',       dots: [0,0,0], label: 'Auto' },
+  { value: 'low',    dots: [1,0,0], label: 'Low' },
+  { value: 'medium', dots: [1,1,0], label: 'Medium' },
+  { value: 'high',   dots: [1,1,1], label: 'High' },
 ]
 
 function loadSettings() {
