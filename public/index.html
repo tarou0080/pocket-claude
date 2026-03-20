@@ -2176,15 +2176,13 @@ async function send() {
       promptEl.value = prompt
       promptEl.style.height = 'auto'
       promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
-      let errMsg = `サーバーエラー (${res.status}) — プロンプトを保持しています`
-      try { const j = await res.json(); if (j.error) errMsg = `Send failed: ${j.error} — プロンプトを保持しています` } catch (_) {}
-      addLine(ts, errMsg, 'line-error')
+      addLine(ts, `Server error (${res.status})`, 'line-error')
     }
   } catch (e) {
     promptEl.value = prompt
     promptEl.style.height = 'auto'
     promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
-    addLine(ts, `サーバーに接続できません — プロンプトを保持しています`, 'line-error')
+    addLine(ts, `Connection failed`, 'line-error')
   }
 }
 
