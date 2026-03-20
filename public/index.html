@@ -937,11 +937,18 @@ function updateEffortIndicator() {
   const dot3 = effortIndicator.querySelector('.effort-dot[data-idx="3"]')
   if (dot3) dot3.style.display = isOpus ? '' : 'none'
   // maxが選択中だが非Opusに切り替わった場合はリセット
-  if (!isOpus && appSettings.effort === 'max') {
-    appSettings.effort = ''
-    saveSettings(appSettings)
+  const tabEffort = (currentSessionId && tabState[currentSessionId]) ? tabState[currentSessionId].effort : appSettings.effort
+  if (!isOpus && tabEffort === 'max') {
+    if (currentSessionId && tabState[currentSessionId]) {
+      tabState[currentSessionId].effort = ''
+      updateSession(currentSessionId, { effort: '' })
+    } else {
+      appSettings.effort = ''
+      saveSettings(appSettings)
+    }
   }
-  const opt = opts.find(o => o.value === appSettings.effort) || opts[0]
+  const effectiveEffort = (!isOpus && tabEffort === 'max') ? '' : tabEffort
+  const opt = opts.find(o => o.value === effectiveEffort) || opts[0]
   effortIndicator.querySelectorAll('.effort-dot').forEach((dot, i) => {
     dot.classList.toggle('filled', opt.dots[i] === 1)
   })
@@ -1039,10 +1046,16 @@ function renderSettingsModal() {
   effortList.innerHTML = ''
   getEffortOptions().forEach(opt => {
     const row = document.createElement('div')
-    row.className = 'effort-option' + (appSettings.effort === opt.value ? ' selected' : '')
+    const curEffort = (currentSessionId && tabState[currentSessionId]) ? tabState[currentSessionId].effort : appSettings.effort
+    row.className = 'effort-option' + (curEffort === opt.value ? ' selected' : '')
     row.addEventListener('click', () => {
-      appSettings.effort = opt.value
-      saveSettings(appSettings)
+      if (currentSessionId && tabState[currentSessionId]) {
+        tabState[currentSessionId].effort = opt.value
+        updateSession(currentSessionId, { effort: opt.value })
+      } else {
+        appSettings.effort = opt.value
+        saveSettings(appSettings)
+      }
       updateEffortIndicator()
       effortList.querySelectorAll('.effort-option').forEach(r => r.classList.remove('selected'))
       row.classList.add('selected')
@@ -1101,6 +1114,10 @@ settingsModal.addEventListener('click', e => {
 })
 effortIndicator.addEventListener('click', openSettings)
 modelSel.addEventListener('change', () => {
+  if (currentSessionId && tabState[currentSessionId]) {
+    tabState[currentSessionId].model = modelSel.value
+    updateSession(currentSessionId, { model: modelSel.value })
+  }
   updateEffortIndicator()
   // 設定モーダルが開いていれば再描画
   if (settingsModal.classList.contains('open')) renderSettingsModal()
@@ -1186,7 +1203,10 @@ function ensureTabState(session) {
     _ctxTokens: 0,
     pane,
     autoScroll: true,  // デフォルトで自動スクロール有効
-    _initialLoaded: false  // 一括描画済みフラグ
+    _initialLoaded: false,  // 一括描画済みフラグ
+    model: session.model || appSettings.defaultModel || '',
+    effort: session.effort !== undefined ? session.effort : (appSettings.effort || ''),
+    draftPrompt: session.draftPrompt || '',
   }
 
   // ユーザーが手動でスクロールしたら自動スクロールを無効化
@@ -1275,9 +1295,37 @@ async function deleteTab(sessionId) {
   }
 }
 
+// ── タブ固有設定の適用 ──
+function applyTabSettings(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+  // モデル復元
+  const targetModel = ts.model || appSettings.defaultModel
+  if (targetModel && [...modelSel.options].some(o => o.value === targetModel)) {
+    modelSel.value = targetModel
+  } else if (modelSel.options.length > 0) {
+    modelSel.value = modelSel.options[0].value
+  }
+  // プロンプト草稿復元
+  promptEl.value = ts.draftPrompt || ''
+  promptEl.style.height = 'auto'
+  if (promptEl.value) promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
+  // Effortインジケーター更新（ts.effortを使う）
+  updateEffortIndicator()
+}
+
 // ── タブ切り替え ──
 function switchTab(sessionId) {
   if (currentES) { currentES.close(); currentES = null }
+  // 現在タブのプロンプト草稿・モデル・effortを保存
+  if (currentSessionId && tabState[currentSessionId]) {
+    tabState[currentSessionId].draftPrompt = promptEl.value
+    updateSession(currentSessionId, {
+      draftPrompt: promptEl.value,
+      model: tabState[currentSessionId].model,
+      effort: tabState[currentSessionId].effort,
+    })
+  }
   tabBar.querySelectorAll('.tab').forEach(t =>
     t.classList.toggle('active', t.dataset.sessionId === sessionId))
   document.querySelectorAll('.output-pane').forEach(p =>
@@ -1287,6 +1335,7 @@ function switchTab(sessionId) {
   updateSession(sessionId, { lastUsed: Date.now() })
   const switchTs = tabState[sessionId]
   if (switchTs) { const p = Math.round(switchTs._ctxTokens / CTX_MAX * 100); updateCtxBadge(p) }
+  applyTabSettings(sessionId)
   updateUI()
   connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
 }
@@ -2159,6 +2208,7 @@ async function send() {
 
   promptEl.value = ''
   promptEl.style.height = 'auto'
+  if (tabState[currentSessionId]) tabState[currentSessionId].draftPrompt = ''
   // user_inputイベントで表示されるため、ここでは表示しない
   try {
     const res = await fetch('/api/send', {
@@ -2169,7 +2219,7 @@ async function send() {
         sessionId: currentSessionId,
         project: currentSession.project,
         model: modelSel.value || null,
-        effort: appSettings.effort || null
+        effort: (tabState[currentSessionId]?.effort ?? appSettings.effort) || null
       })
     })
     if (!res.ok) {
@@ -2227,6 +2277,7 @@ promptEl.addEventListener('keydown', e => {
 })
 promptEl.addEventListener('input', () => {
   const ts = getTS()
+  if (ts && currentSessionId) ts.draftPrompt = promptEl.value
   promptEl.style.height = 'auto'
   promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
   updateLayout()
