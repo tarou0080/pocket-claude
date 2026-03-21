@@ -1640,7 +1640,7 @@ async function connectSSE(sessionId, isReconnect = false) {
     // 一括描画後はskipHistory=1でSSE接続（新イベント監視のみ）
     connectSSEStream(sessionId, true)
   } else {
-    connectSSEStream(sessionId, false)
+    connectSSEStream(sessionId, !ts.isRunning && !!ts._initialLoaded)
   }
 }
 
