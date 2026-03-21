@@ -51,6 +51,9 @@ function repairIncompleteLogs() {
 }
 repairIncompleteLogs()
 
+const { loadSchedules } = require('./services/scheduler')
+loadSchedules()
+
 app.use(express.json())
 
 

@@ -4,6 +4,7 @@ const path = require('path')
 const router = express.Router()
 const { startClaude, stopClaude, stopPending, injectPrompt, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
+const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
 const config = require('../config/index')
 
 const sessionsDir = path.join(__dirname, '..', 'sessions')
@@ -104,6 +105,29 @@ router.post('/reset', (req, res) => {
   fs.unlink(logFile(sessionId), () => {})
   fs.unlink(path.join(sessionsDir, `${sessionId}.json`), () => {})
   res.json({ ok: true, sessionId })
+})
+
+// 自動再開スケジュール登録
+router.post('/schedule-resume/:sessionId', (req, res) => {
+  const { sessionId } = req.params
+  const { resetAt, prompt, project, model, effort, thinking } = req.body
+  if (!sessionId || !resetAt || !prompt) return res.status(400).json({ error: 'sessionId, resetAt, prompt required' })
+  scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking)
+  res.json({ ok: true })
+})
+
+// 自動再開スケジュールキャンセル
+router.delete('/schedule-resume/:sessionId', (req, res) => {
+  const { sessionId } = req.params
+  cancelResume(sessionId)
+  res.json({ ok: true })
+})
+
+// 自動再開スケジュール確認
+router.get('/schedule-resume/:sessionId', (req, res) => {
+  const { sessionId } = req.params
+  const s = getSchedule(sessionId)
+  res.json(s || { resetAt: null })
 })
 
 module.exports = router

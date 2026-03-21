@@ -644,6 +644,16 @@
   .line-error   { color: var(--red); }
   .line-thinking { color: var(--purple); font-size: 11px; font-style: italic; }
 
+  /* ── レート制限パネル ── */
+  .rl-panel { border: 1px solid var(--red); border-radius: 6px; padding: 8px 12px; margin: 4px 0; background: var(--red-bg); }
+  .rl-panel-row { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+  .rl-label { color: var(--text-muted); flex-shrink: 0; }
+  .rl-time  { color: var(--text-dim); font-size: 11px; margin-left: auto; }
+  .rl-toggle { display: inline-flex; border: 1px solid var(--border-input); border-radius: 4px; overflow: hidden; flex-shrink: 0; }
+  .rl-toggle-btn { padding: 2px 8px; font-size: 11px; background: var(--surface3); color: var(--text-dim); border: none; cursor: pointer; }
+  .rl-toggle-btn.active { background: var(--primary); color: white; }
+  .rl-countdown { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
   /* マークダウン */
   .line-text p  { margin: 0 0 6px; }
   .line-text p:last-child { margin-bottom: 0; }
@@ -786,6 +796,11 @@
           <button class="seg-btn" data-val="off">Off</button>
         </div>
       </div>
+      <!-- Rate Limit Resume Prompt -->
+      <div>
+        <div class="settings-section-title">Auto-resume Prompt</div>
+        <input type="text" id="resume-prompt-input" style="width:100%;background:var(--surface3);color:var(--text);border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;font-size:13px;outline:none;">
+      </div>
       <!-- Theme -->
       <div>
         <div class="settings-section-title">Theme</div>
@@ -878,6 +893,7 @@ function loadSettings() {
     defaultModel: '',
     enabledModels: ALL_MODELS.map(m => m.value),
     theme: window.DEFAULT_THEME || 'pocket-claude',
+    resumePrompt: '続けてください',
   }
   try {
     const saved = JSON.parse(localStorage.getItem('pc-settings') || '{}')
@@ -1094,6 +1110,11 @@ function renderSettingsModal() {
     }
   })
 
+  // Resume prompt
+  const resumeInput = document.getElementById('resume-prompt-input')
+  resumeInput.value = appSettings.resumePrompt || '続けてください'
+  resumeInput.oninput = (e) => { appSettings.resumePrompt = e.target.value; saveSettings(appSettings) }
+
   // Theme list
   const themeList = document.getElementById('settings-theme-list')
   themeList.innerHTML = ''
@@ -1283,6 +1304,8 @@ function createTabEl(session) {
 
 // ── タブ削除 ──
 async function deleteTab(sessionId) {
+  clearRateLimitPanel(sessionId)
+  fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
   tabBar.querySelector(`[data-session-id="${sessionId}"]`)?.remove()
   tabState[sessionId]?.pane.remove()
   delete tabState[sessionId]
@@ -1490,6 +1513,159 @@ projectAddBtn.addEventListener('click', async () => {
   }
 })
 
+// ── レート制限自動再開 ──
+function parseResetTime(text) {
+  // ISO datetime: "2024-01-15T22:30:00Z" or "2024-01-15 22:30:00 UTC"
+  const isoMatch = text.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:?\d{2})?)/)
+  if (isoMatch) {
+    const d = new Date(isoMatch[1].replace(' ', 'T').replace(' UTC', 'Z'))
+    if (!isNaN(d)) return d
+  }
+  // Time only: "22:30 UTC" or "22:30:00 UTC"
+  const timeMatch = text.match(/(\d{2}:\d{2}(?::\d{2})?) UTC/i)
+  if (timeMatch) {
+    const d = new Date()
+    const parts = timeMatch[1].split(':')
+    d.setUTCHours(parseInt(parts[0]), parseInt(parts[1]), parseInt(parts[2] || 0), 0)
+    if (d <= new Date()) d.setUTCDate(d.getUTCDate() + 1)
+    return d
+  }
+  return null
+}
+
+function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+  if (!ts.rl) ts.rl = {}
+  if (ts.rl.el) { ts.rl.el.remove(); ts.rl.el = null }
+  if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
+  ts.rl.resetAt = resetAt
+  ts.rl.autoResume = autoResumeOn
+
+  const panel = document.createElement('div')
+  panel.className = 'rl-panel'
+  ts.rl.el = panel
+
+  const row = document.createElement('div')
+  row.className = 'rl-panel-row'
+
+  const label = document.createElement('span')
+  label.className = 'rl-label'
+  label.textContent = '⏱ 自動再開'
+
+  const countdown = document.createElement('div')
+  countdown.className = 'rl-countdown'
+  countdown.hidden = !autoResumeOn
+
+  const timeEl = document.createElement('span')
+  timeEl.className = 'rl-time'
+
+  row.appendChild(label)
+
+  if (resetAt) {
+    const toggle = document.createElement('div')
+    toggle.className = 'rl-toggle'
+
+    const offBtn = document.createElement('button')
+    offBtn.className = 'rl-toggle-btn' + (!autoResumeOn ? ' active' : '')
+    offBtn.textContent = 'OFF'
+
+    const onBtn = document.createElement('button')
+    onBtn.className = 'rl-toggle-btn' + (autoResumeOn ? ' active' : '')
+    onBtn.textContent = 'ON'
+
+    offBtn.addEventListener('click', () => {
+      if (!ts.rl || !ts.rl.autoResume) return
+      ts.rl.autoResume = false
+      offBtn.classList.add('active'); onBtn.classList.remove('active')
+      if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
+      countdown.hidden = true
+      fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
+    })
+
+    onBtn.addEventListener('click', async () => {
+      if (!ts.rl || ts.rl.autoResume) return
+      ts.rl.autoResume = true
+      onBtn.classList.add('active'); offBtn.classList.remove('active')
+      const session = loadSessions().find(s => s.sessionId === sessionId)
+      if (!session) return
+      await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resetAt: ts.rl.resetAt.toISOString(),
+          prompt: appSettings.resumePrompt || '続けてください',
+          project: session.project,
+          model: (ts.model || appSettings.defaultModel) || null,
+          effort: (ts.effort ?? appSettings.effort) || null,
+          thinking: ts.thinking ?? appSettings.thinking
+        })
+      }).catch(() => {})
+      countdown.hidden = false
+      startRateLimitCountdown(sessionId)
+    })
+
+    toggle.appendChild(offBtn)
+    toggle.appendChild(onBtn)
+    row.appendChild(toggle)
+
+    const h = resetAt.getHours().toString().padStart(2, '0')
+    const m = resetAt.getMinutes().toString().padStart(2, '0')
+    timeEl.textContent = `リセット: ${h}:${m}`
+  } else {
+    timeEl.textContent = 'リセット時刻: 不明'
+  }
+
+  row.appendChild(timeEl)
+  panel.appendChild(row)
+  panel.appendChild(countdown)
+  ts.pane.appendChild(panel)
+
+  if (autoResumeOn && resetAt) startRateLimitCountdown(sessionId)
+}
+
+function startRateLimitCountdown(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts || !ts.rl || !ts.rl.resetAt || !ts.rl.el) return
+  if (ts.rl.countdownId) clearInterval(ts.rl.countdownId)
+  const countdown = ts.rl.el.querySelector('.rl-countdown')
+  function tick() {
+    if (!ts.rl) return
+    const diff = ts.rl.resetAt.getTime() - Date.now()
+    if (diff <= 0) {
+      clearInterval(ts.rl.countdownId)
+      ts.rl.countdownId = null
+      if (countdown) countdown.textContent = '再開中...'
+      return
+    }
+    const mins = Math.floor(diff / 60000)
+    const secs = Math.floor((diff % 60000) / 1000)
+    if (countdown) countdown.textContent = `あと ${mins}分${secs.toString().padStart(2, '0')}秒`
+  }
+  tick()
+  ts.rl.countdownId = setInterval(tick, 1000)
+}
+
+function clearRateLimitPanel(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts || !ts.rl) return
+  if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
+  if (ts.rl.el) { ts.rl.el.remove(); ts.rl.el = null }
+  ts.rl = null
+}
+
+async function restoreRateLimitPanel(sessionId) {
+  try {
+    const data = await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`).then(r => r.json())
+    if (data.resetAt) {
+      const resetAt = new Date(data.resetAt)
+      if (resetAt > new Date()) {
+        showRateLimitPanel(sessionId, resetAt, true)
+      }
+    }
+  } catch {}
+}
+
 // ── 初期化 ──
 async function init() {
   applyTheme()
@@ -1594,8 +1770,11 @@ async function loadHistoryBulk(sessionId) {
     }
     const events = await res.json()
 
-    // 全イベントを一括処理
-    events.forEach(ev => handleEvent(sessionId, ev))
+    // 全イベントを一括処理（履歴再生なのでisLive=false）
+    events.forEach(ev => handleEvent(sessionId, ev, false))
+
+    // サーバー側に有効なスケジュールがあればパネルを復元
+    await restoreRateLimitPanel(sessionId)
 
     // 一括描画完了後に最下部へスクロール
     ts.autoScroll = true
@@ -1767,13 +1946,14 @@ function resolveToolContent(content, toolUseResult) {
 }
 
 // ── イベント処理 ──
-function handleEvent(sessionId, ev) {
+function handleEvent(sessionId, ev, isLive = true) {
   const ts = tabState[sessionId]
   if (!ts) return
   const isActive = sessionId === currentSessionId
 
   switch (ev.type) {
     case 'user_input':
+      clearRateLimitPanel(sessionId)
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
       } else {
@@ -1797,6 +1977,7 @@ function handleEvent(sessionId, ev) {
       if (ev.error === 'rate_limit') {
         const limitText = ev.message?.content?.find(c => c.type === 'text')?.text || 'Rate limit reached'
         addLine(ts, limitText, 'line-error')
+        if (isLive) showRateLimitPanel(sessionId, parseResetTime(limitText))
         break
       }
       // AskUserQuestion: ストリームのデルタが --include-partial-messages で壊れる場合があるため、
@@ -2243,9 +2424,9 @@ async function resumeConversation(sessionId) {
 
     switchTab(sessionId)
 
-    // 全イベントを再生（実セッションと同じ処理）
+    // 全イベントを再生（履歴再生なのでisLive=false）
     for (const ev of events) {
-      handleEvent(sessionId, ev)
+      handleEvent(sessionId, ev, false)
     }
 
     // 最下部にスクロール
@@ -2283,6 +2464,9 @@ async function send() {
   promptEl.value = ''
   promptEl.style.height = 'auto'
   if (tabState[currentSessionId]) tabState[currentSessionId].draftPrompt = ''
+  // レート制限パネルをクリア（手動送信で上書き）
+  clearRateLimitPanel(currentSessionId)
+  fetch(`/api/schedule-resume/${encodeURIComponent(currentSessionId)}`, { method: 'DELETE' }).catch(() => {})
   // user_inputイベントで表示されるため、ここでは表示しない
   try {
     const res = await fetch('/api/send', {
