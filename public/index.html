@@ -1586,20 +1586,6 @@ async function loadHistoryBulk(sessionId) {
     // 全イベントを一括処理
     events.forEach(ev => handleEvent(sessionId, ev))
 
-    // フォールバック: 未処理のAskUserQuestion tool lineをassistantメッセージから再処理
-    events.forEach(ev => {
-      if (ev.type === 'assistant' && ev.message?.content) {
-        ev.message.content.forEach(item => {
-          if (item.type === 'tool_use' && item.name === 'AskUserQuestion' && item.input) {
-            const toolEl = ts.pane.querySelector(`[data-tool-id="${item.id}"]`)
-            if (toolEl && !toolEl.dataset.toolType) {
-              updateToolDesc(toolEl, item.input)
-            }
-          }
-        })
-      }
-    })
-
     // 一括描画完了後に最下部へスクロール
     ts.autoScroll = true
     requestAnimationFrame(() => {
@@ -1799,11 +1785,17 @@ function handleEvent(sessionId, ev) {
     case 'assistant':
       // AskUserQuestion: ストリームのデルタが --include-partial-messages で壊れる場合があるため、
       // 完全なassistantメッセージから正確なデータで表示を更新する
+      // 履歴読み込み時はcontent_block_startが記録されていない場合があるため、要素がなければ作成する
       if (ev.message?.content) {
         ev.message.content.forEach(item => {
           if (item.type === 'tool_use' && item.name === 'AskUserQuestion' && item.input) {
-            const toolEl = ts.pane.querySelector(`[data-tool-id="${item.id}"]`)
-            if (toolEl && !toolEl.dataset.toolType) {
+            let toolEl = ts.pane.querySelector(`[data-tool-id="${item.id}"]`)
+            if (!toolEl) {
+              // 要素が未作成の場合（履歴読み込み等）は新規作成
+              finalizeText(ts)
+              toolEl = addToolLine(ts, item.name, item.id)
+            }
+            if (!toolEl.dataset.toolType) {
               updateToolDesc(toolEl, item.input)
             }
           }
