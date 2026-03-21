@@ -628,8 +628,12 @@
   .line-tool .tool-name { font-style: italic; flex-shrink: 0; }
   .line-tool .tool-desc { color: var(--text-dim); font-style: normal; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .line-tool .tool-toggle { color: var(--text-darker); flex-shrink: 0; }
-  .tool-result { color: var(--text-dim); margin-left: 20px; margin-top: 2px; white-space: pre-wrap; overflow-x: auto; max-height: 0; overflow-y: hidden; transition: max-height 0.2s; }
+  .tool-result { color: var(--text-dim); margin-left: 20px; margin-top: 2px; white-space: pre-wrap; overflow-x: auto; max-height: 0; overflow-y: hidden; transition: max-height 0.2s; font-size: var(--code-font-size, 12px); }
   .tool-result.expanded { max-height: 800px; overflow-y: auto; }
+  .tool-result-label { color: var(--text-darker); font-size: 10px; margin-bottom: 2px; margin-top: 6px; }
+  .tool-result-label:first-child { margin-top: 0; }
+  .diff-removed { display: block; background: rgba(220,50,50,0.15); color: var(--red); white-space: pre-wrap; padding: 0 4px; }
+  .diff-added { display: block; background: rgba(80,180,80,0.15); color: var(--green-user); white-space: pre-wrap; padding: 0 4px; }
   .ask-questions { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; white-space: normal; }
   .ask-question { border-left: 2px solid var(--accent); padding-left: 8px; }
   .ask-header { font-size: 10px; color: var(--text-darker); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -2033,11 +2037,7 @@ function handleEvent(sessionId, ev, isLive = true) {
             const toolId = item.tool_use_id
             const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
             if (toolEl && toolEl._resultDiv && toolEl.dataset.toolType !== 'ask') {
-              toolEl._resultDiv.textContent = resolveToolContent(item.content, ev.tool_use_result)
-              // エラーの場合は色を変える
-              if (item.is_error) {
-                toolEl._resultDiv.style.color = 'var(--red)'
-              }
+              renderToolResult(toolEl, resolveToolContent(item.content, ev.tool_use_result), item.is_error)
             }
           }
         })
@@ -2154,10 +2154,7 @@ function handleEvent(sessionId, ev, isLive = true) {
                 const toolId = item.tool_use_id
                 const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
                 if (toolEl && toolEl._resultDiv && toolEl.dataset.toolType !== 'ask') {
-                  toolEl._resultDiv.textContent = resolveToolContent(item.content, parsed.tool_use_result)
-                  if (item.is_error) {
-                    toolEl._resultDiv.style.color = 'var(--red)'
-                  }
+                  renderToolResult(toolEl, resolveToolContent(item.content, parsed.tool_use_result), item.is_error)
                 }
               }
             })
@@ -2262,9 +2259,21 @@ function updateToolDesc(toolEl, params) {
     case 'Bash':
       desc = params.command ? params.command.substring(0, 60) : ''
       break
-    case 'Read':
-      desc = params.file_path ? params.file_path : ''
+    case 'Read': {
+      if (params.file_path) {
+        const fname = params.file_path.split('/').pop()
+        if (params.offset && params.limit) {
+          desc = `${fname} (lines ${params.offset}-${params.offset + params.limit - 1})`
+        } else if (params.offset) {
+          desc = `${fname} (from line ${params.offset})`
+        } else if (params.limit) {
+          desc = `${fname} (${params.limit} lines)`
+        } else {
+          desc = fname
+        }
+      }
       break
+    }
     case 'Edit':
       desc = params.file_path ? params.file_path : ''
       break
@@ -2272,7 +2281,7 @@ function updateToolDesc(toolEl, params) {
       desc = params.file_path ? params.file_path : ''
       break
     case 'Grep':
-      desc = params.pattern ? `"${params.pattern}"${params.path ? ' in ' + params.path : ''}` : ''
+      desc = params.pattern ? `"${params.pattern}"${params.path ? ' (in ' + params.path + ')' : ''}` : ''
       break
     case 'Glob':
       desc = params.pattern ? params.pattern : ''
@@ -2329,6 +2338,63 @@ function updateToolDesc(toolEl, params) {
   }
 
   descSpan.textContent = desc
+  toolEl._toolParams = params
+}
+
+function renderToolResult(toolEl, resultText, isError) {
+  const rd = toolEl._resultDiv
+  if (!rd) return
+  const toolName = toolEl.querySelector('.tool-name')?.textContent.replace(/[\[\]]/g, '') || ''
+  const params = toolEl._toolParams || {}
+
+  rd.innerHTML = ''
+  if (isError) rd.style.color = 'var(--red)'
+
+  if (toolName === 'Bash') {
+    const inLabel = document.createElement('div')
+    inLabel.className = 'tool-result-label'
+    inLabel.textContent = 'IN'
+    const inContent = document.createElement('div')
+    inContent.textContent = params.command || ''
+    const outLabel = document.createElement('div')
+    outLabel.className = 'tool-result-label'
+    outLabel.textContent = 'OUT'
+    const outContent = document.createElement('div')
+    outContent.textContent = resultText
+    rd.appendChild(inLabel)
+    rd.appendChild(inContent)
+    rd.appendChild(outLabel)
+    rd.appendChild(outContent)
+  } else if (toolName === 'Edit') {
+    const oldStr = params.old_string || ''
+    const newStr = params.new_string || ''
+    if (oldStr || newStr) {
+      const delLabel = document.createElement('div')
+      delLabel.className = 'tool-result-label'
+      delLabel.textContent = 'REMOVED'
+      rd.appendChild(delLabel)
+      oldStr.split('\n').forEach(line => {
+        const span = document.createElement('span')
+        span.className = 'diff-removed'
+        span.textContent = line
+        rd.appendChild(span)
+      })
+      const addLabel = document.createElement('div')
+      addLabel.className = 'tool-result-label'
+      addLabel.textContent = 'ADDED'
+      rd.appendChild(addLabel)
+      newStr.split('\n').forEach(line => {
+        const span = document.createElement('span')
+        span.className = 'diff-added'
+        span.textContent = line
+        rd.appendChild(span)
+      })
+    } else {
+      rd.textContent = resultText
+    }
+  } else {
+    rd.textContent = resultText
+  }
 }
 
 function updateCtxBadge(pct) {
