@@ -1862,22 +1862,11 @@ function handleEvent(sessionId, ev) {
       finalizeText(ts)
       ts.isRunning = false
       const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
-      if (ev.reason === 'server_restart') {
-        const doneEl = addLine(ts, `⚠ Interrupted (server restarted)`, 'line-done')
-        doneEl.classList.add('warn')
-      } else if (ev.exitCode !== 0) {
-        const lastErr = ts._lastStderr || ''
-        const isLimit = /limit|reset|usage/i.test(lastErr)
-        if (isLimit) {
-          addLine(ts, `⛔ ${lastErr}`, 'line-error')
-        } else {
-          const doneEl = addLine(ts, `⚠ Error (exit ${ev.exitCode}) — ${pct}%`, 'line-done')
-          doneEl.classList.add('warn')
-        }
-      } else {
-        const doneEl = addLine(ts, `✓ Done (exit ${ev.exitCode}) — ${pct}%`, 'line-done')
-        if (pct >= 50) doneEl.classList.add('warn')
-      }
+      const doneMsg = ev.reason === 'server_restart'
+        ? `⚠ Interrupted (server restarted)`
+        : `✓ Done (exit ${ev.exitCode}) — ${pct}%`
+      const doneEl = addLine(ts, doneMsg, 'line-done')
+      if (ev.reason === 'server_restart' || ev.exitCode !== 0 || pct >= 50) doneEl.classList.add('warn')
       if (isActive) { updateCtxBadge(pct); updateUI() }
       break
     }
@@ -1895,8 +1884,8 @@ function handleEvent(sessionId, ev) {
 
     case 'stderr':
       if (ev.text?.trim()) {
-        ts._lastStderr = ev.text.trim()
-        addLine(ts, `[err] ${ev.text}`, 'line-system')
+        const isLimit = /limit|reset|usage/i.test(ev.text)
+        addLine(ts, ev.text.trim(), isLimit ? 'line-error' : 'line-system')
       }
       break
 
