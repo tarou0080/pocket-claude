@@ -627,32 +627,32 @@
   .line-tool    { color: var(--accent); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
   .line-tool .tool-name { font-style: italic; flex-shrink: 0; }
   .line-tool .tool-desc { color: var(--text-dim); font-size: 11px; font-style: normal; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .line-tool .tool-toggle { font-size: 10px; color: var(--text-darker); flex-shrink: 0; }
-  .tool-result { color: var(--text-dim); font-size: 11px; margin-left: 20px; margin-top: 2px; white-space: pre-wrap; overflow-x: auto; max-height: 0; overflow-y: hidden; transition: max-height 0.2s; }
+  .line-tool .tool-toggle { color: var(--text-darker); flex-shrink: 0; }
+  .tool-result { color: var(--text-dim); margin-left: 20px; margin-top: 2px; white-space: pre-wrap; overflow-x: auto; max-height: 0; overflow-y: hidden; transition: max-height 0.2s; }
   .tool-result.expanded { max-height: 800px; overflow-y: auto; }
   .ask-questions { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; white-space: normal; }
   .ask-question { border-left: 2px solid var(--accent); padding-left: 8px; }
   .ask-header { font-size: 10px; color: var(--text-darker); text-transform: uppercase; letter-spacing: 0.5px; }
-  .ask-text { color: var(--text); font-size: 12px; margin: 2px 0 4px; }
-  .ask-option { font-size: 11px; color: var(--text-dim); padding: 1px 0; }
+  .ask-text { color: var(--text); margin: 2px 0 4px; }
+  .ask-option { color: var(--text-dim); padding: 1px 0; }
   .ask-option strong { color: var(--text); }
-  .line-system  { color: var(--text-dim); font-size: 11px; }
+  .line-system  { color: var(--text-dim); }
   .line-done    { color: var(--green); border-top: 1px solid var(--surface3); margin-top: 6px; padding-top: 6px; }
   .line-done.warn { color: var(--orange); }
   #ctx-badge { font-size: 11px; color: var(--effort-empty); flex-shrink: 0; }
   #ctx-badge.warn { color: var(--orange); font-weight: bold; }
   .line-error   { color: var(--red); }
-  .line-thinking { color: var(--purple); font-size: 11px; font-style: italic; }
+  .line-thinking { color: var(--purple); font-style: italic; }
 
   /* ── レート制限パネル ── */
   .rl-panel { border: 1px solid var(--red); border-radius: 6px; padding: 8px 12px; margin: 4px 0; background: var(--red-bg); }
-  .rl-panel-row { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+  .rl-panel-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .rl-label { color: var(--text-muted); flex-shrink: 0; }
-  .rl-time  { color: var(--text-dim); font-size: 11px; margin-left: auto; }
+  .rl-time  { color: var(--text-dim); margin-left: auto; }
   .rl-toggle { display: inline-flex; border: 1px solid var(--border-input); border-radius: 4px; overflow: hidden; flex-shrink: 0; }
-  .rl-toggle-btn { padding: 2px 8px; font-size: 11px; background: var(--surface3); color: var(--text-dim); border: none; cursor: pointer; }
+  .rl-toggle-btn { padding: 2px 8px; background: var(--surface3); color: var(--text-dim); border: none; cursor: pointer; }
   .rl-toggle-btn.active { background: var(--primary); color: white; }
-  .rl-countdown { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .rl-countdown { color: var(--text-dim); margin-top: 4px; }
 
   /* マークダウン */
   .line-text p  { margin: 0 0 6px; }
@@ -660,9 +660,9 @@
   .line-text h1,.line-text h2,.line-text h3 { margin: 8px 0 4px; font-size: 1em; color: var(--accent); }
   .line-text ul,.line-text ol { padding-left: 18px; margin: 4px 0; }
   .line-text li { margin: 2px 0; }
-  .line-text code { background: var(--border-soft); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; font-family: 'Menlo','Courier New',monospace; font-size: 12px; }
+  .line-text code { background: var(--border-soft); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; font-family: 'Menlo','Courier New',monospace; font-size: var(--code-font-size, 12px); }
   .line-text pre { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 6px 0; overflow-x: auto; }
-  .line-text pre code { background: none; border: none; padding: 0; font-size: 12px; }
+  .line-text pre code { background: none; border: none; padding: 0; font-size: var(--code-font-size, 12px); }
   .line-text strong { color: #fff; }
   .line-text a { color: var(--accent); }
   .line-text blockquote { border-left: 3px solid var(--effort-empty); padding-left: 10px; color: var(--text-muted); margin: 4px 0; }
@@ -774,6 +774,14 @@
             <button class="font-size-btn" id="output-font-dec">−</button>
             <span class="font-size-val" id="output-font-val">13px</span>
             <button class="font-size-btn" id="output-font-inc">＋</button>
+          </div>
+        </div>
+        <div class="font-size-row">
+          <span class="font-size-label">Code</span>
+          <div class="font-size-ctrl">
+            <button class="font-size-btn" id="code-font-dec">−</button>
+            <span class="font-size-val" id="code-font-val">12px</span>
+            <button class="font-size-btn" id="code-font-inc">＋</button>
           </div>
         </div>
       </div>
@@ -888,6 +896,7 @@ function loadSettings() {
   const defaults = {
     promptFontSize: 16,
     outputFontSize: 13,
+    codeFontSize: 12,
     effort: '',
     thinking: 'none',
     defaultModel: '',
@@ -914,6 +923,7 @@ function applyFontSizes() {
   document.querySelectorAll('.output-pane').forEach(p => {
     p.style.fontSize = appSettings.outputFontSize + 'px'
   })
+  document.documentElement.style.setProperty('--code-font-size', appSettings.codeFontSize + 'px')
 }
 
 function applyFontSizesToPane(pane) {
@@ -993,6 +1003,7 @@ function renderSettingsModal() {
   // Font size
   document.getElementById('prompt-font-val').textContent = appSettings.promptFontSize + 'px'
   document.getElementById('output-font-val').textContent = appSettings.outputFontSize + 'px'
+  document.getElementById('code-font-val').textContent = appSettings.codeFontSize + 'px'
 
   // Model list
   const modelList = document.getElementById('settings-model-list')
@@ -1188,6 +1199,20 @@ document.getElementById('output-font-inc').addEventListener('click', () => {
   saveSettings(appSettings)
   applyFontSizes()
   document.getElementById('output-font-val').textContent = appSettings.outputFontSize + 'px'
+})
+document.getElementById('code-font-dec').addEventListener('click', () => {
+  if (appSettings.codeFontSize <= 10) return
+  appSettings.codeFontSize--
+  saveSettings(appSettings)
+  applyFontSizes()
+  document.getElementById('code-font-val').textContent = appSettings.codeFontSize + 'px'
+})
+document.getElementById('code-font-inc').addEventListener('click', () => {
+  if (appSettings.codeFontSize >= 24) return
+  appSettings.codeFontSize++
+  saveSettings(appSettings)
+  applyFontSizes()
+  document.getElementById('code-font-val').textContent = appSettings.codeFontSize + 'px'
 })
 
 const tabState = {}   // sessionId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane, autoScroll }
