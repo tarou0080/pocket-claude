@@ -29,7 +29,8 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   const permissionMode = config.permissionMode || 'ask'
   const settings = {}
   if (effort) settings.effort = effort
-  if (thinking !== null && thinking !== undefined) settings.alwaysThinkingEnabled = thinking
+  if (thinking === 'on' || thinking === true) settings.alwaysThinkingEnabled = true
+  else if (thinking === 'off' || thinking === false) settings.alwaysThinkingEnabled = false
   const args = [
     ...(claudeSessionId ? ['--resume', claudeSessionId] : []),
     '-p', prompt,

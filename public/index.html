@@ -157,6 +157,11 @@
   }
   .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
   .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); background: white; }
+  .seg-control { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg-btn { flex: 1; padding: 6px 0; font-size: 12px; background: transparent; border: none; border-right: 1px solid var(--border); color: var(--text-muted); cursor: pointer; }
+  .seg-btn:last-child { border-right: none; }
+  .seg-btn.active { background: var(--accent-bg); color: var(--text); }
+  .seg-btn:active { background: var(--border); }
 
   /* ── 設定ボタン ── */
   #settings-btn {
@@ -773,12 +778,13 @@
         <div id="settings-effort-list"></div>
       </div>
       <!-- Thinking -->
-      <div class="settings-toggle-row">
-        <div class="settings-section-title" style="margin-bottom:0">Thinking</div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="thinking-toggle">
-          <span class="toggle-slider"></span>
-        </label>
+      <div>
+        <div class="settings-section-title">Thinking</div>
+        <div id="thinking-selector" class="seg-control">
+          <button class="seg-btn" data-val="none">None</button>
+          <button class="seg-btn" data-val="on">On</button>
+          <button class="seg-btn" data-val="off">Off</button>
+        </div>
       </div>
       <!-- Theme -->
       <div>
@@ -868,13 +874,15 @@ function loadSettings() {
     promptFontSize: 16,
     outputFontSize: 13,
     effort: '',
-    thinking: true,
+    thinking: 'none',
     defaultModel: '',
     enabledModels: ALL_MODELS.map(m => m.value),
     theme: window.DEFAULT_THEME || 'pocket-claude',
   }
   try {
     const saved = JSON.parse(localStorage.getItem('pc-settings') || '{}')
+    if (saved.thinking === true) saved.thinking = 'on'
+    else if (saved.thinking === false) saved.thinking = 'off'
     return { ...defaults, ...saved }
   } catch { return defaults }
 }
@@ -1066,22 +1074,25 @@ function renderSettingsModal() {
     effortList.appendChild(row)
   })
 
-  // Thinking toggle
-  const thinkingToggle = document.getElementById('thinking-toggle')
-  const curThinking = (currentSessionId && tabState[currentSessionId])
+  // Thinking selector
+  const normThinking = v => (v === true ? 'on' : v === false ? 'off' : (v || 'none'))
+  const curThinking = normThinking((currentSessionId && tabState[currentSessionId])
     ? tabState[currentSessionId].thinking
-    : appSettings.thinking
-  thinkingToggle.checked = curThinking !== false
-  thinkingToggle.onchange = () => {
-    const val = thinkingToggle.checked
-    if (currentSessionId && tabState[currentSessionId]) {
-      tabState[currentSessionId].thinking = val
-      updateSession(currentSessionId, { thinking: val })
-    } else {
-      appSettings.thinking = val
-      saveSettings(appSettings)
+    : appSettings.thinking)
+  document.getElementById('thinking-selector').querySelectorAll('.seg-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.val === curThinking)
+    btn.onclick = () => {
+      const val = btn.dataset.val
+      btn.closest('.seg-control').querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn))
+      if (currentSessionId && tabState[currentSessionId]) {
+        tabState[currentSessionId].thinking = val
+        updateSession(currentSessionId, { thinking: val })
+      } else {
+        appSettings.thinking = val
+        saveSettings(appSettings)
+      }
     }
-  }
+  })
 
   // Theme list
   const themeList = document.getElementById('settings-theme-list')
@@ -1783,6 +1794,11 @@ function handleEvent(sessionId, ev) {
       break
 
     case 'assistant':
+      if (ev.error === 'rate_limit') {
+        const limitText = ev.message?.content?.find(c => c.type === 'text')?.text || 'Rate limit reached'
+        addLine(ts, limitText, 'line-error')
+        break
+      }
       // AskUserQuestion: ストリームのデルタが --include-partial-messages で壊れる場合があるため、
       // 完全なassistantメッセージから正確なデータで表示を更新する
       // 履歴読み込み時はcontent_block_startが記録されていない場合があるため、要素がなければ作成する
