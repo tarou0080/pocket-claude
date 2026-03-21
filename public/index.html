@@ -79,17 +79,16 @@
   #status-dot.running   { background: var(--orange); animation: pulse 1.2s infinite; }
   #status-dot.disconnected {
     width: auto; height: auto;
-    border-radius: 6px;
     background: none;
-    border: 1px solid var(--border-input);
-    padding: 4px 8px;
+    border: none;
+    padding: 0;
     font-size: 14px;
-    color: var(--text-dim);
+    color: var(--red);
     cursor: pointer;
-    min-width: 32px;
     text-align: center;
+    line-height: 1;
   }
-  #status-dot.disconnected:active { background: var(--border); color: var(--text-muted); }
+  #status-dot.disconnected:active { opacity: 0.6; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
   #model-select {
