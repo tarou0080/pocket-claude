@@ -127,6 +127,17 @@
     border-color: var(--accent);
   }
   #effort-indicator:active { background: var(--border); }
+  #thinking-indicator {
+    font-size: 13px; font-weight: bold;
+    padding: 4px 8px; border-radius: 6px;
+    border: 1px solid var(--border-input);
+    background: transparent; cursor: pointer;
+    min-height: 30px; color: var(--text-muted);
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+  }
+  #thinking-indicator:hover { background: var(--accent-hover); border-color: var(--accent); }
+  #thinking-indicator:active { background: var(--border); }
+  #thinking-indicator.on { color: var(--accent); border-color: var(--accent); }
   .effort-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
@@ -734,6 +745,7 @@
       <span class="effort-dot" data-idx="2"></span>
       <span class="effort-dot" data-idx="3" style="display:none"></span>
     </div>
+    <button id="thinking-indicator" title="Thinking">T</button>
     <button id="stop-btn" title="Stop execution">■</button>
     <button id="projects-btn" title="Projects">P</button>
     <button id="history-btn" title="Conversation history">⟳</button>
@@ -809,6 +821,11 @@
         <div class="settings-section-title">Effort</div>
         <div id="settings-effort-list"></div>
       </div>
+      <!-- Thinking -->
+      <div>
+        <div class="settings-section-title">Thinking</div>
+        <div id="settings-thinking-list"></div>
+      </div>
       <!-- Theme -->
       <div>
         <div class="settings-section-title">Theme</div>
@@ -849,7 +866,8 @@ const stopBtn         = document.getElementById('stop-btn')
 const tabBar          = document.getElementById('tab-bar')
 const addTabBtn       = document.getElementById('add-tab-btn')
 const outputCont      = document.getElementById('output-container')
-const effortIndicator = document.getElementById('effort-indicator')
+const effortIndicator     = document.getElementById('effort-indicator')
+const thinkingIndicator   = document.getElementById('thinking-indicator')
 const settingsBtn     = document.getElementById('settings-btn')
 const settingsModal   = document.getElementById('settings-modal')
 const settingsClose   = document.getElementById('settings-close')
@@ -883,6 +901,7 @@ function loadSettings() {
     promptFontSize: 16,
     outputFontSize: 13,
     effort: '',
+    thinking: true,
     defaultModel: '',
     enabledModels: ALL_MODELS.map(m => m.value),
     theme: window.DEFAULT_THEME || 'pocket-claude',
@@ -954,6 +973,14 @@ function updateEffortIndicator() {
     dot.classList.toggle('filled', opt.dots[i] === 1)
   })
   effortIndicator.title = `Effort: ${opt.label}`
+}
+
+function updateThinkingIndicator() {
+  const thinking = (currentSessionId && tabState[currentSessionId])
+    ? tabState[currentSessionId].thinking
+    : appSettings.thinking
+  thinkingIndicator.classList.toggle('on', thinking !== false)
+  thinkingIndicator.title = `Thinking: ${thinking !== false ? 'On' : 'Off'}`
 }
 
 function applyTheme() {
@@ -1079,6 +1106,34 @@ function renderSettingsModal() {
     effortList.appendChild(row)
   })
 
+  // Thinking list
+  const thinkingList = document.getElementById('settings-thinking-list')
+  thinkingList.innerHTML = ''
+  const curThinking = (currentSessionId && tabState[currentSessionId])
+    ? tabState[currentSessionId].thinking
+    : appSettings.thinking
+  ;[{ value: true, label: 'On' }, { value: false, label: 'Off' }].forEach(opt => {
+    const row = document.createElement('div')
+    row.className = 'effort-option' + ((curThinking !== false) === opt.value ? ' selected' : '')
+    row.addEventListener('click', () => {
+      if (currentSessionId && tabState[currentSessionId]) {
+        tabState[currentSessionId].thinking = opt.value
+        updateSession(currentSessionId, { thinking: opt.value })
+      } else {
+        appSettings.thinking = opt.value
+        saveSettings(appSettings)
+      }
+      updateThinkingIndicator()
+      thinkingList.querySelectorAll('.effort-option').forEach(r => r.classList.remove('selected'))
+      row.classList.add('selected')
+    })
+    const label = document.createElement('span')
+    label.className = 'effort-option-label'
+    label.textContent = opt.label
+    row.appendChild(label)
+    thinkingList.appendChild(row)
+  })
+
   // Theme list
   const themeList = document.getElementById('settings-theme-list')
   themeList.innerHTML = ''
@@ -1114,6 +1169,7 @@ settingsModal.addEventListener('click', e => {
   if (e.target === settingsModal) closeSettings()
 })
 effortIndicator.addEventListener('click', openSettings)
+thinkingIndicator.addEventListener('click', openSettings)
 modelSel.addEventListener('change', () => {
   if (currentSessionId && tabState[currentSessionId]) {
     tabState[currentSessionId].model = modelSel.value
@@ -1207,6 +1263,7 @@ function ensureTabState(session) {
     _initialLoaded: false,  // 一括描画済みフラグ
     model: session.model || appSettings.defaultModel || '',
     effort: session.effort !== undefined ? session.effort : (appSettings.effort || ''),
+    thinking: session.thinking !== undefined ? session.thinking : appSettings.thinking,
     draftPrompt: session.draftPrompt || '',
   }
 
@@ -1313,6 +1370,7 @@ function applyTabSettings(sessionId) {
   if (promptEl.value) promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
   // Effortインジケーター更新（ts.effortを使う）
   updateEffortIndicator()
+  updateThinkingIndicator()
 }
 
 // ── タブ切り替え ──
@@ -1325,6 +1383,7 @@ function switchTab(sessionId) {
       draftPrompt: promptEl.value,
       model: tabState[currentSessionId].model,
       effort: tabState[currentSessionId].effort,
+      thinking: tabState[currentSessionId].thinking,
     })
   }
   tabBar.querySelectorAll('.tab').forEach(t =>
@@ -1499,6 +1558,7 @@ async function init() {
   rebuildModelSelect()
   applyFontSizes()
   updateEffortIndicator()
+  updateThinkingIndicator()
   await refreshProjectsCache()
   let sessions = loadSessions()
 
@@ -2220,7 +2280,8 @@ async function send() {
         sessionId: currentSessionId,
         project: currentSession.project,
         model: modelSel.value || null,
-        effort: (tabState[currentSessionId]?.effort ?? appSettings.effort) || null
+        effort: (tabState[currentSessionId]?.effort ?? appSettings.effort) || null,
+        thinking: tabState[currentSessionId] ? tabState[currentSessionId].thinking : appSettings.thinking
       })
     })
     if (!res.ok) {

@@ -21,12 +21,15 @@ function getClaudeSessionId(sessionId) {
 }
 
 // claude プロセス起動
-function startClaude(sessionId, prompt, model, project, claudeSessionId, effort) {
+function startClaude(sessionId, prompt, model, project, claudeSessionId, effort, thinking) {
   const projects = config.projects
   const projectDir = projects[project] || projects[Object.keys(projects)[0]]
   const s = getState(sessionId)
 
   const permissionMode = config.permissionMode || 'ask'
+  const settings = {}
+  if (effort) settings.effort = effort
+  if (thinking !== null && thinking !== undefined) settings.alwaysThinkingEnabled = thinking
   const args = [
     ...(claudeSessionId ? ['--resume', claudeSessionId] : []),
     '-p', prompt,
@@ -35,7 +38,7 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort)
     '--include-partial-messages',
     '--permission-mode', permissionMode,
     ...(model  ? ['--model',  model]  : []),
-    ...(effort ? ['--settings', JSON.stringify({ effort })] : []),
+    ...(Object.keys(settings).length ? ['--settings', JSON.stringify(settings)] : []),
   ]
 
   broadcast(sessionId, {
@@ -81,12 +84,14 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort)
       const pending = s.pendingPrompt
       const pendingModel = s.pendingModel
       const pendingEffort = s.pendingEffort
+      const pendingThinking = s.pendingThinking
       s.pendingPrompt = null
       s.pendingModel = null
       s.pendingEffort = null
+      s.pendingThinking = null
       broadcast(sessionId, { type: 'queued_sent', message: pending })
       broadcast(sessionId, { type: 'user_input', text: pending })
-      setTimeout(() => startClaude(sessionId, pending, pendingModel, project, getClaudeSessionId(sessionId), pendingEffort), 300)
+      setTimeout(() => startClaude(sessionId, pending, pendingModel, project, getClaudeSessionId(sessionId), pendingEffort, pendingThinking), 300)
     }
   })
 
@@ -126,6 +131,7 @@ function stopPending(sessionId) {
   s.pendingPrompt = null
   s.pendingModel = null
   s.pendingEffort = null
+  s.pendingThinking = null
 }
 
 module.exports = { startClaude, stopClaude, stopPending, injectPrompt, gitPull }

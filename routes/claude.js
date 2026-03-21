@@ -30,7 +30,7 @@ router.get('/status', (req, res) => {
 
 // プロンプト送信
 router.post('/send', async (req, res) => {
-  const { prompt, sessionId, project, model, effort } = req.body
+  const { prompt, sessionId, project, model, effort, thinking } = req.body
   if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'prompt required' })
 
   const { randomUUID } = require('crypto')
@@ -47,6 +47,7 @@ router.post('/send', async (req, res) => {
       s.pendingPrompt = prompt
       s.pendingModel = model || null
       s.pendingEffort = effort || null
+      s.pendingThinking = thinking !== undefined ? thinking : null
     }
     return res.json({ ok: true, sessionId: actualSessionId, injected })
   }
@@ -59,7 +60,7 @@ router.post('/send', async (req, res) => {
   }
 
   broadcast(actualSessionId, { type: 'user_input', text: prompt })
-  startClaude(actualSessionId, prompt, model, actualProject, claudeSessionId, effort || null)
+  startClaude(actualSessionId, prompt, model, actualProject, claudeSessionId, effort || null, thinking !== undefined ? thinking : null)
   res.json({ ok: true, sessionId: actualSessionId, queued: false })
 })
 
