@@ -624,7 +624,13 @@
   .line-tool .tool-desc { color: var(--text-dim); font-size: 11px; font-style: normal; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .line-tool .tool-toggle { font-size: 10px; color: var(--text-darker); flex-shrink: 0; }
   .tool-result { color: var(--text-dim); font-size: 11px; margin-left: 20px; margin-top: 2px; white-space: pre-wrap; overflow-x: auto; max-height: 0; overflow-y: hidden; transition: max-height 0.2s; }
-  .tool-result.expanded { max-height: 500px; overflow-y: auto; }
+  .tool-result.expanded { max-height: 800px; overflow-y: auto; }
+  .ask-questions { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; white-space: normal; }
+  .ask-question { border-left: 2px solid var(--accent); padding-left: 8px; }
+  .ask-header { font-size: 10px; color: var(--text-darker); text-transform: uppercase; letter-spacing: 0.5px; }
+  .ask-text { color: var(--text); font-size: 12px; margin: 2px 0 4px; }
+  .ask-option { font-size: 11px; color: var(--text-dim); padding: 1px 0; }
+  .ask-option strong { color: var(--text); }
   .line-system  { color: var(--text-dim); font-size: 11px; }
   .line-done    { color: var(--green); border-top: 1px solid var(--surface3); margin-top: 6px; padding-top: 6px; }
   .line-done.warn { color: var(--orange); }
@@ -805,6 +811,11 @@
 </div>
 
 <script>
+// crypto.randomUUID polyfill（HTTP環境・browser-check用）
+if (typeof crypto.randomUUID !== 'function') {
+  crypto.randomUUID = () => ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16))
+}
 const historyBtn      = document.getElementById('history-btn')
 const historyPanel    = document.getElementById('history-panel')
 const historyBack     = document.getElementById('history-back')
@@ -1575,6 +1586,20 @@ async function loadHistoryBulk(sessionId) {
     // 全イベントを一括処理
     events.forEach(ev => handleEvent(sessionId, ev))
 
+    // フォールバック: 未処理のAskUserQuestion tool lineをassistantメッセージから再処理
+    events.forEach(ev => {
+      if (ev.type === 'assistant' && ev.message?.content) {
+        ev.message.content.forEach(item => {
+          if (item.type === 'tool_use' && item.name === 'AskUserQuestion' && item.input) {
+            const toolEl = ts.pane.querySelector(`[data-tool-id="${item.id}"]`)
+            if (toolEl && !toolEl.dataset.toolType) {
+              updateToolDesc(toolEl, item.input)
+            }
+          }
+        })
+      }
+    })
+
     // 一括描画完了後に最下部へスクロール
     ts.autoScroll = true
     requestAnimationFrame(() => {
@@ -1771,6 +1796,21 @@ function handleEvent(sessionId, ev) {
       finalizeText(ts)
       break
 
+    case 'assistant':
+      // AskUserQuestion: ストリームのデルタが --include-partial-messages で壊れる場合があるため、
+      // 完全なassistantメッセージから正確なデータで表示を更新する
+      if (ev.message?.content) {
+        ev.message.content.forEach(item => {
+          if (item.type === 'tool_use' && item.name === 'AskUserQuestion' && item.input) {
+            const toolEl = ts.pane.querySelector(`[data-tool-id="${item.id}"]`)
+            if (toolEl && !toolEl.dataset.toolType) {
+              updateToolDesc(toolEl, item.input)
+            }
+          }
+        })
+      }
+      break
+
     case 'user':
       // tool_resultを処理
       if (ev.message?.content) {
@@ -1778,7 +1818,7 @@ function handleEvent(sessionId, ev) {
           if (item.type === 'tool_result') {
             const toolId = item.tool_use_id
             const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
-            if (toolEl && toolEl._resultDiv) {
+            if (toolEl && toolEl._resultDiv && toolEl.dataset.toolType !== 'ask') {
               toolEl._resultDiv.textContent = resolveToolContent(item.content, ev.tool_use_result)
               // エラーの場合は色を変える
               if (item.is_error) {
@@ -1899,7 +1939,7 @@ function handleEvent(sessionId, ev) {
               if (item.type === 'tool_result') {
                 const toolId = item.tool_use_id
                 const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
-                if (toolEl && toolEl._resultDiv) {
+                if (toolEl && toolEl._resultDiv && toolEl.dataset.toolType !== 'ask') {
                   toolEl._resultDiv.textContent = resolveToolContent(item.content, parsed.tool_use_result)
                   if (item.is_error) {
                     toolEl._resultDiv.style.color = 'var(--red)'
@@ -2023,6 +2063,53 @@ function updateToolDesc(toolEl, params) {
     case 'Glob':
       desc = params.pattern ? params.pattern : ''
       break
+    case 'AskUserQuestion': {
+      const qs = params.questions || []
+      desc = `${qs.length}件の質問`
+      const rd = toolEl._resultDiv
+      if (rd && qs.length) {
+        const container = document.createElement('div')
+        container.className = 'ask-questions'
+        qs.forEach(q => {
+          const qDiv = document.createElement('div')
+          qDiv.className = 'ask-question'
+          if (q.header) {
+            const headerEl = document.createElement('div')
+            headerEl.className = 'ask-header'
+            headerEl.textContent = q.header
+            qDiv.appendChild(headerEl)
+          }
+          const textEl = document.createElement('div')
+          textEl.className = 'ask-text'
+          textEl.textContent = q.question || ''
+          qDiv.appendChild(textEl)
+          if (q.options?.length) {
+            q.options.forEach((opt, i) => {
+              const optEl = document.createElement('div')
+              optEl.className = 'ask-option'
+              const strong = document.createElement('strong')
+              strong.textContent = `${i + 1}. ${opt.label}`
+              optEl.appendChild(strong)
+              if (opt.description) {
+                optEl.appendChild(document.createTextNode(` — ${opt.description}`))
+              }
+              qDiv.appendChild(optEl)
+            })
+          }
+          container.appendChild(qDiv)
+        })
+        rd.innerHTML = ''
+        // tool-result の 11px を上書きして pane の outputFontSize に合わせる
+        const paneEl = toolEl.closest('.output-pane')
+        container.style.fontSize = paneEl ? paneEl.style.fontSize || '13px' : '13px'
+        rd.appendChild(container)
+        rd.classList.add('expanded')
+        const toggleSpan = toolEl.querySelector('.tool-toggle')
+        if (toggleSpan) toggleSpan.textContent = '▾'
+        toolEl.dataset.toolType = 'ask'
+      }
+      break
+    }
     default:
       desc = Object.keys(params).slice(0, 2).map(k => `${k}: ${String(params[k]).substring(0, 30)}`).join(', ')
   }
