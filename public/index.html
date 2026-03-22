@@ -2112,6 +2112,12 @@ function handleEvent(sessionId, ev, isLive = true) {
       break
     }
 
+    case 'result':
+      if (ev.is_error && Array.isArray(ev.errors) && ev.errors.length) {
+        ev.errors.forEach(e => addLine(ts, e, 'line-error'))
+      }
+      break
+
     case 'done': {
       finalizeText(ts)
       ts.isRunning = false
