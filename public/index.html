@@ -1559,6 +1559,30 @@ function parseResetTime(text) {
     const d = new Date(isoMatch[1].replace(' ', 'T').replace(' UTC', 'Z'))
     if (!isNaN(d)) return d
   }
+  // "1am (Asia/Tokyo)" or "11:30pm (America/New_York)"
+  const tzMatch = text.match(/(\d{1,2})(?::(\d{2}))?(am|pm)\s*\(([^)]+)\)/i)
+  if (tzMatch) {
+    let hours = parseInt(tzMatch[1])
+    const minutes = parseInt(tzMatch[2] || '0')
+    const ampm = tzMatch[3].toLowerCase()
+    const tz = tzMatch[4]
+    if (ampm === 'am') { if (hours === 12) hours = 0 }
+    else { if (hours !== 12) hours += 12 }
+    try {
+      const now = new Date()
+      for (let dayOffset = 0; dayOffset <= 1; dayOffset++) {
+        // そのtzでの「今日/明日」の日付文字列を取得
+        const base = new Date(now.getTime() + dayOffset * 86400000)
+        const dateStr = new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(base)
+        // tzのオフセットを求める: UTCとtzのローカル時刻の差
+        const tzLocalStr = new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(base)
+        const tzOffsetMs = base.getTime() - new Date(tzLocalStr.replace(' ', 'T') + 'Z').getTime()
+        // tz内でのhours:minutesをUTCに変換
+        const result = new Date(new Date(`${dateStr}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00Z`).getTime() + tzOffsetMs)
+        if (result > now) return result
+      }
+    } catch {}
+  }
   // Time only: "22:30 UTC" or "22:30:00 UTC"
   const timeMatch = text.match(/(\d{2}:\d{2}(?::\d{2})?) UTC/i)
   if (timeMatch) {
