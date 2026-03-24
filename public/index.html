@@ -2611,11 +2611,18 @@ addTabBtn.addEventListener('click', async () => {
     ? defaultProject
     : (getCurrentSession()?.project || Object.keys(_projectsCache)[0])
 
+  // 現在のタブの設定を継承
+  const currentSession = getCurrentSession()
+  const currentTabState = currentSessionId ? tabState[currentSessionId] : null
+
   const newSession = {
     sessionId: crypto.randomUUID(),
     name: 'Claude Code',
     project,
-    lastUsed: Date.now()
+    lastUsed: Date.now(),
+    model: currentTabState?.model || currentSession?.model || appSettings.defaultModel,
+    effort: currentTabState?.effort ?? currentSession?.effort ?? appSettings.effort,
+    thinking: currentTabState?.thinking ?? currentSession?.thinking ?? appSettings.thinking
   }
 
   const sessions = loadSessions()
