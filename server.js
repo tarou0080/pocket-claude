@@ -69,6 +69,16 @@ app.get('/', (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')))
 
+// ヘルスチェック: systemd管理下かどうかを返す
+// INVOCATION_ID はsystemdが起動時に自動設定する環境変数
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    pid: process.pid,
+    systemd_managed: !!process.env.INVOCATION_ID
+  })
+})
+
 // API routes
 app.use('/api/tabs', tabsRouter)
 app.use('/api', claudeRouter)
