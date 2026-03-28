@@ -92,6 +92,16 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`pocket-claude v4 (modular) running on port ${PORT}`)
 })
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[startup] Port ${PORT} is already in use. Another instance may be running.`)
+    console.error(`[startup] Check: lsof -i :${PORT} -P -n`)
+    process.exit(1)
+  } else {
+    throw err
+  }
+})
+
 // Graceful shutdown: SIGTERM/SIGINT時に実行中のプロセスを適切に終了
 function gracefulShutdown(signal) {
   console.log(`\n[${signal}] Graceful shutdown initiated...`)
