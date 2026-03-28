@@ -9,7 +9,6 @@ All notable changes to pocket-claude are documented here.
 ### Added
 - **Scheduled Posts** - Schedule a prompt to be sent at a future date/time; edit or cancel from the output panel; persisted in `scheduled-posts.json` (survives server restarts)
 - **Language switching** - UI available in Japanese and English; persisted in localStorage
-- **systemd detection badge** - Warns in the header if pocket-claude is running outside systemd management; `/api/health` endpoint returns `systemd_managed` flag
 - **Rate limit auto-resume** - When rate-limited, a panel appears to enable server-side auto-resume; schedule persisted in `schedules.json`
 - **AskUserQuestion display** - Tool result auto-expands showing question and options
 - **Code font size setting** - Independently configurable from output font size

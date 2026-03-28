@@ -91,13 +91,6 @@
   #status-dot.disconnected:active { opacity: 0.6; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  #systemd-warn {
-    display: none;
-    font-size: 13px;
-    color: var(--red);
-    cursor: default;
-    flex-shrink: 0;
-  }
 
   #model-select {
     background: var(--surface3);
@@ -795,7 +788,6 @@
 <div id="top-bar">
   <div id="header">
     <div id="status-dot"></div>
-    <span id="systemd-warn" title="systemd管理外で起動しています。kill &lt;PID&gt; → sudo systemctl restart pocket-claude で修復してください">⚠</span>
     <span id="ctx-badge"></span>
     <select id="model-select"></select>
     <div id="effort-indicator" title="Effort level">
@@ -2022,9 +2014,6 @@ async function init() {
   applyTheme()
   rebuildModelSelect()
   applyFontSizes()
-  fetch('/api/health').then(r => r.json()).then(data => {
-    if (!data.systemd_managed) document.getElementById('systemd-warn').style.display = 'inline'
-  }).catch(() => {})
   updateEffortIndicator()
   await refreshProjectsCache()
   let sessions = loadSessions()
