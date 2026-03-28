@@ -993,9 +993,9 @@ const STRINGS = {
     fontCode:             'コード',
     modelLabel:           'モデル',
     modelDefault:         'デフォルト',
-    effortLabel:          'Effort',
-    thinkingLabel:        'Thinking',
-    thinkingNone:         'なし',
+    effortLabel:          '思考レベル',
+    thinkingLabel:        '内部推論ステップ',
+    thinkingNone:         '指定なし',
     thinkingOn:           'オン',
     thinkingOff:          'オフ',
     resumeLabel:          'レート制限 自動再開プロンプト',
@@ -1330,13 +1330,13 @@ function renderSettingsModal() {
         rebuildModelSelect()
         // ラベル更新
         modelList.querySelectorAll('.model-row-default-label').forEach(l => l.textContent = '')
-        row.querySelector('.model-row-default-label').textContent = t('modelDefault')
+        row.querySelector('.model-row-default-label').textContent = 'default'
       }
     })
 
     const defLabel = document.createElement('span')
     defLabel.className = 'model-row-default-label'
-    defLabel.textContent = appSettings.defaultModel === m.value ? t('modelDefault') : ''
+    defLabel.textContent = appSettings.defaultModel === m.value ? 'default' : ''
 
     row.appendChild(chk)
     row.appendChild(name)
