@@ -536,6 +536,9 @@
     color: var(--text-dim);
     margin-bottom: 8px;
   }
+  #projects-note.locked {
+    color: var(--orange);
+  }
 
   .project-item.current .project-name { color: var(--accent); }
   .project-item.locked { cursor: default; }
@@ -887,13 +890,13 @@
       </div>
       <!-- Projects -->
       <div>
-        <div class="settings-section-title">Projects</div>
+        <div class="settings-section-title">プロジェクト</div>
         <div id="projects-note"></div>
         <div id="projects-body"></div>
         <div id="project-add-form">
-          <input type="text" id="project-name-input" placeholder="Project name (e.g., myapp)">
-          <input type="text" id="project-path-input" placeholder="Directory path (e.g., /srv/shell/myapp)">
-          <button id="project-add-btn">Add Project</button>
+          <input type="text" id="project-name-input" placeholder="プロジェクト名 (例: myapp)">
+          <input type="text" id="project-path-input" placeholder="ディレクトリパス (例: /srv/shell/myapp)">
+          <button id="project-add-btn">追加</button>
           <div id="project-error"></div>
         </div>
       </div>
@@ -1616,9 +1619,13 @@ async function loadProjects() {
     // ノート表示
     const noteEl = document.getElementById('projects-note')
     if (noteEl) {
-      noteEl.textContent = canSwitch
-        ? 'Select a project for this session (before first message).'
-        : 'Session already started. ★ changes the default for new sessions.'
+      if (canSwitch) {
+        noteEl.textContent = 'プロジェクトを選択してください（最初のメッセージを送る前のみ変更できます）。'
+        noteEl.classList.remove('locked')
+      } else {
+        noteEl.textContent = '⚠ セッション開始済みのため、プロジェクトは変更できません。新しいタブで新しいセッションを開始してください。★ は新しいセッションのデフォルトプロジェクトを設定します。'
+        noteEl.classList.add('locked')
+      }
     }
 
     const defaultProject = localStorage.getItem('pc-default-project') || currentProject
@@ -1651,7 +1658,7 @@ async function loadProjects() {
       const star = document.createElement('span')
       star.className = 'project-star' + (isDefault ? ' active' : '')
       star.textContent = isDefault ? '★' : '☆'
-      star.title = 'Set as default for new sessions'
+      star.title = '新しいセッションのデフォルトに設定'
       star.addEventListener('click', (e) => {
         e.stopPropagation()
         localStorage.setItem('pc-default-project', name)
@@ -1663,10 +1670,10 @@ async function loadProjects() {
 
       const removeBtn = document.createElement('button')
       removeBtn.className = 'project-remove'
-      removeBtn.textContent = 'Remove'
+      removeBtn.textContent = '削除'
       removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation()
-        if (!confirm(`Remove project "${name}"?`)) return
+        if (!confirm(`プロジェクト「${name}」を削除しますか？`)) return
         try {
           await fetch('/api/projects/remove', {
             method: 'POST',
@@ -1689,7 +1696,7 @@ async function loadProjects() {
         item.addEventListener('click', () => {
           updateSession(currentSessionId, { project: name })
           updatePlaceholder()
-          closeSettings()
+          loadProjects()
         })
       }
 
@@ -1708,7 +1715,7 @@ projectAddBtn.addEventListener('click', async () => {
   projectError.style.display = 'none'
 
   if (!name || !path) {
-    projectError.textContent = 'Name and path are required'
+    projectError.textContent = '名前とパスを入力してください'
     projectError.style.display = 'block'
     return
   }
