@@ -704,8 +704,6 @@
   .line-system  { color: var(--text-dim); }
   .line-done    { color: var(--green); border-top: 1px solid var(--surface3); margin-top: 6px; padding-top: 6px; }
   .line-done.warn { color: var(--orange); }
-  #ctx-badge { font-size: 11px; color: var(--effort-empty); flex-shrink: 0; }
-  #ctx-badge.warn { color: var(--orange); font-weight: bold; }
   .line-error   { color: var(--red); }
   .line-thinking { color: var(--purple); font-style: italic; }
 
@@ -788,7 +786,6 @@
 <div id="top-bar">
   <div id="header">
     <div id="status-dot"></div>
-    <span id="ctx-badge"></span>
     <select id="model-select"></select>
     <div id="effort-indicator" title="Effort level">
       <span class="effort-dot" data-idx="0"></span>
@@ -1507,7 +1504,6 @@ document.getElementById('code-font-inc').addEventListener('click', () => {
 
 const tabState = {}   // sessionId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane, autoScroll }
 const CTX_MAX = 200000
-const ctxBadge = document.getElementById('ctx-badge')
 let currentSessionId = null
 let currentES = null
 let _projectsCache = {}
@@ -1690,7 +1686,6 @@ function switchTab(sessionId) {
   localStorage.setItem('currentSessionId', sessionId)
   updateSession(sessionId, { lastUsed: Date.now() })
   const switchTs = tabState[sessionId]
-  if (switchTs) { const p = Math.round(switchTs._ctxTokens / CTX_MAX * 100); updateCtxBadge(p) }
   applyTabSettings(sessionId)
   updateUI()
   connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
@@ -2570,7 +2565,6 @@ function handleEvent(sessionId, ev, isLive = true) {
             ts._ctxTokens += inner.usage.output_tokens
             if (isActive) {
               const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
-              if (pct >= 50) updateCtxBadge(pct)
             }
           }
           break
@@ -2593,7 +2587,7 @@ function handleEvent(sessionId, ev, isLive = true) {
         : `✓ Done (exit ${ev.exitCode}) — ${pct}%`
       const doneEl = addLine(ts, doneMsg, 'line-done')
       if (ev.reason === 'server_restart' || ev.exitCode !== 0 || pct >= 50) doneEl.classList.add('warn')
-      if (isActive) { updateCtxBadge(pct); updateUI() }
+      if (isActive) updateUI()
       break
     }
 
@@ -2867,12 +2861,6 @@ function renderToolResult(toolEl, resultText, isError) {
   } else {
     rd.textContent = resultText
   }
-}
-
-function updateCtxBadge(pct) {
-  if (pct <= 0) { ctxBadge.textContent = ''; ctxBadge.className = ''; return }
-  ctxBadge.textContent = `${pct}%`
-  ctxBadge.className = pct >= 50 ? 'warn' : ''
 }
 
 // ── 履歴パネル ──
