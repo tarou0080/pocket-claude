@@ -38,14 +38,18 @@ Turn your Claude Code CLI into a web app:
 - **Integrated History Browser** - Browse and resume past sessions
 - **SSE Streaming** - Real-time output with automatic reconnection
 - **Markdown Rendering** - Clean, readable output formatting
+- **Scheduled Posts** - Schedule prompts to run at a future time (server-side, no browser required)
+- **Rate Limit Auto-Resume** - Automatically re-sends when Claude's rate limit resets
+- **Language Switching** - UI available in Japanese and English
+- **systemd Integration** - Warns if running outside systemd management
 
 ## Screenshots
 
 ### Main Interface
 ![Main Interface](./screenshots/main.png)
 
-### Project Management
-![Project Management](./screenshots/projects.png)
+### Settings
+![Settings](./screenshots/projects.png)
 
 ### History Browser
 ![History Browser](./screenshots/history.png)
