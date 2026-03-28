@@ -6,3 +6,5 @@ tabs.json
 .env
 config.json
 projects.json
+schedules.json
+scheduled-posts.json

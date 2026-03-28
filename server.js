@@ -8,6 +8,7 @@ const claudeRouter = require('./routes/claude')
 const streamRouter = require('./routes/stream')
 const historyRouter = require('./routes/history')
 const projectsRouter = require('./routes/projects')
+const scheduledPostsRouter = require('./routes/scheduled-posts')
 
 const app = express()
 const PORT = parseInt(process.env.PORT || config.port || 3333, 10)
@@ -54,6 +55,9 @@ repairIncompleteLogs()
 const { loadSchedules } = require('./services/scheduler')
 loadSchedules()
 
+const { loadPosts } = require('./services/scheduled-posts')
+loadPosts()
+
 app.use(express.json())
 
 
@@ -85,6 +89,7 @@ app.use('/api', claudeRouter)
 app.use('/api/stream', streamRouter)
 app.use('/api/history', historyRouter)
 app.use('/api/projects', projectsRouter)
+app.use('/api/scheduled-posts', scheduledPostsRouter)
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`pocket-claude v4 (modular) running on port ${PORT}`)

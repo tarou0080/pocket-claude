@@ -196,7 +196,7 @@
   #settings-btn.active { color: var(--accent); border-color: var(--accent); }
 
   /* ── 設定モーダル ── */
-  #settings-modal {
+  #settings-modal, #schedule-modal {
     display: none;
     position: fixed;
     inset: 0;
@@ -206,9 +206,9 @@
     justify-content: center;
     padding: 16px;
   }
-  #settings-modal.open { display: flex; }
+  #settings-modal.open, #schedule-modal.open { display: flex; }
 
-  #settings-content {
+  #settings-content, #schedule-content {
     background: var(--surface);
     border-radius: 12px;
     width: 100%;
@@ -219,7 +219,7 @@
     overflow: hidden;
   }
 
-  #settings-header {
+  #settings-header, #schedule-header {
     padding: 14px 16px;
     border-bottom: 1px solid var(--border);
     display: flex;
@@ -227,20 +227,21 @@
     justify-content: space-between;
     flex-shrink: 0;
   }
-  #settings-header h3 { font-size: 15px; color: var(--text); }
-  #settings-close {
+  #settings-header h3, #schedule-header h3 { font-size: 15px; color: var(--text); }
+  #settings-close, #schedule-close {
     background: none; border: none; color: var(--text-dim);
     font-size: 20px; cursor: pointer; padding: 4px 8px;
   }
-  #settings-close:active { color: var(--text-muted); }
+  #settings-close:active, #schedule-close:active { color: var(--text-muted); }
 
-  #settings-body {
+  #settings-body, #schedule-body {
     overflow-y: auto;
     padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 20px;
   }
+  #schedule-body { gap: 0; }
 
   .settings-section-title {
     font-size: 11px;
@@ -311,7 +312,7 @@
   .effort-option-label { font-size: 13px; color: var(--text-muted); flex: 1; }
   .effort-option.selected .effort-option-label { color: var(--text); }
 
-  #stop-btn, #history-btn {
+  #stop-btn, #history-btn, #schedule-btn {
     background: none;
     border: 1px solid var(--border-input);
     border-radius: 6px;
@@ -327,17 +328,17 @@
   #stop-btn.running:hover { background: var(--red-bg); }
   #stop-btn:active { background: var(--red-bg); }
 
-  #history-btn {
+  #history-btn, #schedule-btn {
     color: var(--text-dim);
     transition: background 0.2s, border-color 0.2s, color 0.2s;
   }
-  #history-btn:hover {
+  #history-btn:hover, #schedule-btn:hover {
     background: var(--accent-hover);
     border-color: var(--accent);
     color: var(--accent);
   }
-  #history-btn:active { background: var(--border); color: var(--text-muted); }
-  #history-btn.active { color: var(--accent); border-color: var(--accent); }
+  #history-btn:active, #schedule-btn:active { background: var(--border); color: var(--text-muted); }
+  #history-btn.active, #schedule-btn.active { color: var(--accent); border-color: var(--accent); }
 
   /* ── 履歴パネル ── */
   #history-panel {
@@ -629,6 +630,53 @@
   }
   .output-pane.active { display: block; }
 
+  .scheduled-posts-list {
+    margin-bottom: 16px;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .scheduled-post-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .scheduled-post-item:last-child { border-bottom: none; }
+  .scheduled-post-time {
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .scheduled-post-prompt {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    max-height: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .scheduled-post-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .scheduled-post-actions button {
+    background: var(--surface);
+    border: 1px solid var(--border-input);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .scheduled-post-actions button:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   .line { margin-bottom: 2px; word-break: break-word; white-space: pre-wrap; }
   .line-user    { color: var(--green-user); }
   .line-text    { color: var(--text); white-space: normal; }
@@ -746,6 +794,7 @@
     </div>
     <button id="stop-btn" title="Stop execution">■</button>
     <button id="history-btn" title="Conversation history">⟳</button>
+    <button id="schedule-btn" title="Schedule post">🕐</button>
     <button id="settings-btn" title="Settings">&#9881;&#xFE0E;</button>
   </div>
   <div id="tab-bar">
@@ -843,6 +892,30 @@
   </div>
 </div>
 
+<!-- 予約投稿モーダル -->
+<div id="schedule-modal">
+  <div id="schedule-content">
+    <div id="schedule-header">
+      <h3>Schedule Post</h3>
+      <button id="schedule-close">✕</button>
+    </div>
+    <div id="schedule-body">
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 13px;">Scheduled Time</label>
+        <input type="datetime-local" id="schedule-datetime" style="width: 100%; background: var(--surface3); color: var(--text); border: 1px solid var(--border-input); border-radius: 6px; padding: 8px 10px; font-size: 14px; outline: none;">
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 13px;">Prompt</label>
+        <textarea id="schedule-prompt" rows="8" style="width: 100%; background: var(--surface3); color: var(--text); border: 1px solid var(--border-input); border-radius: 6px; padding: 8px 10px; font-size: 14px; outline: none; resize: vertical; font-family: inherit;"></textarea>
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button id="schedule-cancel" style="background: var(--surface3); color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 14px;">Cancel</button>
+        <button id="schedule-save" style="background: var(--accent); color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 14px;">Schedule</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="output-container"></div>
 
 <div id="input-area">
@@ -880,6 +953,13 @@ const effortIndicator     = document.getElementById('effort-indicator')
 const settingsBtn     = document.getElementById('settings-btn')
 const settingsModal   = document.getElementById('settings-modal')
 const settingsClose   = document.getElementById('settings-close')
+const scheduleBtn     = document.getElementById('schedule-btn')
+const scheduleModal   = document.getElementById('schedule-modal')
+const scheduleClose   = document.getElementById('schedule-close')
+const scheduleCancel  = document.getElementById('schedule-cancel')
+const scheduleSave    = document.getElementById('schedule-save')
+const scheduleDatetime = document.getElementById('schedule-datetime')
+const schedulePrompt  = document.getElementById('schedule-prompt')
 
 // ── 設定管理 ──
 const ALL_MODELS = [
@@ -1012,6 +1092,74 @@ function closeSettings() {
   settingsBtn.classList.remove('active')
 }
 
+function openScheduleModal() {
+  scheduleModal.classList.add('open')
+  scheduleBtn.classList.add('active')
+  // デフォルト時刻: 現在時刻+1時間
+  const now = new Date()
+  now.setHours(now.getHours() + 1)
+  now.setMinutes(0)
+  now.setSeconds(0)
+  const localStr = now.toISOString().slice(0, 16)
+  scheduleDatetime.value = localStr
+  schedulePrompt.value = ''
+  schedulePrompt.focus()
+}
+
+function closeScheduleModal() {
+  scheduleModal.classList.remove('open')
+  scheduleBtn.classList.remove('active')
+}
+
+async function saveScheduledPost() {
+  const scheduledAt = scheduleDatetime.value
+  const prompt = schedulePrompt.value.trim()
+
+  if (!scheduledAt || !prompt) {
+    alert('Please fill in both time and prompt.')
+    return
+  }
+
+  const scheduledDate = new Date(scheduledAt)
+  if (scheduledDate <= new Date()) {
+    alert('Scheduled time must be in the future.')
+    return
+  }
+
+  const sessionId = currentSessionId
+  if (!sessionId) {
+    alert('No active tab.')
+    return
+  }
+
+  const state = tabState[sessionId]
+  const payload = {
+    scheduledAt: scheduledDate.toISOString(),
+    prompt,
+    sessionId,
+    project: state.project || null,
+    model: state.model || null,
+    effort: state.effort || null,
+    thinking: state.thinking || null
+  }
+
+  try {
+    const res = await fetch('/api/scheduled-posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) throw new Error('Failed to create scheduled post')
+    const data = await res.json()
+    closeScheduleModal()
+    loadScheduledPosts()
+    alert('Post scheduled successfully!')
+  } catch (err) {
+    console.error(err)
+    alert('Failed to schedule post.')
+  }
+}
+
 function renderSettingsModal() {
   // Font size
   document.getElementById('prompt-font-val').textContent = appSettings.promptFontSize + 'px'
@@ -1088,6 +1236,8 @@ function renderSettingsModal() {
       if (currentSessionId && tabState[currentSessionId]) {
         tabState[currentSessionId].effort = opt.value
         updateSession(currentSessionId, { effort: opt.value })
+        appSettings.effort = opt.value
+        saveSettings(appSettings)
       } else {
         appSettings.effort = opt.value
         saveSettings(appSettings)
@@ -1127,6 +1277,8 @@ function renderSettingsModal() {
       if (currentSessionId && tabState[currentSessionId]) {
         tabState[currentSessionId].thinking = val
         updateSession(currentSessionId, { thinking: val })
+        appSettings.thinking = val
+        saveSettings(appSettings)
       } else {
         appSettings.thinking = val
         saveSettings(appSettings)
@@ -1173,11 +1325,24 @@ settingsClose.addEventListener('click', closeSettings)
 settingsModal.addEventListener('click', e => {
   if (e.target === settingsModal) closeSettings()
 })
+
+scheduleBtn.addEventListener('click', () => {
+  if (scheduleModal.classList.contains('open')) closeScheduleModal()
+  else openScheduleModal()
+})
+scheduleClose.addEventListener('click', closeScheduleModal)
+scheduleCancel.addEventListener('click', closeScheduleModal)
+scheduleModal.addEventListener('click', e => {
+  if (e.target === scheduleModal) closeScheduleModal()
+})
+scheduleSave.addEventListener('click', saveScheduledPost)
 effortIndicator.addEventListener('click', openSettings)
 modelSel.addEventListener('change', () => {
   if (currentSessionId && tabState[currentSessionId]) {
     tabState[currentSessionId].model = modelSel.value
     updateSession(currentSessionId, { model: modelSel.value })
+    appSettings.defaultModel = modelSel.value
+    saveSettings(appSettings)
   }
   updateEffortIndicator()
   // 設定モーダルが開いていれば再描画
@@ -1764,6 +1929,11 @@ async function init() {
   const startSession = sessions.find(s => s.sessionId === lastSessionId) || sessions[0]
   switchTab(startSession.sessionId)
 
+  // 予約投稿リストをロード
+  loadScheduledPosts()
+  // 定期的に更新（1分毎）
+  setInterval(loadScheduledPosts, 60000)
+
   // ネットワーク監視を開始
   startNetworkMonitoring()
 }
@@ -1803,6 +1973,154 @@ async function refreshProjectsCache() {
     updatePlaceholder()
   } catch (err) {
     console.error('Failed to fetch projects:', err)
+  }
+}
+
+// ── 予約投稿リスト ──
+async function loadScheduledPosts() {
+  try {
+    const posts = await fetch('/api/scheduled-posts').then(r => r.json())
+    // 各タブの予約リストを更新
+    for (const sessionId in tabState) {
+      renderScheduledPosts(sessionId, posts.filter(p => p.sessionId === sessionId))
+    }
+  } catch (err) {
+    console.error('Failed to load scheduled posts:', err)
+  }
+}
+
+function renderScheduledPosts(sessionId, posts) {
+  const pane = tabState[sessionId]?.pane
+  if (!pane) return
+
+  // 既存の予約リストを削除
+  const existing = pane.querySelector('.scheduled-posts-list')
+  if (existing) existing.remove()
+
+  if (posts.length === 0) return
+
+  // 新しい予約リストを作成
+  const container = document.createElement('div')
+  container.className = 'scheduled-posts-list'
+
+  posts.forEach(post => {
+    const item = document.createElement('div')
+    item.className = 'scheduled-post-item'
+
+    const scheduledDate = new Date(post.scheduledAt)
+    const timeStr = formatScheduledTime(scheduledDate)
+
+    const timeEl = document.createElement('div')
+    timeEl.className = 'scheduled-post-time'
+    timeEl.textContent = `🕐 ${timeStr}`
+
+    const promptEl = document.createElement('div')
+    promptEl.className = 'scheduled-post-prompt'
+    promptEl.textContent = post.prompt
+
+    const actionsEl = document.createElement('div')
+    actionsEl.className = 'scheduled-post-actions'
+
+    const editBtn = document.createElement('button')
+    editBtn.textContent = 'Edit'
+    editBtn.onclick = () => editScheduledPost(post.id)
+
+    const cancelBtn = document.createElement('button')
+    cancelBtn.textContent = 'Cancel'
+    cancelBtn.onclick = () => cancelScheduledPost(post.id)
+
+    actionsEl.appendChild(editBtn)
+    actionsEl.appendChild(cancelBtn)
+
+    item.appendChild(timeEl)
+    item.appendChild(promptEl)
+    item.appendChild(actionsEl)
+
+    container.appendChild(item)
+  })
+
+  pane.insertBefore(container, pane.firstChild)
+}
+
+function formatScheduledTime(date) {
+  const now = new Date()
+  const diff = date - now
+  if (diff < 0) return 'Past'
+
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土']
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  const weekday = weekdays[date.getDay()]
+  const hour = date.getHours()
+  const minute = date.getMinutes()
+
+  const timeLeft = hours > 0 ? `${hours}時間${minutes}分後` : `${minutes}分後`
+  const dateStr = `${month}月${day}日（${weekday}）${hour}:${minute.toString().padStart(2, '0')}`
+
+  return `${timeLeft}（${dateStr}）投稿予定`
+}
+
+async function editScheduledPost(id) {
+  try {
+    const post = await fetch(`/api/scheduled-posts/${id}`).then(r => r.json())
+    scheduleModal.classList.add('open')
+    scheduleBtn.classList.add('active')
+
+    const localStr = new Date(post.scheduledAt).toISOString().slice(0, 16)
+    scheduleDatetime.value = localStr
+    schedulePrompt.value = post.prompt
+
+    // 保存時は更新APIを使用
+    scheduleSave.onclick = async () => {
+      const scheduledAt = scheduleDatetime.value
+      const prompt = schedulePrompt.value.trim()
+
+      if (!scheduledAt || !prompt) {
+        alert('Please fill in both time and prompt.')
+        return
+      }
+
+      const scheduledDate = new Date(scheduledAt)
+      if (scheduledDate <= new Date()) {
+        alert('Scheduled time must be in the future.')
+        return
+      }
+
+      try {
+        const res = await fetch(`/api/scheduled-posts/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduledAt: scheduledDate.toISOString(), prompt })
+        })
+        if (!res.ok) throw new Error('Failed to update')
+        closeScheduleModal()
+        loadScheduledPosts()
+        // 元の保存処理に戻す
+        scheduleSave.onclick = saveScheduledPost
+      } catch (err) {
+        console.error(err)
+        alert('Failed to update post.')
+      }
+    }
+  } catch (err) {
+    console.error(err)
+    alert('Failed to load post.')
+  }
+}
+
+async function cancelScheduledPost(id) {
+  if (!confirm('この予約投稿をキャンセルしますか？')) return
+
+  try {
+    const res = await fetch(`/api/scheduled-posts/${id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to delete')
+    loadScheduledPosts()
+  } catch (err) {
+    console.error(err)
+    alert('Failed to cancel post.')
   }
 }
 
