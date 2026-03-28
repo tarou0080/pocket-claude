@@ -1,5 +1,7 @@
 # Changelog
 
+English | [日本語](CHANGELOG.ja.md)
+
 All notable changes to pocket-claude are documented here.
 
 ## [1.0.0] - 2026-03-21
@@ -17,7 +19,7 @@ Initial public release.
 - Graceful shutdown on SIGTERM
 
 #### UI
-- Mobile-first design, optimized for iOS Safari (visualViewport API for keyboard handling)
+- Browser-based UI, works on desktop and mobile browsers
 - Dark theme (Blue Dark / Purple Dark) via CSS variables + themes.js
 - Real-time context usage bar (token %)
 - Markdown rendering (marked.js)
