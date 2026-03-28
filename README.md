@@ -2,6 +2,8 @@
 
 **Use Claude Code from your browser, anywhere.**
 
+[English](README.md) | [日本語](README.ja.md)
+
 > ## ⚠️ Security Notice
 >
 > **This tool is designed for local/trusted network use ONLY.**
@@ -50,9 +52,6 @@ Turn your Claude Code CLI into a web app:
 
 ### Settings
 ![Settings](./screenshots/projects.png)
-
-### History Browser
-![History Browser](./screenshots/history.png)
 
 ## Why pocket-claude?
 
