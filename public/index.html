@@ -831,11 +831,19 @@
       <button id="settings-close">✕</button>
     </div>
     <div id="settings-body">
+      <!-- Language -->
+      <div>
+        <div class="settings-section-title" id="stitle-lang"></div>
+        <div id="lang-selector" class="seg-control">
+          <button class="seg-btn" data-val="ja">日本語</button>
+          <button class="seg-btn" data-val="en">English</button>
+        </div>
+      </div>
       <!-- Font Size -->
       <div>
-        <div class="settings-section-title">Font Size</div>
+        <div class="settings-section-title" id="stitle-font"></div>
         <div class="font-size-row">
-          <span class="font-size-label">Prompt</span>
+          <span class="font-size-label" id="flabel-prompt"></span>
           <div class="font-size-ctrl">
             <button class="font-size-btn" id="prompt-font-dec">−</button>
             <span class="font-size-val" id="prompt-font-val">16px</span>
@@ -843,7 +851,7 @@
           </div>
         </div>
         <div class="font-size-row">
-          <span class="font-size-label">Output</span>
+          <span class="font-size-label" id="flabel-output"></span>
           <div class="font-size-ctrl">
             <button class="font-size-btn" id="output-font-dec">−</button>
             <span class="font-size-val" id="output-font-val">13px</span>
@@ -851,7 +859,7 @@
           </div>
         </div>
         <div class="font-size-row">
-          <span class="font-size-label">Code</span>
+          <span class="font-size-label" id="flabel-code"></span>
           <div class="font-size-ctrl">
             <button class="font-size-btn" id="code-font-dec">−</button>
             <span class="font-size-val" id="code-font-val">12px</span>
@@ -861,42 +869,42 @@
       </div>
       <!-- Model -->
       <div>
-        <div class="settings-section-title">Model</div>
+        <div class="settings-section-title" id="stitle-model"></div>
         <div id="settings-model-list"></div>
       </div>
       <!-- Effort -->
       <div>
-        <div class="settings-section-title">Effort</div>
+        <div class="settings-section-title" id="stitle-effort"></div>
         <div id="settings-effort-list"></div>
       </div>
       <!-- Thinking -->
       <div>
-        <div class="settings-section-title">Thinking</div>
+        <div class="settings-section-title" id="stitle-thinking"></div>
         <div id="thinking-selector" class="seg-control">
-          <button class="seg-btn" data-val="none">None</button>
-          <button class="seg-btn" data-val="on">On</button>
-          <button class="seg-btn" data-val="off">Off</button>
+          <button class="seg-btn" data-val="none"></button>
+          <button class="seg-btn" data-val="on"></button>
+          <button class="seg-btn" data-val="off"></button>
         </div>
       </div>
       <!-- Rate Limit Resume Prompt -->
       <div>
-        <div class="settings-section-title">Auto-resume Prompt</div>
+        <div class="settings-section-title" id="stitle-resume"></div>
         <input type="text" id="resume-prompt-input" style="width:100%;background:var(--surface3);color:var(--text);border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;font-size:13px;outline:none;">
       </div>
       <!-- Theme -->
       <div>
-        <div class="settings-section-title">Theme</div>
+        <div class="settings-section-title" id="stitle-theme"></div>
         <div id="settings-theme-list"></div>
       </div>
       <!-- Projects -->
       <div>
-        <div class="settings-section-title">プロジェクト</div>
+        <div class="settings-section-title" id="stitle-project"></div>
         <div id="projects-note"></div>
         <div id="projects-body"></div>
         <div id="project-add-form">
-          <input type="text" id="project-name-input" placeholder="プロジェクト名 (例: myapp)">
-          <input type="text" id="project-path-input" placeholder="ディレクトリパス (例: /srv/shell/myapp)">
-          <button id="project-add-btn">追加</button>
+          <input type="text" id="project-name-input">
+          <input type="text" id="project-path-input">
+          <button id="project-add-btn"></button>
           <div id="project-error"></div>
         </div>
       </div>
@@ -974,6 +982,65 @@ const scheduleSave    = document.getElementById('schedule-save')
 const scheduleDatetime = document.getElementById('schedule-datetime')
 const schedulePrompt  = document.getElementById('schedule-prompt')
 
+// ── UI文字列（言語切り替え） ──
+const STRINGS = {
+  ja: {
+    settingsTitle:        'Settings',
+    langLabel:            '言語',
+    fontSizeLabel:        'フォントサイズ',
+    fontPrompt:           'プロンプト',
+    fontOutput:           '出力',
+    fontCode:             'コード',
+    modelLabel:           'モデル',
+    modelDefault:         'デフォルト',
+    effortLabel:          'Effort',
+    thinkingLabel:        'Thinking',
+    thinkingNone:         'なし',
+    thinkingOn:           'オン',
+    thinkingOff:          'オフ',
+    resumeLabel:          'レート制限 自動再開プロンプト',
+    themeLabel:           'テーマ',
+    projectLabel:         'プロジェクト',
+    projectNoteLocked:    '⚠ セッション開始済みのため変更できません。新しいタブで開始してください。★ は新規セッションのデフォルトを設定します。',
+    projectNoteUnlocked:  '最初のメッセージを送る前のみ変更できます',
+    projectNamePh:        'プロジェクト名 (例: myapp)',
+    projectPathPh:        'ディレクトリパス (例: /srv/shell/myapp)',
+    projectAddBtn:        '追加',
+    projectRemoveBtn:     '削除',
+    projectRemoveConfirm: name => `プロジェクト「${name}」を削除しますか？`,
+    projectErrorRequired: '名前とパスを入力してください',
+    projectStarTitle:     '新しいセッションのデフォルトに設定',
+  },
+  en: {
+    settingsTitle:        'Settings',
+    langLabel:            'Language',
+    fontSizeLabel:        'Font Size',
+    fontPrompt:           'Prompt',
+    fontOutput:           'Output',
+    fontCode:             'Code',
+    modelLabel:           'Model',
+    modelDefault:         'default',
+    effortLabel:          'Effort',
+    thinkingLabel:        'Thinking',
+    thinkingNone:         'None',
+    thinkingOn:           'On',
+    thinkingOff:          'Off',
+    resumeLabel:          'Auto-resume Prompt',
+    themeLabel:           'Theme',
+    projectLabel:         'Projects',
+    projectNoteLocked:    'Session already started. ★ changes the default for new sessions.',
+    projectNoteUnlocked:  'Can only be changed before the first message.',
+    projectNamePh:        'Project name (e.g., myapp)',
+    projectPathPh:        'Directory path (e.g., /srv/shell/myapp)',
+    projectAddBtn:        'Add',
+    projectRemoveBtn:     'Remove',
+    projectRemoveConfirm: name => `Remove project "${name}"?`,
+    projectErrorRequired: 'Name and path are required',
+    projectStarTitle:     'Set as default for new sessions',
+  },
+}
+function t(key) { return STRINGS[appSettings?.lang || 'ja'][key] }
+
 // ── 設定管理 ──
 const ALL_MODELS = [
   { value: '', label: 'Default (Sonnet 4.6)' },
@@ -1009,6 +1076,7 @@ function loadSettings() {
     enabledModels: ALL_MODELS.map(m => m.value),
     theme: window.DEFAULT_THEME || 'pocket-claude',
     resumePrompt: '続けてください',
+    lang: 'ja',
   }
   try {
     const saved = JSON.parse(localStorage.getItem('pc-settings') || '{}')
@@ -1182,6 +1250,37 @@ async function saveScheduledPost() {
 }
 
 function renderSettingsModal() {
+  // Section titles & labels
+  document.getElementById('stitle-lang').textContent     = t('langLabel')
+  document.getElementById('stitle-font').textContent     = t('fontSizeLabel')
+  document.getElementById('stitle-model').textContent    = t('modelLabel')
+  document.getElementById('stitle-effort').textContent   = t('effortLabel')
+  document.getElementById('stitle-thinking').textContent = t('thinkingLabel')
+  document.getElementById('stitle-resume').textContent   = t('resumeLabel')
+  document.getElementById('stitle-theme').textContent    = t('themeLabel')
+  document.getElementById('stitle-project').textContent  = t('projectLabel')
+  document.getElementById('flabel-prompt').textContent   = t('fontPrompt')
+  document.getElementById('flabel-output').textContent   = t('fontOutput')
+  document.getElementById('flabel-code').textContent     = t('fontCode')
+  document.getElementById('project-name-input').placeholder = t('projectNamePh')
+  document.getElementById('project-path-input').placeholder = t('projectPathPh')
+  document.getElementById('project-add-btn').textContent = t('projectAddBtn')
+  const thinkBtns = document.getElementById('thinking-selector').querySelectorAll('.seg-btn')
+  thinkBtns[0].textContent = t('thinkingNone')
+  thinkBtns[1].textContent = t('thinkingOn')
+  thinkBtns[2].textContent = t('thinkingOff')
+
+  // Language selector
+  document.getElementById('lang-selector').querySelectorAll('.seg-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.val === (appSettings.lang || 'ja'))
+    btn.onclick = () => {
+      appSettings.lang = btn.dataset.val
+      saveSettings(appSettings)
+      renderSettingsModal()
+      loadProjects()
+    }
+  })
+
   // Font size
   document.getElementById('prompt-font-val').textContent = appSettings.promptFontSize + 'px'
   document.getElementById('output-font-val').textContent = appSettings.outputFontSize + 'px'
@@ -1231,13 +1330,13 @@ function renderSettingsModal() {
         rebuildModelSelect()
         // ラベル更新
         modelList.querySelectorAll('.model-row-default-label').forEach(l => l.textContent = '')
-        row.querySelector('.model-row-default-label').textContent = 'default'
+        row.querySelector('.model-row-default-label').textContent = t('modelDefault')
       }
     })
 
     const defLabel = document.createElement('span')
     defLabel.className = 'model-row-default-label'
-    defLabel.textContent = appSettings.defaultModel === m.value ? 'default' : ''
+    defLabel.textContent = appSettings.defaultModel === m.value ? t('modelDefault') : ''
 
     row.appendChild(chk)
     row.appendChild(name)
@@ -1620,10 +1719,10 @@ async function loadProjects() {
     const noteEl = document.getElementById('projects-note')
     if (noteEl) {
       if (canSwitch) {
-        noteEl.textContent = 'プロジェクトを選択してください（最初のメッセージを送る前のみ変更できます）。'
+        noteEl.textContent = t('projectNoteUnlocked')
         noteEl.classList.remove('locked')
       } else {
-        noteEl.textContent = '⚠ セッション開始済みのため、プロジェクトは変更できません。新しいタブで新しいセッションを開始してください。★ は新しいセッションのデフォルトプロジェクトを設定します。'
+        noteEl.textContent = t('projectNoteLocked')
         noteEl.classList.add('locked')
       }
     }
@@ -1658,7 +1757,7 @@ async function loadProjects() {
       const star = document.createElement('span')
       star.className = 'project-star' + (isDefault ? ' active' : '')
       star.textContent = isDefault ? '★' : '☆'
-      star.title = '新しいセッションのデフォルトに設定'
+      star.title = t('projectStarTitle')
       star.addEventListener('click', (e) => {
         e.stopPropagation()
         localStorage.setItem('pc-default-project', name)
@@ -1670,10 +1769,10 @@ async function loadProjects() {
 
       const removeBtn = document.createElement('button')
       removeBtn.className = 'project-remove'
-      removeBtn.textContent = '削除'
+      removeBtn.textContent = t('projectRemoveBtn')
       removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation()
-        if (!confirm(`プロジェクト「${name}」を削除しますか？`)) return
+        if (!confirm(t('projectRemoveConfirm')(name))) return
         try {
           await fetch('/api/projects/remove', {
             method: 'POST',
@@ -1715,7 +1814,7 @@ projectAddBtn.addEventListener('click', async () => {
   projectError.style.display = 'none'
 
   if (!name || !path) {
-    projectError.textContent = '名前とパスを入力してください'
+    projectError.textContent = t('projectErrorRequired')
     projectError.style.display = 'block'
     return
   }
