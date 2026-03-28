@@ -18,7 +18,7 @@ pocket-claude is a web interface for Claude Code CLI. If you're using Claude Cod
 
 Turn your Claude Code CLI into a web app:
 - **Browse to a URL** and chat with Claude Code through a clean web interface
-- **Use your phone or tablet** - especially optimized for iOS Safari
+- **Use your phone or tablet** - works in any modern browser, including mobile
 - **Access from anywhere** - via VPN, SSH tunnel, or local network
 - **Keep conversations organized** - tab-based session management
 - **Works with CLAUDE.md** - Respects your project's CLAUDE.md configuration
@@ -33,7 +33,7 @@ Turn your Claude Code CLI into a web app:
 
 ## Features
 
-- **Mobile-First Design** - Tested and optimized for iPhone Safari
+- **Browser-Based UI** - Works on desktop and mobile browsers
 - **Ultra-Lightweight** - Vanilla HTML/CSS/JS, no build step required
 - **Tab-Based Conversations** - Manage multiple conversations simultaneously
 - **Context Usage Tracking** - Real-time token usage visualization
@@ -59,7 +59,7 @@ Existing solutions are feature-rich but heavyweight. pocket-claude takes a diffe
 
 - **No React/Vite/TypeScript** - Just Express + vanilla JS
 - **Self-hosted focused** - Designed for home server environments
-- **iOS-optimized** - visualViewport API for perfect keyboard handling
+- **No build step** - Just `npm install` and run
 - **Minimal dependencies** - Only marked.js for markdown rendering
 
 ## Quick Start
