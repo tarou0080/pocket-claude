@@ -4,55 +4,78 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
-## [1.0.0] - 2026-03-21
+## [Unreleased] - 2026-03-28
 
-Initial public release.
+### Added
+- **Scheduled Posts** - Schedule a prompt to be sent at a future date/time; edit or cancel from the output panel; persisted in `scheduled-posts.json` (survives server restarts)
+- **Language switching** - UI available in Japanese and English; persisted in localStorage
+- **systemd detection badge** - Warns in the header if pocket-claude is running outside systemd management; `/api/health` endpoint returns `systemd_managed` flag
+- **Rate limit auto-resume** - When rate-limited, a panel appears to enable server-side auto-resume; schedule persisted in `schedules.json`
+- Tab inherits model/effort/thinking settings from the current tab on creation
 
-### Features
+### Changed
+- Effort and Thinking labels localized to Japanese in settings UI
+- Model selector default label fixed to alphabetic `default` (prevents layout shift)
+- Header button height unified to 30px
+- Schedule button uses SVG icon (emoji caused height misalignment)
 
-#### Core
-- Claude Code CLI web interface via `claude -p` one-shot mode
-- SSE streaming with automatic reconnection and output buffering
-- Tab-based conversation management (localStorage only, no server-side tabs)
-- Session persistence: resume past conversations from history browser
-- Queue-based execution (one Claude process per tab)
-- Graceful shutdown on SIGTERM
+### Fixed
+- Project selector: switching projects now updates selection state immediately without closing settings
+- `parseResetTime` now handles `am/pm + IANA timezone` format
+- Scheduled posts list rendering: moved `loadScheduledPosts()` call after `loadHistoryBulk` completes to prevent race condition
 
-#### UI
-- Browser-based UI, works on desktop and mobile browsers
-- Dark theme (Blue Dark / Purple Dark) via CSS variables + themes.js
-- Real-time context usage bar (token %)
-- Markdown rendering (marked.js)
-- Tab inherits model/effort/thinking settings from current tab on creation
-- Language switching: Japanese / English (persisted in localStorage)
+## [v4.35] - 2026-03-23
 
-#### Settings
-- Model selection: Sonnet 4.6, Opus 4.6, Haiku 4.5
-- Effort level: Low / Medium / High (Max for Opus only)
-- Thinking: None / On / Off (3-state segment control)
-- Font size and code font size independently configurable
+### Fixed
+- CLI command parse errors (`type: "result"`, `is_error: true`) now displayed in red instead of being silently ignored
 
-#### Tool Display
-- VS Code-style tool expansion: Bash shows IN/OUT, Edit shows red/green diff
-- AskUserQuestion auto-expand with question and options listed
-- Error results (`is_error: true`) shown in red
+## [v4.34] - 2026-03-22
 
-#### Rate Limit Handling
-- Rate limit messages displayed in red
-- Auto-resume scheduler: set a time and pocket-claude re-sends automatically (server-side, browser-independent)
-- Schedule persisted in `schedules.json` — survives server restarts
+### Changed
+- Model selector text aligned left (Safari `text-align-last` fix)
+- Send button height now stretches to match textarea height
 
-#### Scheduled Posts
-- Schedule a prompt to be sent at a future date/time
-- Edit or cancel from the output panel
-- Persisted in `scheduled-posts.json` — survives server restarts
+## [v4.32–v4.33] - 2026-03-22
 
-#### Project Management
-- Add/remove project directories from browser UI
-- `projects.json` for persistent configuration
-- `ADDITIONAL_ALLOWED_DIRS` environment variable support
+### Changed
+- Tool expansion display reworked to match VS Code extension style: Bash shows IN/OUT, Edit shows red/green diff
+- Grep description format unified to `"pattern" (in /path)`
+- Status dot: removed border, changed to red
+- Tool parameter display inherits output font size
 
-#### Reliability
-- systemd detection badge: warns if pocket-claude is running outside systemd
-- Startup repair: unfinished log entries from previous crashes are automatically closed
-- `/api/health` endpoint with `systemd_managed` flag
+## [v4.31] - 2026-03-22
+
+### Added
+- Code font size setting (default 12px, controlled via `--code-font-size` CSS variable)
+
+### Fixed
+- Fixed font sizes in ask-text, ask-option, tool-result etc. that were hardcoded and not inheriting output font size
+
+## [v4.30] - 2026-03-22
+
+### Added
+- Rate limit auto-resume: server-side scheduler re-sends prompt when rate limit resets; countdown displayed in UI; reset time parsed automatically from Claude's message
+
+## [v4.28–v4.29] - 2026-03-21
+
+### Added
+- Thinking control changed from checkbox to 3-state segment: `None | On | Off`
+
+### Fixed
+- Rate limit messages now detected from `assistant` event (`ev.error === "rate_limit"`) and displayed in red
+
+## [v4.27] - 2026-03-21
+
+### Added
+- AskUserQuestion tool result auto-expands showing question and options
+
+### Fixed
+- `--include-partial-messages` was corrupting `input_json_delta`, causing JSON.parse failures silently caught; fixed by using complete `assistant` message data for rendering
+- `crypto.randomUUID` polyfill added for HTTP environments
+- `Cache-Control: no-store` added to root response
+
+## [v4.26] - 2026-03-21
+
+### Changed
+- Usage limit messages from stderr displayed directly as `line-error` (red, normal size) without `[err]` prefix
+- Reset time now prominently visible
