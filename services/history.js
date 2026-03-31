@@ -154,7 +154,65 @@ function getSessionEvents(sessionId) {
     : []
   const directEvents = readLogFile(path.join(config.LOGS_DIR, `${sessionId}.jsonl`))
 
-  return [...originalEvents, ...directEvents]
+  const pocketEvents = [...originalEvents, ...directEvents]
+
+  // pocket-claudeログの最後のdoneイベントのtimestampを取得
+  let lastDoneTs = null
+  for (let i = pocketEvents.length - 1; i >= 0; i--) {
+    if (pocketEvents[i].type === 'done' && pocketEvents[i].timestamp) {
+      lastDoneTs = pocketEvents[i].timestamp
+      break
+    }
+  }
+
+  // pocket-claudeログ以降にVS Code等で追加された会話を~/.claude/projects/から補完
+  // lastDoneTsがない場合はpocket-claudeで一度も送信していないセッションなので補完しない
+  if (lastDoneTs) {
+    const claudeSessionId = (() => {
+      // sessions/<sessionId>.jsonからclaudeSessionIdを取得。なければself-mapping
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8'))
+        return data.claudeSessionId || sessionId
+      } catch { return sessionId }
+    })()
+
+    const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${claudeSessionId}.jsonl`)
+    const claudeLines = readLogFile(jsonlPath)
+
+    // lastDoneTs以降のuser/assistantエントリをpocket-claudeイベント形式に変換
+    const extraEvents = []
+    for (const entry of claudeLines) {
+      if (!entry.timestamp || entry.timestamp <= lastDoneTs) continue
+
+      if (entry.type === 'user') {
+        const content = entry.message?.content
+        if (!content) continue
+        const textBlock = Array.isArray(content)
+          ? content.find(c => c.type === 'text')
+          : (typeof content === 'string' ? { text: content } : null)
+        if (!textBlock?.text?.trim()) continue
+        extraEvents.push({ type: 'user_input', text: textBlock.text, timestamp: entry.timestamp })
+
+      } else if (entry.type === 'assistant') {
+        const content = entry.message?.content
+        if (!Array.isArray(content)) continue
+        const texts = content.filter(c => c.type === 'text').map(c => c.text)
+        if (!texts.length) continue
+        const fullText = texts.join('')
+        // stream_eventチェーンに展開してhandleEventが処理できる形式に変換
+        extraEvents.push({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } })
+        extraEvents.push({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: fullText } } })
+        extraEvents.push({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } })
+        extraEvents.push({ type: 'done', exitCode: 0, timestamp: entry.timestamp })
+      }
+    }
+
+    if (extraEvents.length > 0) {
+      return [...pocketEvents, ...extraEvents]
+    }
+  }
+
+  return pocketEvents
 }
 
 module.exports = { listSessions, getSessionMessages, getSessionEvents, UUID_RE, CLAUDE_PROJECTS_DIR }
