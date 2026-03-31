@@ -2233,14 +2233,27 @@ async function connectSSE(sessionId, isReconnect = false) {
   const ts = tabState[sessionId]
   if (!ts) return
 
+  if (isReconnect && ts._initialLoaded) {
+    // 再接続時: 出力エリアをクリアしてログから再描画 → skipHistory=1で新イベントのみ監視
+    ts.pane.innerHTML = ''
+    ts.currentTextEl = null
+    ts._rawText = ''
+    ts._ctxTokens = 0
+    ts._currentToolEl = null
+    ts._currentToolInput = ''
+    ts._currentBlockType = null
+    ts._thinkingEl = null
+    ts._initialLoaded = false
+  }
+
   // 完了済みセッション（実行中でない）かつ初回接続の場合は一括描画
-  if (!ts.isRunning && !isReconnect && !ts._initialLoaded) {
+  if (!ts.isRunning && !ts._initialLoaded) {
     await loadHistoryBulk(sessionId)
     ts._initialLoaded = true
     // 一括描画後はskipHistory=1でSSE接続（新イベント監視のみ）
     connectSSEStream(sessionId, true)
   } else {
-    connectSSEStream(sessionId, !ts.isRunning && !!ts._initialLoaded)
+    connectSSEStream(sessionId, !!ts._initialLoaded)
   }
 }
 
