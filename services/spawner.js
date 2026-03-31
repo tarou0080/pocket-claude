@@ -50,6 +50,7 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
     timestamp: new Date().toISOString(),
   })
 
+  console.log(`[spawn] project=${project} cwd=${projectDir}`)
   const proc = spawn('claude', args, {
     cwd: projectDir,
     env: { ...process.env },
@@ -81,18 +82,11 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   proc.on('close', code => {
     s.process = null
     broadcast(sessionId, { type: 'done', exitCode: code, timestamp: new Date().toISOString() })
-    if (s.pendingPrompt) {
-      const pending = s.pendingPrompt
-      const pendingModel = s.pendingModel
-      const pendingEffort = s.pendingEffort
-      const pendingThinking = s.pendingThinking
-      s.pendingPrompt = null
-      s.pendingModel = null
-      s.pendingEffort = null
-      s.pendingThinking = null
-      broadcast(sessionId, { type: 'queued_sent', message: pending })
-      broadcast(sessionId, { type: 'user_input', text: pending })
-      setTimeout(() => startClaude(sessionId, pending, pendingModel, project, getClaudeSessionId(sessionId), pendingEffort, pendingThinking), 300)
+    if (s.pendingQueue && s.pendingQueue.length > 0) {
+      const next = s.pendingQueue.shift()
+      broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
+      broadcast(sessionId, { type: 'user_input', text: next.prompt })
+      setTimeout(() => startClaude(sessionId, next.prompt, next.model, project, getClaudeSessionId(sessionId), next.effort, next.thinking), 300)
     }
   })
 
@@ -106,8 +100,7 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
 function stopClaude(sessionId) {
   const s = getState(sessionId)
   if (s.process) {
-    s.pendingPrompt = null
-    s.pendingModel = null
+    s.pendingQueue = []
     s.process.kill('SIGTERM')
     return true
   }
@@ -126,13 +119,28 @@ function injectPrompt(sessionId, prompt) {
   }
 }
 
-// ペンディングキャンセル
-function stopPending(sessionId) {
+// キュー個別削除
+function removePending(sessionId, index) {
   const s = getState(sessionId)
-  s.pendingPrompt = null
-  s.pendingModel = null
-  s.pendingEffort = null
-  s.pendingThinking = null
+  if (!s.pendingQueue) return
+  s.pendingQueue.splice(index, 1)
+  broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
 }
 
-module.exports = { startClaude, stopClaude, stopPending, injectPrompt, gitPull }
+// キュー全クリア
+function stopPending(sessionId) {
+  const s = getState(sessionId)
+  s.pendingQueue = []
+  broadcast(sessionId, { type: 'queue_update', queue: [] })
+}
+
+// キュー個別更新
+function updatePending(sessionId, index, prompt) {
+  const s = getState(sessionId)
+  if (!s.pendingQueue || !s.pendingQueue[index]) return false
+  s.pendingQueue[index].prompt = prompt
+  broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
+  return true
+}
+
+module.exports = { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, gitPull }

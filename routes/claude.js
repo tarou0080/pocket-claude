@@ -2,7 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const router = express.Router()
-const { startClaude, stopClaude, stopPending, injectPrompt, gitPull } = require('../services/spawner')
+const { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
 const config = require('../config/index')
@@ -26,7 +26,7 @@ router.get('/status', (req, res) => {
   const sessionId = req.query.session
   if (!sessionId) return res.status(400).json({ error: 'session required' })
   const s = getState(sessionId)
-  res.json({ running: s.process !== null, pending: s.pendingPrompt || null })
+  res.json({ running: s.process !== null, queue: (s.pendingQueue || []).map(q => ({ prompt: q.prompt })) })
 })
 
 // プロンプト送信
@@ -42,15 +42,20 @@ router.post('/send', async (req, res) => {
   const s = getState(actualSessionId)
 
   if (s.process) {
-    broadcast(actualSessionId, { type: 'user_input', text: prompt })
     const injected = injectPrompt(actualSessionId, prompt)
     if (!injected) {
-      s.pendingPrompt = prompt
-      s.pendingModel = model || null
-      s.pendingEffort = effort || null
-      s.pendingThinking = thinking !== undefined ? thinking : null
+      if (!s.pendingQueue) s.pendingQueue = []
+      s.pendingQueue.push({
+        prompt,
+        model: model || null,
+        effort: effort || null,
+        thinking: thinking !== undefined ? thinking : null,
+      })
+      broadcast(actualSessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
+    } else {
+      broadcast(actualSessionId, { type: 'user_input', text: prompt })
     }
-    return res.json({ ok: true, sessionId: actualSessionId, injected })
+    return res.json({ ok: true, sessionId: actualSessionId, injected, queued: !injected, queueLength: s.pendingQueue ? s.pendingQueue.length : 0 })
   }
 
   // git pull
@@ -74,11 +79,28 @@ router.post('/stop', (req, res) => {
   res.json({ ok: true })
 })
 
-// ペンディングキャンセル
+// キュー全クリア
 router.post('/stop-pending', (req, res) => {
   const sessionId = req.body.session
   if (!sessionId) return res.status(400).json({ error: 'session required' })
   stopPending(sessionId)
+  res.json({ ok: true })
+})
+
+// キュー個別削除
+router.delete('/pending/:sessionId/:index', (req, res) => {
+  const { sessionId, index } = req.params
+  removePending(sessionId, parseInt(index, 10))
+  res.json({ ok: true })
+})
+
+// キュー個別更新
+router.patch('/pending/:sessionId/:index', (req, res) => {
+  const { sessionId, index } = req.params
+  const { prompt } = req.body
+  if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'prompt required' })
+  const ok = updatePending(sessionId, parseInt(index, 10), prompt.trim())
+  if (!ok) return res.status(404).json({ error: 'not found' })
   res.json({ ok: true })
 })
 

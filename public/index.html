@@ -779,6 +779,101 @@
     transition: opacity 0.2s, transform 0.1s;
   }
   #send-btn:active { opacity: 0.8; transform: scale(0.96); }
+
+  #queue-panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    z-index: 19;
+    display: none;
+    flex-direction: column-reverse;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  #queue-panel.has-items { display: flex; }
+  .queue-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 13px;
+    color: var(--text-dim);
+    animation: queue-in 0.18s ease;
+  }
+  .queue-item.sending {
+    color: var(--primary);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  @keyframes queue-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .queue-item-badge {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text-darker);
+    padding-top: 1px;
+    min-width: 20px;
+  }
+  .queue-item-text {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+  }
+  .queue-item-text.editing {
+    white-space: normal;
+    overflow: visible;
+  }
+  .queue-edit-input {
+    width: 100%;
+    background: var(--surface3);
+    color: var(--text);
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    resize: none;
+    line-height: 1.4;
+  }
+  .queue-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .queue-item-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-darker);
+    font-size: 13px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    line-height: 1;
+  }
+  .queue-item-btn:hover { background: var(--surface3); color: var(--text); }
+  .queue-item-btn.save { color: var(--primary); }
+  .queue-header {
+    padding: 5px 12px 4px;
+    font-size: 11px;
+    color: var(--text-darker);
+    border-bottom: 1px solid var(--border-soft);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .queue-clear-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-darker);
+    font-size: 11px;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .queue-clear-btn:hover { color: var(--red); background: var(--red-bg); }
 </style>
 </head>
 <body>
@@ -928,6 +1023,8 @@
 
 <div id="output-container"></div>
 
+<div id="queue-panel"></div>
+
 <div id="input-area">
   <div id="input-row">
     <textarea id="prompt" placeholder="Enter prompt..." rows="1"></textarea>
@@ -959,6 +1056,7 @@ const stopBtn         = document.getElementById('stop-btn')
 const tabBar          = document.getElementById('tab-bar')
 const addTabBtn       = document.getElementById('add-tab-btn')
 const outputCont      = document.getElementById('output-container')
+const queuePanel      = document.getElementById('queue-panel')
 const effortIndicator     = document.getElementById('effort-indicator')
 const settingsBtn     = document.getElementById('settings-btn')
 const settingsModal   = document.getElementById('settings-modal')
@@ -1688,6 +1786,7 @@ function switchTab(sessionId) {
   const switchTs = tabState[sessionId]
   applyTabSettings(sessionId)
   updateUI()
+  renderQueuePanel(sessionId)
   connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
 }
 
@@ -2622,6 +2721,10 @@ function handleEvent(sessionId, ev, isLive = true) {
       }
       break
 
+    case 'queue_update':
+      handleQueueUpdate(sessionId, ev.queue || [])
+      break
+
     case 'raw':
       // rawイベントの中にJSONエンコードされたtool_resultが含まれる場合がある（Editツール等）
       if (ev.text) {
@@ -3017,6 +3120,107 @@ historyBtn.addEventListener('click', () => {
   else openHistory()
 })
 
+// ── 送信待ちキューパネル ──
+// sessionId → [{ prompt }]  ※サーバーが正として SSE queue_update で同期
+const _queueState = {}
+
+function renderQueuePanel(sessionId) {
+  const queue = _queueState[sessionId] || []
+  if (sessionId !== currentSessionId) return
+  queuePanel.innerHTML = ''
+  if (queue.length === 0) {
+    queuePanel.classList.remove('has-items')
+    updateLayout()
+    return
+  }
+  queuePanel.classList.add('has-items')
+
+  // ヘッダー
+  const header = document.createElement('div')
+  header.className = 'queue-header'
+  const label = document.createElement('span')
+  label.textContent = `送信待ち ${queue.length}件`
+  const clearBtn = document.createElement('button')
+  clearBtn.className = 'queue-clear-btn'
+  clearBtn.textContent = 'すべてキャンセル'
+  clearBtn.addEventListener('click', () => {
+    fetch('/api/stop-pending', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: sessionId }) })
+  })
+  header.appendChild(label)
+  header.appendChild(clearBtn)
+  queuePanel.appendChild(header)
+
+  queue.forEach((item, idx) => {
+    const row = document.createElement('div')
+    row.className = 'queue-item'
+    row.dataset.idx = idx
+
+    const badge = document.createElement('span')
+    badge.className = 'queue-item-badge'
+    badge.textContent = `${idx + 1}.`
+
+    const textWrap = document.createElement('span')
+    textWrap.className = 'queue-item-text'
+    textWrap.textContent = item.prompt
+
+    const actions = document.createElement('span')
+    actions.className = 'queue-item-actions'
+
+    const editBtn = document.createElement('button')
+    editBtn.className = 'queue-item-btn'
+    editBtn.textContent = '編集'
+    editBtn.addEventListener('click', () => {
+      if (textWrap.classList.contains('editing')) return
+      textWrap.classList.add('editing')
+      const ta = document.createElement('textarea')
+      ta.className = 'queue-edit-input'
+      ta.value = item.prompt
+      ta.rows = Math.min(4, (item.prompt.match(/\n/g) || []).length + 1)
+      ta.addEventListener('input', () => {
+        ta.style.height = 'auto'
+        ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
+        updateLayout()
+      })
+      textWrap.textContent = ''
+      textWrap.appendChild(ta)
+      ta.focus()
+
+      editBtn.textContent = '保存'
+      editBtn.classList.add('save')
+      editBtn.addEventListener('click', () => {
+        const newPrompt = ta.value.trim()
+        if (!newPrompt) return
+        fetch(`/api/pending/${encodeURIComponent(sessionId)}/${idx}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: newPrompt })
+        })
+      }, { once: true })
+    }, { once: true })
+
+    const delBtn = document.createElement('button')
+    delBtn.className = 'queue-item-btn'
+    delBtn.textContent = '✕'
+    delBtn.addEventListener('click', () => {
+      fetch(`/api/pending/${encodeURIComponent(sessionId)}/${idx}`, { method: 'DELETE' })
+    })
+
+    actions.appendChild(editBtn)
+    actions.appendChild(delBtn)
+    row.appendChild(badge)
+    row.appendChild(textWrap)
+    row.appendChild(actions)
+    queuePanel.appendChild(row)
+  })
+  updateLayout()
+}
+
+function handleQueueUpdate(sessionId, queue) {
+  _queueState[sessionId] = queue
+  renderQueuePanel(sessionId)
+}
+
 // ── 送信 ──
 async function send() {
   const prompt = promptEl.value.trim()
@@ -3135,12 +3339,17 @@ function updateLayout() {
   topBarEl.style.top = offsetTop + 'px'
 
   const inputH = inputAreaEl.offsetHeight
+  const queueH = queuePanel.offsetHeight
+  const bottomH = inputH + queueH
+
   inputAreaEl.style.top    = (offsetTop + vvHeight - inputH) + 'px'
   inputAreaEl.style.bottom = 'auto'
+  queuePanel.style.top    = (offsetTop + vvHeight - bottomH) + 'px'
+  queuePanel.style.bottom = 'auto'
 
   const topH = topBarEl.offsetHeight
   outputCont.style.top    = (offsetTop + topH) + 'px'
-  outputCont.style.height = (vvHeight - topH - inputH) + 'px'
+  outputCont.style.height = (vvHeight - topH - bottomH) + 'px'
   outputCont.style.bottom = 'auto'
 }
 
@@ -3151,6 +3360,7 @@ if (window.visualViewport) {
 const ro = new ResizeObserver(updateLayout)
 ro.observe(topBarEl)
 ro.observe(inputAreaEl)
+ro.observe(queuePanel)
 updateLayout()
 
 init()
