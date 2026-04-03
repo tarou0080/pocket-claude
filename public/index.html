@@ -3084,9 +3084,19 @@ async function resumeConversation(sessionId) {
       })
     }
 
-    // loadHistoryBulk（connectSSE内）による二重描画を防ぐため先にフラグをセット
+    // ペインをクリアしてからswitchTab（既存タブの場合も含め二重描画を防ぐ）
     const ts = tabState[sessionId]
-    if (ts) ts._initialLoaded = true
+    if (ts) {
+      ts.pane.innerHTML = ''
+      ts.currentTextEl = null
+      ts._rawText = ''
+      ts._ctxTokens = 0
+      ts._currentToolEl = null
+      ts._currentToolInput = ''
+      ts._currentBlockType = null
+      ts._thinkingEl = null
+      ts._initialLoaded = true
+    }
 
     switchTab(sessionId)
 
