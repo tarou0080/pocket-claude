@@ -1004,7 +1004,7 @@
     <div id="schedule-body">
       <div style="margin-bottom: 16px;">
         <label style="display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 13px;">Scheduled Time</label>
-        <input type="datetime-local" id="schedule-datetime" style="width: 100%; background: var(--surface3); color: var(--text); border: 1px solid var(--border-input); border-radius: 6px; padding: 8px 10px; font-size: 14px; outline: none;">
+        <input type="datetime-local" id="schedule-datetime" style="width: 100%; max-width: 100%; box-sizing: border-box; background: var(--surface3); color: var(--text); border: 1px solid var(--border-input); border-radius: 6px; padding: 8px 10px; font-size: 14px; outline: none;">
       </div>
       <div style="margin-bottom: 16px;">
         <label style="display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 13px;">Prompt</label>
@@ -1764,7 +1764,7 @@ function applyTabSettings(sessionId) {
 }
 
 // ── タブ切り替え ──
-function switchTab(sessionId) {
+async function switchTab(sessionId) {
   if (currentES) { currentES.close(); currentES = null }
   // 現在タブのプロンプト草稿・モデル・effortを保存
   if (currentSessionId && tabState[currentSessionId]) {
@@ -1787,7 +1787,8 @@ function switchTab(sessionId) {
   applyTabSettings(sessionId)
   updateUI()
   renderQueuePanel(sessionId)
-  connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
+  await connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
+  await restoreRateLimitPanel(sessionId)  // SSE接続完了後に確実に復元
 }
 
 // ── プロジェクト管理 ──
@@ -2274,7 +2275,8 @@ async function editScheduledPost(id) {
     scheduleModal.classList.add('open')
     scheduleBtn.classList.add('active')
 
-    const localStr = new Date(post.scheduledAt).toISOString().slice(0, 16)
+    const d = new Date(post.scheduledAt)
+    const localStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
     scheduleDatetime.value = localStr
     schedulePrompt.value = post.prompt
 
@@ -2373,8 +2375,6 @@ async function loadHistoryBulk(sessionId) {
     // 全イベントを一括処理（履歴再生なのでisLive=false）
     events.forEach(ev => handleEvent(sessionId, ev, false))
 
-    // サーバー側に有効なスケジュールがあればパネルを復元
-    await restoreRateLimitPanel(sessionId)
     // 予約投稿リストを描画
     loadScheduledPosts()
 
@@ -3110,6 +3110,7 @@ async function resumeConversation(sessionId) {
     if (ts) ts.autoScroll = true
     scrollToBottom(ts)
 
+    restoreRateLimitPanel(sessionId)
     closeHistory()
   } catch (e) {
     alert(`Resume error: ${e.message}`)
