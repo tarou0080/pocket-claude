@@ -1262,6 +1262,7 @@ function closeSettings() {
 function openScheduleModal() {
   scheduleModal.classList.add('open')
   scheduleBtn.classList.add('active')
+  scheduleSave.onclick = saveScheduledPost
   const now = new Date()
   const localStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
   scheduleDatetime.value = localStr
@@ -1541,7 +1542,7 @@ scheduleCancel.addEventListener('click', closeScheduleModal)
 scheduleModal.addEventListener('click', e => {
   if (e.target === scheduleModal) closeScheduleModal()
 })
-scheduleSave.addEventListener('click', saveScheduledPost)
+scheduleSave.onclick = saveScheduledPost
 effortIndicator.addEventListener('click', openSettings)
 modelSel.addEventListener('change', () => {
   if (currentSessionId && tabState[currentSessionId]) {
