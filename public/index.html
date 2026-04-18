@@ -1266,7 +1266,7 @@ function openScheduleModal() {
   const now = new Date()
   const localStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
   scheduleDatetime.value = localStr
-  schedulePrompt.value = ''
+  // schedulePrompt.value = '' を削除（送信成功時のみクリア）
   schedulePrompt.focus()
 }
 
@@ -1328,6 +1328,7 @@ async function saveScheduledPost() {
     })
     if (!res.ok) throw new Error('Failed to create scheduled post')
     const data = await res.json()
+    schedulePrompt.value = ''  // 送信成功時のみクリア
     closeScheduleModal()
     loadScheduledPosts()
   } catch (err) {
