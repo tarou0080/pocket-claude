@@ -66,6 +66,18 @@ function deleteState(sessionId) {
   delete state[sessionId]
 }
 
+// セッション間通知（Worker→Manager等）
+// 指定したセッションのSSEクライアントに直接通知を送る
+function broadcastToSession(targetSessionId, event) {
+  const s = getState(targetSessionId)
+  const line = `data: ${JSON.stringify(event)}\n\n`
+  s.sseClients.forEach(res => {
+    try {
+      res.write(line)
+    } catch {}
+  })
+}
+
 module.exports = {
   getState,
   broadcast,
@@ -73,5 +85,6 @@ module.exports = {
   registerSSEClient,
   unregisterSSEClient,
   deleteState,
-  logFile
+  logFile,
+  broadcastToSession
 }
