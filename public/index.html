@@ -1433,23 +1433,21 @@ function renderSettingsModal() {
     modelList.appendChild(row)
   })
 
-  // Effort list
+  // Effort list（グローバルデフォルト表示・全セッション反映）
   const effortList = document.getElementById('settings-effort-list')
   effortList.innerHTML = ''
   getEffortOptions().forEach(opt => {
     const row = document.createElement('div')
-    const curEffort = (currentSessionId && tabState[currentSessionId]) ? tabState[currentSessionId].effort : appSettings.effort
+    const curEffort = appSettings.effort
     row.className = 'effort-option' + (curEffort === opt.value ? ' selected' : '')
     row.addEventListener('click', () => {
-      if (currentSessionId && tabState[currentSessionId]) {
-        tabState[currentSessionId].effort = opt.value
-        updateSession(currentSessionId, { effort: opt.value })
-        appSettings.effort = opt.value
-        saveSettings(appSettings)
-      } else {
-        appSettings.effort = opt.value
-        saveSettings(appSettings)
-      }
+      // グローバルデフォルト更新
+      appSettings.effort = opt.value
+      saveSettings(appSettings)
+      // 全セッションのeffortを一括更新
+      const allSessions = loadSessions()
+      saveSessions(allSessions.map(s => ({ ...s, effort: opt.value })))
+      Object.keys(tabState).forEach(sid => { if (tabState[sid]) tabState[sid].effort = opt.value })
       updateEffortIndicator()
       effortList.querySelectorAll('.effort-option').forEach(r => r.classList.remove('selected'))
       row.classList.add('selected')
@@ -1544,7 +1542,19 @@ scheduleModal.addEventListener('click', e => {
   if (e.target === scheduleModal) closeScheduleModal()
 })
 scheduleSave.onclick = saveScheduledPost
-effortIndicator.addEventListener('click', openSettings)
+// Effortドット：このタブのみ変更（クリックでサイクル）
+effortIndicator.addEventListener('click', () => {
+  if (!currentSessionId || !tabState[currentSessionId]) return openSettings()
+  const ts = tabState[currentSessionId]
+  const opts = getEffortOptions()
+  const idx = opts.findIndex(o => o.value === ts.effort)
+  const next = opts[(idx + 1) % opts.length]
+  ts.effort = next.value
+  updateSession(currentSessionId, { effort: next.value })
+  updateEffortIndicator()
+  if (settingsModal.classList.contains('open')) renderSettingsModal()
+})
+
 modelSel.addEventListener('change', () => {
   if (currentSessionId && tabState[currentSessionId]) {
     tabState[currentSessionId].model = modelSel.value
