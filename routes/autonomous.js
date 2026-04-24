@@ -4,6 +4,7 @@ const { randomUUID } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const { broadcastToSession } = require('../services/stream')
+const { initProject, loadProgress: loadProgressService } = require('../services/autonomous')
 
 const PROGRESS_FILE = path.join(__dirname, '..', 'autonomous-progress.json')
 
@@ -35,31 +36,11 @@ router.post('/start', (req, res) => {
     return res.status(400).json({ error: 'goal and sessionId required' })
   }
 
-  const projectId = `auto-${Date.now()}`
-  const planFile = `plan_${projectId}.md`
-
-  const progress = {
-    projectId,
-    goal,
-    planFile,
-    startedAt: new Date().toISOString(),
-    currentPhase: 0,
-    totalPhases: 0,
-    status: 'in_progress',
-    managerSession: {
-      sessionId,
-      model: managerModel || 'opus'
-    },
-    defaultWorkerModel: defaultWorkerModel || 'sonnet',
-    workerSessions: [],
-    checkpoints: []
-  }
-
-  saveProgress(projectId, progress)
+  const progress = initProject(goal, sessionId, managerModel, defaultWorkerModel)
 
   res.json({
-    projectId,
-    planFile,
+    projectId: progress.projectId,
+    planFile: progress.planFile,
     progressFile: 'autonomous-progress.json',
     message: 'Phase 0（要件定義）を開始します',
     config: {
@@ -114,23 +95,13 @@ router.post('/spawn-worker', async (req, res) => {
   const workerSessionId = `w${phase}-${randomUUID().slice(0, 8)}`
   const workerModel = model || progress.defaultWorkerModel
 
-  // 既存の /api/send を内部呼び出し
+  // 既存の /api/send を内部呼び出し（services/spawner.jsを直接使用）
   try {
-    const fetch = (await import('node-fetch')).default
-    const response = await fetch('http://localhost:3333/api/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: workerSessionId,
-        prompt: instruction,
-        model: workerModel,
-        project: Object.keys(require('../config/index').projects)[0]
-      })
-    })
+    const { startClaude } = require('../services/spawner')
+    const config = require('../config/index')
+    const projectName = Object.keys(config.projects)[0]
 
-    if (!response.ok) {
-      throw new Error(`Failed to start worker: ${response.statusText}`)
-    }
+    startClaude(workerSessionId, instruction, workerModel, projectName, null, null, null)
 
     // 進捗更新
     progress.workerSessions.push({

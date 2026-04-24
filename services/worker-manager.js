@@ -45,60 +45,96 @@ function readProgress(projectId) {
 }
 
 // Worker完了報告
-async function reportComplete(workerSessionId, summary, artifacts) {
+function reportComplete(workerSessionId, summary, artifacts) {
   const result = findMyProject(workerSessionId)
   if (!result) throw new Error('Project not found')
 
   const { projectId, worker } = result
 
-  // Managerに報告
-  const fetch = (await import('node-fetch')).default
-  const response = await fetch('http://localhost:3333/api/autonomous/worker-complete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      projectId,
-      workerSessionId,
-      phase: worker.phase,
-      status: 'completed',
-      summary,
-      artifacts
-    })
+  // Managerに報告（内部HTTP呼び出し）
+  const http = require('http')
+  const postData = JSON.stringify({
+    projectId,
+    workerSessionId,
+    phase: worker.phase,
+    status: 'completed',
+    summary,
+    artifacts
   })
 
-  if (!response.ok) {
-    throw new Error(`Failed to report completion: ${response.statusText}`)
+  const options = {
+    hostname: 'localhost',
+    port: 3333,
+    path: '/api/autonomous/worker-complete',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
   }
 
-  return await response.json()
+  return new Promise((resolve, reject) => {
+    const req = http.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(JSON.parse(data))
+        } else {
+          reject(new Error(`Failed to report completion: ${res.statusCode}`))
+        }
+      })
+    })
+    req.on('error', reject)
+    req.write(postData)
+    req.end()
+  })
 }
 
 // Worker エラー報告
-async function reportError(workerSessionId, error, retryCount) {
+function reportError(workerSessionId, error, retryCount) {
   const result = findMyProject(workerSessionId)
   if (!result) throw new Error('Project not found')
 
   const { projectId, worker } = result
 
-  const fetch = (await import('node-fetch')).default
-  const response = await fetch('http://localhost:3333/api/autonomous/worker-complete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      projectId,
-      workerSessionId,
-      phase: worker.phase,
-      status: 'error',
-      summary: `Error: ${error}`,
-      retryCount
-    })
+  const http = require('http')
+  const postData = JSON.stringify({
+    projectId,
+    workerSessionId,
+    phase: worker.phase,
+    status: 'error',
+    summary: `Error: ${error}`,
+    retryCount
   })
 
-  if (!response.ok) {
-    throw new Error(`Failed to report error: ${response.statusText}`)
+  const options = {
+    hostname: 'localhost',
+    port: 3333,
+    path: '/api/autonomous/worker-complete',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
   }
 
-  return await response.json()
+  return new Promise((resolve, reject) => {
+    const req = http.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(JSON.parse(data))
+        } else {
+          reject(new Error(`Failed to report error: ${res.statusCode}`))
+        }
+      })
+    })
+    req.on('error', reject)
+    req.write(postData)
+    req.end()
+  })
 }
 
 module.exports = {

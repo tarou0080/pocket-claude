@@ -120,29 +120,19 @@ function updatePlan(projectId, phaseNumber, content) {
 }
 
 // Worker起動
-async function spawnWorker(projectId, phase, model, instruction) {
+function spawnWorker(projectId, phase, model, instruction) {
   const progress = loadProgress(projectId)
   if (!progress) throw new Error('Project not found')
 
   const workerSessionId = `w${phase}-${randomUUID().slice(0, 8)}`
   const workerModel = model || progress.defaultWorkerModel
 
-  // 既存の /api/send を内部呼び出し
-  const fetch = (await import('node-fetch')).default
-  const response = await fetch('http://localhost:3333/api/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sessionId: workerSessionId,
-      prompt: instruction,
-      model: workerModel,
-      project: Object.keys(require('../config/index').projects)[0]
-    })
-  })
+  // 既存のspawner.jsを直接使用
+  const { startClaude } = require('./spawner')
+  const config = require('../config/index')
+  const projectName = Object.keys(config.projects)[0]
 
-  if (!response.ok) {
-    throw new Error(`Failed to start worker: ${response.statusText}`)
-  }
+  startClaude(workerSessionId, instruction, workerModel, projectName, null, null, null)
 
   // 進捗更新
   progress.workerSessions.push({
