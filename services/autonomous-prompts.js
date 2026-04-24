@@ -33,7 +33,7 @@ ${criteria}
 ## 作業手順
 
 1. **planファイルを読む**
-   autonomous-progress.jsonから「planFile」を確認し、/home/johnadmin/reports/<planFile>を読んでください。
+   autonomous-progress.jsonから「planFile」を確認し、/home/johnadmin/pocket-claude/autonomous-plans/<planFile>を読んでください。
 
 2. **タスクを実行**
    上記の目的・完了条件に従ってタスクを実行してください。

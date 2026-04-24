@@ -3,7 +3,7 @@ const path = require('path')
 const { randomUUID } = require('crypto')
 
 const PROGRESS_FILE = path.join(__dirname, '..', 'autonomous-progress.json')
-const REPORTS_DIR = '/home/johnadmin/reports'
+const PLANS_DIR = path.join(__dirname, '..', 'autonomous-plans')
 
 // 進捗ファイル読み込み
 function loadProgress(projectId) {
@@ -57,7 +57,8 @@ function initProject(goal, managerSessionId, managerModel, defaultWorkerModel) {
   saveProgress(projectId, progress)
 
   // plan_*.md初期化
-  const planPath = path.join(REPORTS_DIR, planFile)
+  fs.mkdirSync(PLANS_DIR, { recursive: true })
+  const planPath = path.join(PLANS_DIR, planFile)
   const initialPlan = `<!-- tags: autonomous, ${projectId}, 自律開発 -->
 # ${goal}
 
@@ -97,7 +98,7 @@ function updatePlan(projectId, phaseNumber, content) {
   const progress = loadProgress(projectId)
   if (!progress) throw new Error('Project not found')
 
-  const planPath = path.join(REPORTS_DIR, progress.planFile)
+  const planPath = path.join(PLANS_DIR, progress.planFile)
 
   try {
     let plan = fs.readFileSync(planPath, 'utf8')

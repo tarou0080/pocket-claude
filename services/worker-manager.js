@@ -1,8 +1,10 @@
 const fs = require('fs')
 const path = require('path')
+const config = require('../config/index')
 
 const PROGRESS_FILE = path.join(__dirname, '..', 'autonomous-progress.json')
-const REPORTS_DIR = '/home/johnadmin/reports'
+const PORT = parseInt(process.env.PORT || config.port || 3333, 10)
+const PLANS_DIR = path.join(__dirname, '..', 'autonomous-plans')
 
 // 自分が属するプロジェクトを見つける
 function findMyProject(workerSessionId) {
@@ -27,7 +29,7 @@ function readPlan(projectId) {
     const progress = data[projectId]
     if (!progress) return null
 
-    const planPath = path.join(REPORTS_DIR, progress.planFile)
+    const planPath = path.join(PLANS_DIR, progress.planFile)
     return fs.readFileSync(planPath, 'utf8')
   } catch {
     return null
@@ -64,7 +66,7 @@ function reportComplete(workerSessionId, summary, artifacts) {
 
   const options = {
     hostname: 'localhost',
-    port: 3333,
+    port: PORT,
     path: '/api/autonomous/worker-complete',
     method: 'POST',
     headers: {
@@ -110,7 +112,7 @@ function reportError(workerSessionId, error, retryCount) {
 
   const options = {
     hostname: 'localhost',
-    port: 3333,
+    port: PORT,
     path: '/api/autonomous/worker-complete',
     method: 'POST',
     headers: {
