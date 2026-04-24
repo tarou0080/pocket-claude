@@ -1,32 +1,14 @@
 const express = require('express')
 const router = express.Router()
-const { randomUUID } = require('crypto')
-const fs = require('fs')
-const path = require('path')
 const { broadcastToSession } = require('../services/stream')
-const { initProject, loadProgress: loadProgressService } = require('../services/autonomous')
-
-const PROGRESS_FILE = path.join(__dirname, '..', 'autonomous-progress.json')
-
-// 進捗ファイル読み込み
-function loadProgress(projectId) {
-  try {
-    const data = JSON.parse(fs.readFileSync(PROGRESS_FILE, 'utf8'))
-    return data[projectId] || null
-  } catch {
-    return null
-  }
-}
-
-// 進捗ファイル保存
-function saveProgress(projectId, progress) {
-  let data = {}
-  try {
-    data = JSON.parse(fs.readFileSync(PROGRESS_FILE, 'utf8'))
-  } catch {}
-  data[projectId] = progress
-  fs.writeFileSync(PROGRESS_FILE, JSON.stringify(data, null, 2))
-}
+const {
+  initProject,
+  loadProgress,
+  loadAllProgress,
+  spawnWorker,
+  completeWorker,
+  recordCheckpoint
+} = require('../services/autonomous')
 
 // プロジェクト開始
 router.post('/start', (req, res) => {
@@ -59,7 +41,6 @@ router.get('/progress/:projectId', (req, res) => {
     return res.status(404).json({ error: 'project not found' })
   }
 
-  // タイムライン生成
   const timeline = progress.workerSessions.map(w => ({
     phase: w.phase,
     status: w.status,
@@ -74,45 +55,25 @@ router.get('/progress/:projectId', (req, res) => {
     lastUpdate: progress.workerSessions.length > 0
       ? progress.workerSessions[progress.workerSessions.length - 1].startedAt
       : progress.startedAt,
-    nextResume: null, // TODO: scheduler連携
+    nextResume: null,
     timeline
   })
 })
 
 // Worker起動
-router.post('/spawn-worker', async (req, res) => {
+router.post('/spawn-worker', (req, res) => {
   const { projectId, phase, model, instruction } = req.body
 
   if (!projectId || phase === undefined || !instruction) {
     return res.status(400).json({ error: 'projectId, phase, instruction required' })
   }
 
-  const progress = loadProgress(projectId)
-  if (!progress) {
+  if (!loadProgress(projectId)) {
     return res.status(404).json({ error: 'project not found' })
   }
 
-  const workerSessionId = `w${phase}-${randomUUID().slice(0, 8)}`
-  const workerModel = model || progress.defaultWorkerModel
-
-  // 既存の /api/send を内部呼び出し（services/spawner.jsを直接使用）
   try {
-    const { startClaude } = require('../services/spawner')
-    const config = require('../config/index')
-    const projectName = Object.keys(config.projects)[0]
-
-    startClaude(workerSessionId, instruction, workerModel, projectName, null, null, null)
-
-    // 進捗更新
-    progress.workerSessions.push({
-      phase,
-      name: `Phase ${phase}`,
-      sessionId: workerSessionId,
-      model: workerModel,
-      status: 'in_progress',
-      startedAt: new Date().toISOString()
-    })
-    saveProgress(projectId, progress)
+    const { workerSessionId, workerModel } = spawnWorker(projectId, phase, model, instruction)
 
     res.json({
       workerSessionId,
@@ -130,58 +91,34 @@ router.post('/spawn-worker', async (req, res) => {
 router.post('/worker-complete', (req, res) => {
   const { projectId, workerSessionId, phase, status, summary, artifacts } = req.body
 
-  if (!projectId || !workerSessionId || !phase) {
+  if (!projectId || !workerSessionId || phase === undefined) {
     return res.status(400).json({ error: 'projectId, workerSessionId, phase required' })
   }
 
-  const progress = loadProgress(projectId)
-  if (!progress) {
-    return res.status(404).json({ error: 'project not found' })
+  try {
+    const progress = completeWorker(projectId, workerSessionId, status, summary, artifacts)
+
+    broadcastToSession(progress.managerSession.sessionId, {
+      type: 'worker_complete',
+      projectId,
+      phase,
+      workerSessionId,
+      status: status || 'completed',
+      summary,
+      artifacts,
+      timestamp: new Date().toISOString()
+    })
+
+    res.json({ message: 'Managerに報告しました' })
+  } catch (error) {
+    res.status(404).json({ error: error.message })
   }
-
-  // Worker情報更新
-  const worker = progress.workerSessions.find(w => w.sessionId === workerSessionId)
-  if (worker) {
-    worker.status = status || 'completed'
-    worker.completedAt = new Date().toISOString()
-    worker.summary = summary
-    worker.artifacts = artifacts
-  }
-
-  // 現在のPhase更新
-  if (status === 'completed') {
-    progress.currentPhase = phase + 1
-  }
-
-  saveProgress(projectId, progress)
-
-  // Managerセッションに通知
-  const managerSessionId = progress.managerSession.sessionId
-  broadcastToSession(managerSessionId, {
-    type: 'worker_complete',
-    projectId,
-    phase,
-    workerSessionId,
-    status: status || 'completed',
-    summary,
-    artifacts,
-    timestamp: new Date().toISOString()
-  })
-
-  res.json({ message: 'Managerに報告しました' })
 })
 
 // Worker状態確認
 router.get('/worker-status/:workerSessionId', (req, res) => {
   const { workerSessionId } = req.params
-
-  // 全プロジェクトから該当Workerを検索
-  let data = {}
-  try {
-    data = JSON.parse(fs.readFileSync(PROGRESS_FILE, 'utf8'))
-  } catch {
-    return res.status(404).json({ error: 'worker not found' })
-  }
+  const data = loadAllProgress()
 
   for (const progress of Object.values(data)) {
     const worker = progress.workerSessions.find(w => w.sessionId === workerSessionId)
@@ -208,37 +145,30 @@ router.post('/checkpoint-response', (req, res) => {
     return res.status(400).json({ error: 'projectId required' })
   }
 
-  const progress = loadProgress(projectId)
-  if (!progress) {
+  const existing = loadProgress(projectId)
+  if (!existing) {
     return res.status(404).json({ error: 'project not found' })
   }
 
-  // チェックポイント記録
-  progress.checkpoints.push({
-    phase: progress.currentPhase,
-    approved,
-    feedback,
-    nextPhaseModel,
-    timestamp: new Date().toISOString()
-  })
+  try {
+    const progress = recordCheckpoint(projectId, existing.currentPhase, approved, feedback, nextPhaseModel)
 
-  saveProgress(projectId, progress)
+    broadcastToSession(progress.managerSession.sessionId, {
+      type: 'checkpoint_response',
+      projectId,
+      approved,
+      feedback,
+      nextPhaseModel,
+      timestamp: new Date().toISOString()
+    })
 
-  // Managerセッションに通知
-  const managerSessionId = progress.managerSession.sessionId
-  broadcastToSession(managerSessionId, {
-    type: 'checkpoint_response',
-    projectId,
-    approved,
-    feedback,
-    nextPhaseModel,
-    timestamp: new Date().toISOString()
-  })
-
-  res.json({
-    ok: true,
-    message: approved ? '次のPhaseに進みます' : 'フィードバックをManagerに送信しました'
-  })
+    res.json({
+      ok: true,
+      message: approved ? '次のPhaseに進みます' : 'フィードバックをManagerに送信しました'
+    })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
 })
 
 module.exports = router
