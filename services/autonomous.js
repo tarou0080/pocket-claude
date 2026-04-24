@@ -127,12 +127,17 @@ function spawnWorker(projectId, phase, model, instruction) {
   const workerSessionId = `w${phase}-${randomUUID().slice(0, 8)}`
   const workerModel = model || progress.defaultWorkerModel
 
+  // instructionにworkerSessionIdとprojectIdを埋め込む
+  const finalInstruction = instruction
+    .replace(/\$\{workerSessionId\}/g, workerSessionId)
+    .replace(/\$\{projectId\}/g, projectId)
+
   // 既存のspawner.jsを直接使用
   const { startClaude } = require('./spawner')
   const config = require('../config/index')
   const projectName = Object.keys(config.projects)[0]
 
-  startClaude(workerSessionId, instruction, workerModel, projectName, null, null, null)
+  startClaude(workerSessionId, finalInstruction, workerModel, projectName, null, null, null)
 
   // 進捗更新
   progress.workerSessions.push({
