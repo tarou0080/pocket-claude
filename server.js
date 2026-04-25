@@ -9,7 +9,6 @@ const streamRouter = require('./routes/stream')
 const historyRouter = require('./routes/history')
 const projectsRouter = require('./routes/projects')
 const scheduledPostsRouter = require('./routes/scheduled-posts')
-const autonomousRouter = require('./routes/autonomous')
 
 const app = express()
 const PORT = parseInt(process.env.PORT || config.port || 3333, 10)
@@ -88,7 +87,6 @@ app.use('/api/stream', streamRouter)
 app.use('/api/history', historyRouter)
 app.use('/api/projects', projectsRouter)
 app.use('/api/scheduled-posts', scheduledPostsRouter)
-app.use('/api/autonomous', autonomousRouter)
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`pocket-claude v4 (modular) running on port ${PORT}`)

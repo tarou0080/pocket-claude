@@ -83,20 +83,6 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
     s.process = null
     broadcast(sessionId, { type: 'done', exitCode: code, timestamp: new Date().toISOString() })
 
-    // 自律開発モードのWorkerか確認して自動完了報告
-    try {
-      const { findMyProject, reportComplete } = require('./worker-manager')
-      const result = findMyProject(sessionId)
-      if (result) {
-        // Worker完了自動報告（非同期だがエラー時もログに出すだけ）
-        reportComplete(sessionId, 'Process completed automatically', [])
-          .then(() => console.log(`[autonomous] Auto-reported completion for worker ${sessionId}`))
-          .catch(err => console.error(`[autonomous] Failed to auto-report: ${err.message}`))
-      }
-    } catch (err) {
-      // worker-managerが存在しない、またはプロジェクトが見つからない場合は無視
-    }
-
     if (s.pendingQueue && s.pendingQueue.length > 0) {
       const next = s.pendingQueue.shift()
       broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
