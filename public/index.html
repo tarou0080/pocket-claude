@@ -1229,7 +1229,7 @@ function updateEffortIndicator() {
   if (dot3) dot3.style.display = isOpus ? '' : 'none'
   // maxが選択中だが非Opusに切り替わった場合はリセット
   const tabEffort = (currentSessionId && tabState[currentSessionId]) ? tabState[currentSessionId].effort : appSettings.effort
-  if (!isOpus && tabEffort === 'max') {
+  if (!isOpus && tabEffort === 'xhigh') {
     if (currentSessionId && tabState[currentSessionId]) {
       tabState[currentSessionId].effort = ''
       updateSession(currentSessionId, { effort: '' })
@@ -1238,7 +1238,7 @@ function updateEffortIndicator() {
       saveSettings(appSettings)
     }
   }
-  const effectiveEffort = (!isOpus && tabEffort === 'max') ? '' : tabEffort
+  const effectiveEffort = (!isOpus && tabEffort === 'xhigh') ? '' : tabEffort
   const opt = opts.find(o => o.value === effectiveEffort) || opts[0]
   effortIndicator.querySelectorAll('.effort-dot').forEach((dot, i) => {
     dot.classList.toggle('filled', opt.dots[i] === 1)
