@@ -76,20 +76,36 @@
     transition: background 0.3s, width 0.3s, height 0.3s, border-radius 0.3s, padding 0.3s, border-color 0.3s;
   }
   #status-dot.connected { background: var(--green); }
-  #status-dot.running   { background: var(--orange); animation: pulse 1.2s infinite; }
+  #status-dot.running {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    background: var(--orange);
+    border: 1.5px solid var(--orange);
+    cursor: pointer;
+    animation: stop-blink 1.2s infinite;
+  }
+  #status-dot.running:hover { background: var(--red); border-color: var(--red); }
+  #status-dot.running:active { opacity: 0.6; }
   #status-dot.disconnected {
-    width: auto; height: auto;
+    width: 18px; height: 18px;
     background: none;
-    border: none;
+    border: 1.5px solid var(--red);
+    border-radius: 4px;
     padding: 0;
-    font-size: 14px;
+    font-size: 12px;
     color: var(--red);
     cursor: pointer;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     line-height: 1;
   }
+  #status-dot.disconnected:hover { background: var(--red-bg); }
   #status-dot.disconnected:active { opacity: 0.6; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  @keyframes stop-blink {
+    0%, 49% { border-radius: 50%; background: var(--orange); }
+    50%, 100% { border-radius: 4px; background: var(--red); }
+  }
 
 
   #model-select {
@@ -310,7 +326,7 @@
   .effort-option-label { font-size: 13px; color: var(--text-muted); flex: 1; }
   .effort-option.selected .effort-option-label { color: var(--text); }
 
-  #stop-btn, #history-btn, #schedule-btn {
+  #history-btn, #attach-header-btn, #schedule-btn {
     background: none;
     border: 1px solid var(--border-input);
     border-radius: 6px;
@@ -325,24 +341,19 @@
     align-items: center;
     justify-content: center;
   }
-  #stop-btn { color: var(--red); border-color: var(--red); opacity: 0.3; pointer-events: none; transition: background 0.2s, opacity 0.2s; }
-  #stop-btn.running { opacity: 1; pointer-events: auto; }
-  #stop-btn.running:hover { background: var(--red-bg); }
-  #stop-btn:active { background: var(--red-bg); }
-
-  #history-btn, #schedule-btn {
+  #history-btn, #schedule-btn, #attach-header-btn {
     color: var(--text-dim);
     transition: background 0.2s, border-color 0.2s, color 0.2s;
   }
   #schedule-btn { font-size: 14px; }
-  #schedule-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; }
-  #history-btn:hover, #schedule-btn:hover {
+  #schedule-btn svg, #attach-header-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #history-btn:hover, #schedule-btn:hover, #attach-header-btn:hover {
     background: var(--accent-hover);
     border-color: var(--accent);
     color: var(--accent);
   }
-  #history-btn:active, #schedule-btn:active { background: var(--border); color: var(--text-muted); }
-  #history-btn.active, #schedule-btn.active { color: var(--accent); border-color: var(--accent); }
+  #history-btn:active, #schedule-btn:active, #attach-header-btn:active { background: var(--border); color: var(--text-muted); }
+  #history-btn.active, #schedule-btn.active, #attach-header-btn.active { color: var(--accent); border-color: var(--accent); }
 
   /* ── 履歴パネル ── */
   #history-panel {
@@ -895,7 +906,7 @@
       <span class="effort-dot" data-idx="2"></span>
       <span class="effort-dot" data-idx="3"></span>
     </div>
-    <button id="stop-btn" title="Stop execution">■</button>
+    <button id="attach-header-btn" title="Attach image"><svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
     <button id="history-btn" title="Conversation history">⟳</button>
     <button id="schedule-btn" title="Schedule post"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg></button>
     <button id="settings-btn" title="Settings">&#9881;&#xFE0E;</button>
@@ -1038,6 +1049,7 @@
     <textarea id="prompt" placeholder="Enter prompt..." rows="1"></textarea>
     <button id="send-btn">✨</button>
   </div>
+  <input type="file" id="attach-input" accept="image/*" multiple style="display:none">
 </div>
 
 <script>
@@ -1060,7 +1072,7 @@ const promptEl        = document.getElementById('prompt')
 const sendBtn         = document.getElementById('send-btn')
 const statusDot       = document.getElementById('status-dot')
 const modelSel        = document.getElementById('model-select')
-const stopBtn         = document.getElementById('stop-btn')
+const attachHeaderBtn = document.getElementById('attach-header-btn')
 const tabBar          = document.getElementById('tab-bar')
 const addTabBtn       = document.getElementById('add-tab-btn')
 const outputCont      = document.getElementById('output-container')
@@ -2155,7 +2167,7 @@ function updateUI() {
     statusDot.className = running ? 'running' : 'connected'
     statusDot.textContent = ''
   }
-  stopBtn.classList.toggle('running', running)
+
   tabBar.querySelectorAll('.tab').forEach(el => {
     const ts2 = tabState[el.dataset.sessionId]
     el.classList.toggle('running', ts2?.isRunning || false)
@@ -3298,6 +3310,13 @@ function renderImagePreviews() {
   })
 }
 
+// ファイル選択
+const attachInput = document.getElementById('attach-input')
+attachInput.addEventListener('change', () => {
+  for (const file of attachInput.files) addImageAttachment(file)
+  attachInput.value = ''
+})
+
 // ペースト
 promptEl.addEventListener('paste', e => {
   const items = e.clipboardData?.items || []
@@ -3451,13 +3470,13 @@ async function send() {
 statusDot.addEventListener('click', () => {
   if (statusDot.classList.contains('disconnected')) {
     manualReconnect()
+  } else if (statusDot.classList.contains('running')) {
+    fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: currentSessionId }) })
   }
 })
 
-stopBtn.addEventListener('click', () => {
-  fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session: currentSessionId }) })
-})
+attachHeaderBtn.addEventListener('click', () => attachInput.click())
 
 addTabBtn.addEventListener('click', async () => {
   // デフォルトプロジェクト（★設定）を使う、なければ現在セッションを引き継ぐ
