@@ -893,7 +893,7 @@
       <span class="effort-dot" data-idx="0"></span>
       <span class="effort-dot" data-idx="1"></span>
       <span class="effort-dot" data-idx="2"></span>
-      <span class="effort-dot" data-idx="3" style="display:none"></span>
+      <span class="effort-dot" data-idx="3"></span>
     </div>
     <button id="stop-btn" title="Stop execution">■</button>
     <button id="history-btn" title="Conversation history">⟳</button>
@@ -1143,13 +1143,7 @@ const ALL_MODELS = [
   { value: 'claude-sonnet-4-6',       label: 'Sonnet 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ]
-const EFFORT_OPTIONS_BASE = [
-  { value: '',       dots: [0,0,0,0], label: 'Auto' },
-  { value: 'low',    dots: [1,0,0,0], label: 'Low' },
-  { value: 'medium', dots: [1,1,0,0], label: 'Medium' },
-  { value: 'high',   dots: [1,1,1,0], label: 'High' },
-]
-const EFFORT_OPTIONS_OPUS = [
+const EFFORT_OPTIONS = [
   { value: '',       dots: [0,0,0,0], label: 'Auto' },
   { value: 'low',    dots: [1,0,0,0], label: 'Low' },
   { value: 'medium', dots: [1,1,0,0], label: 'Medium' },
@@ -1157,7 +1151,7 @@ const EFFORT_OPTIONS_OPUS = [
   { value: 'xhigh',  dots: [1,1,1,1], label: 'xHigh' },
 ]
 function getEffortOptions() {
-  return (modelSel.value || '').includes('opus') ? EFFORT_OPTIONS_OPUS : EFFORT_OPTIONS_BASE
+  return EFFORT_OPTIONS
 }
 
 function loadSettings() {
@@ -1223,23 +1217,8 @@ function rebuildModelSelect() {
 
 function updateEffortIndicator() {
   const opts = getEffortOptions()
-  const isOpus = opts === EFFORT_OPTIONS_OPUS
-  // 4つ目のdotはOpusのみ表示
-  const dot3 = effortIndicator.querySelector('.effort-dot[data-idx="3"]')
-  if (dot3) dot3.style.display = isOpus ? '' : 'none'
-  // maxが選択中だが非Opusに切り替わった場合はリセット
   const tabEffort = (currentSessionId && tabState[currentSessionId]) ? tabState[currentSessionId].effort : appSettings.effort
-  if (!isOpus && tabEffort === 'xhigh') {
-    if (currentSessionId && tabState[currentSessionId]) {
-      tabState[currentSessionId].effort = ''
-      updateSession(currentSessionId, { effort: '' })
-    } else {
-      appSettings.effort = ''
-      saveSettings(appSettings)
-    }
-  }
-  const effectiveEffort = (!isOpus && tabEffort === 'xhigh') ? '' : tabEffort
-  const opt = opts.find(o => o.value === effectiveEffort) || opts[0]
+  const opt = opts.find(o => o.value === tabEffort) || opts[0]
   effortIndicator.querySelectorAll('.effort-dot').forEach((dot, i) => {
     dot.classList.toggle('filled', opt.dots[i] === 1)
   })
