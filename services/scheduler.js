@@ -35,13 +35,10 @@ async function doResume(sessionId) {
   saveSchedules()
 
   const { getState, broadcast } = require('./stream')
-  const { startClaude, gitPull } = require('./spawner')
+  const { startClaude, injectPrompt, gitPull } = require('./spawner')
   const config = require('../config/index')
 
-  // すでに実行中なら何もしない（手動送信が先行した場合）
   const state = getState(sessionId)
-  if (state.process) return
-
   const claudeSessionId = getClaudeSessionId(sessionId)
   const projectDir = config.projects[s.project]
 
@@ -51,8 +48,14 @@ async function doResume(sessionId) {
   }
 
   broadcast(sessionId, { type: 'system', text: '⏱ レート制限リセット後、自動再開しました' })
-  broadcast(sessionId, { type: 'user_input', text: s.prompt })
-  startClaude(sessionId, s.prompt, s.model, s.project, claudeSessionId, s.effort, s.thinking)
+
+  if (state.process) {
+    // 常駐プロセスが生きている（レートリミット後もstdinを待機中）→ 注入
+    injectPrompt(sessionId, s.prompt)
+  } else {
+    broadcast(sessionId, { type: 'user_input', text: s.prompt })
+    startClaude(sessionId, s.prompt, s.model, s.project, claudeSessionId, s.effort, s.thinking)
+  }
 }
 
 function scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking) {

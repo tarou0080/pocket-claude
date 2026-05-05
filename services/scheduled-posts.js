@@ -39,13 +39,10 @@ async function executePost(id) {
   savePosts()
 
   const { getState, broadcast } = require('./stream')
-  const { startClaude, gitPull } = require('./spawner')
+  const { startClaude, injectPrompt, gitPull } = require('./spawner')
   const config = require('../config/index')
 
-  // すでに実行中なら何もしない
   const state = getState(p.sessionId)
-  if (state.process) return
-
   const claudeSessionId = getClaudeSessionId(p.sessionId)
   const projectDir = config.projects[p.project]
 
@@ -55,8 +52,13 @@ async function executePost(id) {
   }
 
   broadcast(p.sessionId, { type: 'system', text: '🕐 予約投稿を実行しました' })
-  broadcast(p.sessionId, { type: 'user_input', text: p.prompt })
-  startClaude(p.sessionId, p.prompt, p.model, p.project, claudeSessionId, p.effort, p.thinking)
+
+  if (state.process) {
+    injectPrompt(p.sessionId, p.prompt)
+  } else {
+    broadcast(p.sessionId, { type: 'user_input', text: p.prompt })
+    startClaude(p.sessionId, p.prompt, p.model, p.project, claudeSessionId, p.effort, p.thinking)
+  }
 }
 
 function createPost({ scheduledAt, prompt, sessionId, project, model, effort, thinking }) {

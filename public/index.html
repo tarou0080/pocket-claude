@@ -2558,6 +2558,7 @@ function handleEvent(sessionId, ev, isLive = true) {
   switch (ev.type) {
     case 'user_input':
       clearRateLimitPanel(sessionId)
+      if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
       } else {
@@ -2699,6 +2700,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       // result.usage は1ターン内の全ツール呼び出し分の累積なので使わない
       // （例: 5回ツール呼び出しがあると実コンテキスト100kでも500k+になる）
       if (isLive) {
+        ts.isRunning = false
         finalizeText(ts)
         const ctxMax = ts._ctxMax || CTX_MAX
         const pct = Math.round(ts._ctxTokens / ctxMax * 100)
