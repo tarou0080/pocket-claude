@@ -2,7 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const router = express.Router()
-const { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, gitPull } = require('../services/spawner')
+const { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, respondToAsk, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
 const config = require('../config/index')
@@ -31,8 +31,11 @@ router.get('/status', (req, res) => {
 
 // プロンプト送信
 router.post('/send', async (req, res) => {
-  const { prompt, sessionId, project, model, effort, thinking } = req.body
+  const { prompt, sessionId, project, model, effort, thinking, images } = req.body
   if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'prompt required' })
+
+  // images: [{ mediaType, data }] の配列（base64）
+  const imageData = (Array.isArray(images) && images.length > 0) ? images : null
 
   const { randomUUID } = require('crypto')
   const actualSessionId = sessionId || randomUUID()
@@ -42,7 +45,8 @@ router.post('/send', async (req, res) => {
   const s = getState(actualSessionId)
 
   if (s.process) {
-    const injected = injectPrompt(actualSessionId, prompt)
+    // プロセス稼働中 → 直接stdinに注入（割り込み送信）
+    const injected = injectPrompt(actualSessionId, prompt, imageData)
     if (!injected) {
       if (!s.pendingQueue) s.pendingQueue = []
       s.pendingQueue.push({
@@ -50,10 +54,9 @@ router.post('/send', async (req, res) => {
         model: model || null,
         effort: effort || null,
         thinking: thinking !== undefined ? thinking : null,
+        imageData,
       })
       broadcast(actualSessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
-    } else {
-      broadcast(actualSessionId, { type: 'user_input', text: prompt })
     }
     return res.json({ ok: true, sessionId: actualSessionId, injected, queued: !injected, queueLength: s.pendingQueue ? s.pendingQueue.length : 0 })
   }
@@ -66,8 +69,17 @@ router.post('/send', async (req, res) => {
   }
 
   broadcast(actualSessionId, { type: 'user_input', text: prompt })
-  startClaude(actualSessionId, prompt, model, actualProject, claudeSessionId, effort || null, thinking !== undefined ? thinking : null)
+  startClaude(actualSessionId, prompt, model, actualProject, claudeSessionId, effort || null, thinking !== undefined ? thinking : null, imageData)
   res.json({ ok: true, sessionId: actualSessionId, queued: false })
+})
+
+// AskUserQuestion への応答
+router.post('/respond', (req, res) => {
+  const { session, answer } = req.body
+  if (!session || !answer || !answer.trim()) return res.status(400).json({ error: 'session and answer required' })
+  const ok = respondToAsk(session, answer.trim())
+  if (!ok) return res.status(409).json({ error: 'no active process or ask' })
+  res.json({ ok: true })
 })
 
 // 停止

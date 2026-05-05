@@ -701,6 +701,15 @@
   .ask-text { color: var(--text); margin: 2px 0 4px; }
   .ask-option { color: var(--text-dim); padding: 1px 0; }
   .ask-option strong { color: var(--text); }
+  .ask-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .ask-btn { background: var(--surface3); border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 4px 12px; font-size: 13px; cursor: pointer; transition: background 0.15s; }
+  .ask-btn:hover { background: var(--accent); color: var(--bg); }
+  .ask-btn:disabled { opacity: 0.4; cursor: default; }
+  /* 画像プレビュー */
+  #image-preview-area { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
+  .img-thumb { position: relative; display: inline-block; }
+  .img-thumb img { max-height: 60px; max-width: 90px; border-radius: 6px; border: 1px solid var(--border); object-fit: cover; }
+  .img-thumb-remove { position: absolute; top: -4px; right: -4px; background: var(--red); color: #fff; border: none; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; line-height: 16px; text-align: center; cursor: pointer; padding: 0; }
   .line-system  { color: var(--text-dim); }
   .line-done    { color: var(--green); border-top: 1px solid var(--surface3); margin-top: 6px; padding-top: 6px; }
   .line-done.warn { color: var(--orange); }
@@ -1024,6 +1033,7 @@
 <div id="queue-panel"></div>
 
 <div id="input-area">
+  <div id="image-preview-area"></div>
   <div id="input-row">
     <textarea id="prompt" placeholder="Enter prompt..." rows="1"></textarea>
     <button id="send-btn">✨</button>
@@ -2734,8 +2744,17 @@ function handleEvent(sessionId, ev, isLive = true) {
       }
       break
 
+    case 'ask_user_question':
+      if (isActive) renderAskUserQuestionUI(sessionId, ev.toolUseId, ev.questions || [])
+      break
+
     case 'queue_update':
       handleQueueUpdate(sessionId, ev.queue || [])
+      break
+
+    case 'done':
+      // プロセス終了 → AskUserQuestion UIが残っていたら削除
+      if (isActive) clearAskUserQuestionUI()
       break
 
     case 'raw':
@@ -3245,6 +3264,141 @@ function handleQueueUpdate(sessionId, queue) {
   renderQueuePanel(sessionId)
 }
 
+// ── 画像添付 ──
+const imagePreviewArea = document.getElementById('image-preview-area')
+let _attachedImages = [] // [{ mediaType, data, objectUrl }]
+
+function addImageAttachment(file) {
+  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  if (!allowed.includes(file.type)) return
+  const reader = new FileReader()
+  reader.onload = e => {
+    const dataUrl = e.target.result
+    const base64 = dataUrl.split(',')[1]
+    const img = { mediaType: file.type, data: base64, objectUrl: dataUrl }
+    _attachedImages.push(img)
+    renderImagePreviews()
+    updateLayout()
+  }
+  reader.readAsDataURL(file)
+}
+
+function renderImagePreviews() {
+  imagePreviewArea.innerHTML = ''
+  _attachedImages.forEach((img, i) => {
+    const wrap = document.createElement('div')
+    wrap.className = 'img-thumb'
+    const el = document.createElement('img')
+    el.src = img.objectUrl
+    wrap.appendChild(el)
+    const rm = document.createElement('button')
+    rm.className = 'img-thumb-remove'
+    rm.textContent = '×'
+    rm.onclick = () => { _attachedImages.splice(i, 1); renderImagePreviews(); updateLayout() }
+    wrap.appendChild(rm)
+    imagePreviewArea.appendChild(wrap)
+  })
+}
+
+// ペースト
+promptEl.addEventListener('paste', e => {
+  const items = e.clipboardData?.items || []
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      addImageAttachment(item.getAsFile())
+    }
+  }
+})
+
+// ドロップ
+document.addEventListener('dragover', e => e.preventDefault())
+document.addEventListener('drop', e => {
+  e.preventDefault()
+  for (const file of e.dataTransfer.files) {
+    if (file.type.startsWith('image/')) addImageAttachment(file)
+  }
+})
+
+// ── AskUserQuestion 応答UI ──
+let _askUiEl = null
+
+function renderAskUserQuestionUI(sessionId, toolUseId, questions) {
+  clearAskUserQuestionUI()
+  if (!questions.length) return
+
+  const panel = document.createElement('div')
+  panel.id = 'ask-ui-panel'
+  panel.style.cssText = 'background:var(--surface3);border-top:1px solid var(--accent);padding:10px 12px;'
+
+  questions.forEach(q => {
+    const qWrap = document.createElement('div')
+    qWrap.style.marginBottom = '8px'
+
+    const label = document.createElement('div')
+    label.style.cssText = 'font-size:12px;color:var(--text-dim);margin-bottom:4px;'
+    label.textContent = q.question || ''
+    qWrap.appendChild(label)
+
+    if (q.options?.length) {
+      const btns = document.createElement('div')
+      btns.className = 'ask-btns'
+      q.options.forEach(opt => {
+        const btn = document.createElement('button')
+        btn.className = 'ask-btn'
+        btn.textContent = opt.label
+        btn.title = opt.description || ''
+        btn.onclick = async () => {
+          // 全ボタン無効化
+          panel.querySelectorAll('.ask-btn').forEach(b => b.disabled = true)
+          clearAskUserQuestionUI()
+          await fetch('/api/respond', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: sessionId, answer: opt.label }),
+          })
+        }
+        btns.appendChild(btn)
+      })
+      qWrap.appendChild(btns)
+    } else {
+      // オプションなし → テキスト入力
+      const row = document.createElement('div')
+      row.style.cssText = 'display:flex;gap:6px;'
+      const input = document.createElement('input')
+      input.type = 'text'
+      input.style.cssText = 'flex:1;background:var(--surface);border:1px solid var(--border-input);color:var(--text);border-radius:8px;padding:4px 10px;font-size:13px;outline:none;'
+      const btn = document.createElement('button')
+      btn.className = 'ask-btn'
+      btn.textContent = '送信'
+      const submit = async () => {
+        const val = input.value.trim()
+        if (!val) return
+        panel.querySelectorAll('.ask-btn,input').forEach(b => b.disabled = true)
+        clearAskUserQuestionUI()
+        await fetch('/api/respond', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: sessionId, answer: val }),
+        })
+      }
+      btn.onclick = submit
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') submit() })
+      row.appendChild(input)
+      row.appendChild(btn)
+      qWrap.appendChild(row)
+    }
+    panel.appendChild(qWrap)
+  })
+
+  _askUiEl = panel
+  inputAreaEl.insertBefore(panel, inputAreaEl.firstChild)
+  updateLayout()
+}
+
+function clearAskUserQuestionUI() {
+  if (_askUiEl) { _askUiEl.remove(); _askUiEl = null; updateLayout() }
+}
+
 // ── 送信 ──
 async function send() {
   const prompt = promptEl.value.trim()
@@ -3252,6 +3406,12 @@ async function send() {
   const ts = getTS()
   const currentSession = getCurrentSession()
   if (!currentSession) return
+
+  const imagesToSend = _attachedImages.length > 0
+    ? _attachedImages.map(i => ({ mediaType: i.mediaType, data: i.data }))
+    : null
+  _attachedImages = []
+  renderImagePreviews()
 
   promptEl.value = ''
   promptEl.style.height = 'auto'
@@ -3270,7 +3430,8 @@ async function send() {
         project: currentSession.project,
         model: modelSel.value || null,
         effort: (tabState[currentSessionId]?.effort ?? appSettings.effort) || null,
-        thinking: tabState[currentSessionId] ? tabState[currentSessionId].thinking : appSettings.thinking
+        thinking: tabState[currentSessionId] ? tabState[currentSessionId].thinking : appSettings.thinking,
+        images: imagesToSend,
       })
     })
     if (!res.ok) {
@@ -3285,6 +3446,7 @@ async function send() {
     promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
     addLine(ts, `Connection failed`, 'line-error')
   }
+  updateLayout()
 }
 
 // ── ボタン ──
