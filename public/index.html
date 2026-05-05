@@ -2367,6 +2367,12 @@ async function connectSSE(sessionId, isReconnect = false) {
   } else {
     connectSSEStream(sessionId, !!ts._initialLoaded)
   }
+
+  // 接続完了後、経路に関わらず永続データを必ず復元
+  await Promise.all([
+    loadScheduledPosts(),
+    restoreRateLimitPanel(sessionId)
+  ])
 }
 
 // 完了済みセッションの一括描画
@@ -2378,16 +2384,12 @@ async function loadHistoryBulk(sessionId) {
     const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`)
     if (!res.ok) {
       // 履歴がない場合は通常のSSE接続にフォールバック
-      loadScheduledPosts()
       return
     }
     const events = await res.json()
 
     // 全イベントを一括処理（履歴再生なのでisLive=false）
     events.forEach(ev => handleEvent(sessionId, ev, false))
-
-    // 予約投稿リストを描画
-    loadScheduledPosts()
 
     // 一括描画完了後に最下部へスクロール
     ts.autoScroll = true
