@@ -2707,11 +2707,26 @@ function handleEvent(sessionId, ev, isLive = true) {
       break
     }
 
-    case 'result':
+    case 'result': {
       if (ev.is_error && Array.isArray(ev.errors) && ev.errors.length) {
         ev.errors.forEach(e => addLine(ts, e, 'line-error'))
       }
+      // result.usage から _ctxTokens を更新（stream_event 依存より確実）
+      if (ev.usage) {
+        const u = ev.usage
+        ts._ctxTokens = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0)
+          + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0)
+      }
+      // ターンごとに ctx% を表示（persistent process では done が来るまで長い）
+      if (isLive) {
+        finalizeText(ts)
+        const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
+        const resultEl = addLine(ts, `✓ ${pct}%`, 'line-done')
+        if (pct >= 50) resultEl.classList.add('warn')
+        if (isActive) updateUI()
+      }
       break
+    }
 
     case 'done': {
       finalizeText(ts)
