@@ -1139,7 +1139,7 @@ function t(key) { return STRINGS[appSettings?.lang || 'ja'][key] }
 // ── 設定管理 ──
 const ALL_MODELS = [
   { value: '', label: 'Default (Sonnet 4.6)' },
-  { value: 'claude-opus-4-6',         label: 'Opus 4.6' },
+  { value: 'claude-opus-4-7',         label: 'Opus 4.7' },
   { value: 'claude-sonnet-4-6',       label: 'Sonnet 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ]
@@ -1154,7 +1154,7 @@ const EFFORT_OPTIONS_OPUS = [
   { value: 'low',    dots: [1,0,0,0], label: 'Low' },
   { value: 'medium', dots: [1,1,0,0], label: 'Medium' },
   { value: 'high',   dots: [1,1,1,0], label: 'High' },
-  { value: 'max',    dots: [1,1,1,1], label: 'Max' },
+  { value: 'xhigh',  dots: [1,1,1,1], label: 'xHigh' },
 ]
 function getEffortOptions() {
   return (modelSel.value || '').includes('opus') ? EFFORT_OPTIONS_OPUS : EFFORT_OPTIONS_BASE
