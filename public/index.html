@@ -2701,13 +2701,13 @@ function handleEvent(sessionId, ev, isLive = true) {
       // （例: 5回ツール呼び出しがあると実コンテキスト100kでも500k+になる）
       if (isLive) {
         ts.isRunning = false
-        finalizeText(ts)
-        const ctxMax = ts._ctxMax || CTX_MAX
-        const pct = Math.round(ts._ctxTokens / ctxMax * 100)
-        const resultEl = addLine(ts, `✓ ${pct}%`, 'line-done')
-        if (pct >= 50) resultEl.classList.add('warn')
         if (isActive) updateUI()
       }
+      finalizeText(ts)
+      const ctxMax = ts._ctxMax || CTX_MAX
+      const pct = Math.round(ts._ctxTokens / ctxMax * 100)
+      const resultEl = addLine(ts, `✓ ${pct}%`, 'line-done')
+      if (pct >= 50) resultEl.classList.add('warn')
       break
     }
 
