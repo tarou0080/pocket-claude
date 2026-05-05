@@ -2711,16 +2711,18 @@ function handleEvent(sessionId, ev, isLive = true) {
       if (ev.is_error && Array.isArray(ev.errors) && ev.errors.length) {
         ev.errors.forEach(e => addLine(ts, e, 'line-error'))
       }
-      // result.usage から _ctxTokens を更新（stream_event 依存より確実）
-      if (ev.usage) {
-        const u = ev.usage
-        ts._ctxTokens = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0)
-          + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0)
+      // contextWindow をモデルごとに取得（モデル切り替え・将来の1Mモデル対応）
+      if (ev.modelUsage) {
+        const windows = Object.values(ev.modelUsage).map(m => m.contextWindow).filter(Boolean)
+        if (windows.length) ts._ctxMax = Math.max(...windows)
       }
-      // ターンごとに ctx% を表示（persistent process では done が来るまで長い）
+      // _ctxTokens は stream_event(message_start/delta) から積算した値を使う。
+      // result.usage は1ターン内の全ツール呼び出し分の累積なので使わない
+      // （例: 5回ツール呼び出しがあると実コンテキスト100kでも500k+になる）
       if (isLive) {
         finalizeText(ts)
-        const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
+        const ctxMax = ts._ctxMax || CTX_MAX
+        const pct = Math.round(ts._ctxTokens / ctxMax * 100)
         const resultEl = addLine(ts, `✓ ${pct}%`, 'line-done')
         if (pct >= 50) resultEl.classList.add('warn')
         if (isActive) updateUI()
@@ -2731,7 +2733,7 @@ function handleEvent(sessionId, ev, isLive = true) {
     case 'done': {
       finalizeText(ts)
       ts.isRunning = false
-      const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
+      const pct = Math.round(ts._ctxTokens / (ts._ctxMax || CTX_MAX) * 100)
       const doneMsg = ev.reason === 'server_restart'
         ? `⚠ Interrupted (server restarted)`
         : `✓ Done (exit ${ev.exitCode}) — ${pct}%`
