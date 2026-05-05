@@ -2622,7 +2622,7 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'start':
       finalizeText(ts)
-      ts.isRunning = true
+      if (isLive) ts.isRunning = true
       addLine(ts, `── ${ev.project} (${ev.model}) ──`, 'line-system')
       if (isActive) updateUI()
       break
