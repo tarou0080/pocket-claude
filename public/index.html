@@ -124,8 +124,9 @@
     padding: 4px 8px;
     border-radius: 6px;
     font-size: 14px;
-    flex-shrink: 0;
+    flex: 1;
     min-width: 32px;
+    max-width: 200px;
     height: 30px;
     box-sizing: border-box;
     text-align: left;
@@ -2128,6 +2129,20 @@ async function restoreRateLimitPanel(sessionId) {
 // ── 初期化 ──
 async function init() {
   applyTheme()
+  try {
+    const res = await fetch('/api/models')
+    if (res.ok) {
+      const models = await res.json()
+      if (Array.isArray(models) && models.length > 0) {
+        ALL_MODELS.length = 0
+        models.forEach(m => ALL_MODELS.push(m))
+        const saved = appSettings.enabledModels
+        const validValues = ALL_MODELS.map(m => m.value)
+        appSettings.enabledModels = saved.filter(v => validValues.includes(v))
+        if (appSettings.enabledModels.length === 0) appSettings.enabledModels = validValues
+      }
+    }
+  } catch {}
   rebuildModelSelect()
   applyFontSizes()
   updateEffortIndicator()
@@ -2437,7 +2452,15 @@ function connectSSEStream(sessionId, skipHistory = false) {
     if (currentSessionId === sessionId) {
       statusDot.className = 'connected'
       statusDot.textContent = ''
-      updateUI()
+      // 履歴再生(isLive=false)では取れない実行中状態をサーバーと同期してから描画
+      fetch(`/api/status?session=${encodeURIComponent(sessionId)}`)
+        .then(r => r.json())
+        .then(data => {
+          const ts = tabState[sessionId]
+          if (ts && data.running && !ts.isRunning) ts.isRunning = true
+          updateUI()
+        })
+        .catch(() => updateUI())
     }
   }
 
