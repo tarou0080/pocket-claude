@@ -2449,7 +2449,15 @@ function connectSSEStream(sessionId, skipHistory = false) {
     if (currentSessionId === sessionId) {
       statusDot.className = 'connected'
       statusDot.textContent = ''
-      updateUI()
+      // 履歴再生(isLive=false)では取れない実行中状態をサーバーと同期してから描画
+      fetch(`/api/status?session=${encodeURIComponent(sessionId)}`)
+        .then(r => r.json())
+        .then(data => {
+          const ts = tabState[sessionId]
+          if (ts && data.running && !ts.isRunning) ts.isRunning = true
+          updateUI()
+        })
+        .catch(() => updateUI())
     }
   }
 

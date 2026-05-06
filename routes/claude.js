@@ -26,7 +26,7 @@ router.get('/status', (req, res) => {
   const sessionId = req.query.session
   if (!sessionId) return res.status(400).json({ error: 'session required' })
   const s = getState(sessionId)
-  res.json({ running: s.process !== null, queue: (s.pendingQueue || []).map(q => ({ prompt: q.prompt })) })
+  res.json({ running: s.turning, queue: (s.pendingQueue || []).map(q => ({ prompt: q.prompt })) })
 })
 
 // プロンプト送信

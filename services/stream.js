@@ -10,6 +10,7 @@ function getState(sessionId) {
   if (!state[sessionId]) {
     state[sessionId] = {
       process: null,
+      turning: false,
       buffer: [],
       sseClients: [],
       pendingPrompt: null,
@@ -27,6 +28,8 @@ function logFile(sessionId) {
 // 全クライアントに配信（バッファ＋ファイルにも積む）
 function broadcast(sessionId, event) {
   const s = getState(sessionId)
+  if (event.type === 'user_input') s.turning = true
+  else if (event.type === 'result' || event.type === 'done' || event.type === 'error') s.turning = false
   s.buffer.push(event)
   fs.appendFile(logFile(sessionId), JSON.stringify(event) + '\n', () => {})
   const line = `data: ${JSON.stringify(event)}\n\n`
