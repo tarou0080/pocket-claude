@@ -9,6 +9,7 @@ const streamRouter = require('./routes/stream')
 const historyRouter = require('./routes/history')
 const projectsRouter = require('./routes/projects')
 const scheduledPostsRouter = require('./routes/scheduled-posts')
+const serverConfigRouter = require('./routes/server-config')
 
 const app = express()
 const PORT = parseInt(process.env.PORT || config.port || 3333, 10)
@@ -58,7 +59,11 @@ loadSchedules()
 const { loadPosts } = require('./services/scheduled-posts')
 loadPosts()
 
-app.use(express.json())
+app.use((req, res, next) => {
+  const mb = config.maxBodySizeMb
+  const limit = (typeof mb === 'number' && mb > 0) ? `${mb}mb` : undefined
+  express.json(limit ? { limit } : {})(req, res, next)
+})
 
 
 // Root endpoint - serve index.html with dynamic lang attribute
@@ -80,6 +85,14 @@ app.get('/api/health', (req, res) => {
   })
 })
 
+app.get('/api/models', (req, res) => {
+  const cfg = require('./config/index')
+  const models = cfg.models && cfg.models.length > 0 ? cfg.models : [
+    { value: '', label: 'Default' }
+  ]
+  res.json(models)
+})
+
 // API routes
 app.use('/api/tabs', tabsRouter)
 app.use('/api', claudeRouter)
@@ -87,6 +100,7 @@ app.use('/api/stream', streamRouter)
 app.use('/api/history', historyRouter)
 app.use('/api/projects', projectsRouter)
 app.use('/api/scheduled-posts', scheduledPostsRouter)
+app.use('/api/server-config', serverConfigRouter)
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`pocket-claude v4 (modular) running on port ${PORT}`)

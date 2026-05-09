@@ -4,6 +4,28 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.0.0] - 2026-05-09
+
+### Added
+- **Request body size limit** - Configurable from the Settings panel (MB; 0 = unlimited); applied server-side at runtime without restart; stored in `config.json`
+- **Model list API** (`GET /api/models`) - Returns available models from `config.json`; fallback to built-in list on failure
+- **Image attachment** - Attach images to prompts (base64, multi-image supported)
+- **Status icon with stop control** - Integrated stop button in the header status icon
+- **Clipboard button** - Added to header for quick copy
+
+### Fixed
+- Idle state false-positives suppressed via `turning` flag in `/api/status`
+- SSE reconnect no longer triggers spurious `isRunning=true`
+- Scheduled post card prompt truncation fixed
+- SSE reconnect now correctly reflects running status
+- Status icon size, animation, and appearance corrected
+- ctx% display in history replay after browser reload
+- iOS Safari auto-zoom on schedule modal inputs prevented
+- Always-on mode: auto-resume, scheduled posts, and status icon now work correctly
+
+### Changed (internal)
+- `getClaudeSessionId()` consolidated from 3 duplicated locations into `services/sessions.js`
+
 ## [2026-03-28]
 
 ### Added

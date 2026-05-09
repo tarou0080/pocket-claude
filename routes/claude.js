@@ -5,16 +5,10 @@ const router = express.Router()
 const { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, respondToAsk, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
+const { getClaudeSessionId } = require('../services/sessions')
 const config = require('../config/index')
 
 const sessionsDir = path.join(__dirname, '..', 'sessions')
-
-function getClaudeSessionId(sessionId) {
-  try {
-    const data = JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8'))
-    return data.claudeSessionId || null
-  } catch { return null }
-}
 
 // プロジェクト一覧
 router.get('/projects', (_req, res) => {

@@ -3,5 +3,6 @@
   "permissionMode": "ask",
   "sessionDir": "./sessions",
   "logsDir": "./logs",
-  "uiLang": "en"
+  "uiLang": "en",
+  "maxBodySizeMb": 0
 }

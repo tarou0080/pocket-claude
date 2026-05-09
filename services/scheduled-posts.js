@@ -1,18 +1,12 @@
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
+const { getClaudeSessionId } = require('./sessions')
 
 const POSTS_FILE = path.join(__dirname, '..', 'scheduled-posts.json')
-const sessionsDir = path.join(__dirname, '..', 'sessions')
 
 // id -> { id, scheduledAt, prompt, sessionId, project, model, effort, thinking, createdAt, timerId }
 const posts = new Map()
-
-function getClaudeSessionId(sessionId) {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8')).claudeSessionId || null
-  } catch { return null }
-}
 
 function savePosts() {
   const data = {}

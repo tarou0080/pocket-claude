@@ -1,17 +1,11 @@
 const fs = require('fs')
 const path = require('path')
+const { getClaudeSessionId } = require('./sessions')
 
 const SCHEDULES_FILE = path.join(__dirname, '..', 'schedules.json')
-const sessionsDir = path.join(__dirname, '..', 'sessions')
 
 // sessionId -> { resetAt, prompt, project, model, effort, thinking, timerId }
 const schedules = new Map()
-
-function getClaudeSessionId(sessionId) {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8')).claudeSessionId || null
-  } catch { return null }
-}
 
 function saveSchedules() {
   const data = {}

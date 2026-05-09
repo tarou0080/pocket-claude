@@ -1,4 +1,15 @@
+const fs = require('fs')
+const path = require('path')
 const { loadTabs, saveTabs } = require('./tabs')
+
+const sessionsDir = path.join(__dirname, '..', 'sessions')
+
+// pocket-session ID から Claude session ID を取得
+function getClaudeSessionId(sessionId) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8')).claudeSessionId || null
+  } catch { return null }
+}
 
 // セッションID取得
 function getSessionId(tabId) {
@@ -17,4 +28,4 @@ function saveSessionId(tabId, sessionId) {
   }
 }
 
-module.exports = { getSessionId, saveSessionId }
+module.exports = { getClaudeSessionId, getSessionId, saveSessionId }

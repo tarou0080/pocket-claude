@@ -1005,6 +1005,17 @@
         <div class="settings-section-title" id="stitle-theme"></div>
         <div id="settings-theme-list"></div>
       </div>
+      <!-- Body Size Limit -->
+      <div>
+        <div class="settings-section-title" id="stitle-body-limit"></div>
+        <div id="body-limit-desc" style="font-size:12px;color:var(--text-muted);margin-bottom:6px;"></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="number" id="body-limit-input" min="0" step="1" style="width:80px;background:var(--surface3);color:var(--text);border:1px solid var(--border-input);border-radius:6px;padding:6px 8px;font-size:13px;outline:none;text-align:center;">
+          <span id="body-limit-unit" style="font-size:13px;color:var(--text-muted);"></span>
+          <button id="body-limit-save" style="margin-left:auto;background:var(--primary);color:#fff;border:none;border-radius:6px;padding:5px 14px;font-size:13px;cursor:pointer;">Save</button>
+          <span id="body-limit-status" style="font-size:12px;color:var(--text-muted);"></span>
+        </div>
+      </div>
       <!-- Projects -->
       <div>
         <div class="settings-section-title" id="stitle-project"></div>
@@ -1115,6 +1126,11 @@ const STRINGS = {
     resumeLabel:          'レート制限 自動再開プロンプト',
     themeLabel:           'テーマ',
     projectLabel:         'プロジェクト',
+    bodyLimitLabel:       'リクエストボディサイズ制限',
+    bodyLimitDesc:        '',
+    bodyLimitUnit:        'MB（0で無制限）',
+    bodyLimitSaved:       '保存しました',
+    bodyLimitError:       '保存に失敗しました',
     projectNoteLocked:    '⚠ セッション開始済みのため変更できません。新しいタブで開始してください。★ は新規セッションのデフォルトを設定します。',
     projectNoteUnlocked:  '最初のメッセージを送る前のみ変更できます',
     projectNamePh:        'プロジェクト名 (例: myapp)',
@@ -1141,6 +1157,11 @@ const STRINGS = {
     thinkingOff:          'Off',
     resumeLabel:          'Auto-resume Prompt',
     themeLabel:           'Theme',
+    bodyLimitLabel:       'Request Body Size Limit',
+    bodyLimitDesc:        '',
+    bodyLimitUnit:        'MB (0 = unlimited)',
+    bodyLimitSaved:       'Saved',
+    bodyLimitError:       'Failed to save',
     projectLabel:         'Projects',
     projectNoteLocked:    'Session already started. ★ changes the default for new sessions.',
     projectNoteUnlocked:  'Can only be changed before the first message.',
@@ -1255,11 +1276,21 @@ function applyTheme() {
 }
 
 // ── 設定モーダル操作 ──
+async function loadBodyLimit() {
+  try {
+    const res = await fetch('/api/server-config')
+    const data = await res.json()
+    const input = document.getElementById('body-limit-input')
+    if (input) input.value = typeof data.maxBodySizeMb === 'number' ? data.maxBodySizeMb : 0
+  } catch {}
+}
+
 function openSettings() {
   settingsModal.classList.add('open')
   settingsBtn.classList.add('active')
   renderSettingsModal()
   loadProjects()
+  loadBodyLimit()
 }
 
 function closeSettings() {
@@ -1352,9 +1383,12 @@ function renderSettingsModal() {
   document.getElementById('stitle-model').textContent    = t('modelLabel')
   document.getElementById('stitle-effort').textContent   = t('effortLabel')
   document.getElementById('stitle-thinking').textContent = t('thinkingLabel')
-  document.getElementById('stitle-resume').textContent   = t('resumeLabel')
-  document.getElementById('stitle-theme').textContent    = t('themeLabel')
-  document.getElementById('stitle-project').textContent  = t('projectLabel')
+  document.getElementById('stitle-resume').textContent      = t('resumeLabel')
+  document.getElementById('stitle-theme').textContent       = t('themeLabel')
+  document.getElementById('stitle-body-limit').textContent  = t('bodyLimitLabel')
+  document.getElementById('body-limit-desc').textContent    = t('bodyLimitDesc')
+  document.getElementById('body-limit-unit').textContent    = t('bodyLimitUnit')
+  document.getElementById('stitle-project').textContent     = t('projectLabel')
   document.getElementById('flabel-prompt').textContent   = t('fontPrompt')
   document.getElementById('flabel-output').textContent   = t('fontOutput')
   document.getElementById('flabel-code').textContent     = t('fontCode')
@@ -1536,6 +1570,25 @@ settingsBtn.addEventListener('click', () => {
   else openSettings()
 })
 settingsClose.addEventListener('click', closeSettings)
+
+document.getElementById('body-limit-save').addEventListener('click', async () => {
+  const input = document.getElementById('body-limit-input')
+  const status = document.getElementById('body-limit-status')
+  const val = parseInt(input.value, 10)
+  if (isNaN(val) || val < 0) { status.textContent = t('bodyLimitError'); return }
+  try {
+    const res = await fetch('/api/server-config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ maxBodySizeMb: val }),
+    })
+    if (!res.ok) throw new Error()
+    status.textContent = t('bodyLimitSaved')
+    setTimeout(() => { status.textContent = '' }, 2000)
+  } catch {
+    status.textContent = t('bodyLimitError')
+  }
+})
 settingsModal.addEventListener('click', e => {
   if (e.target === settingsModal) closeSettings()
 })
