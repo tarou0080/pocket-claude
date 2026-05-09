@@ -32,9 +32,11 @@ Turn your Claude Code CLI into a web app:
 - **Integrated History Browser** - Browse and resume past sessions
 - **SSE Streaming** - Real-time output with automatic reconnection
 - **Markdown Rendering** - Clean, readable output formatting
+- **Image Attachment** - Attach images to prompts (paste, drag-and-drop, or file picker)
 - **Scheduled Posts** - Schedule prompts to run at a future time (server-side, no browser required)
 - **Rate Limit Auto-Resume** - Automatically re-sends when Claude's rate limit resets
 - **Language Switching** - UI available in Japanese and English
+- **Request Body Size Limit** - Configurable from Settings panel (MB; 0 = unlimited)
 - **systemd Integration** - Warns if running outside systemd management
 
 ## Screenshots
@@ -86,7 +88,8 @@ That's it! It works out-of-the-box with sensible defaults.
   "port": 3333,
   "permissionMode": "ask",
   "sessionDir": "./sessions",
-  "logsDir": "./logs"
+  "logsDir": "./logs",
+  "maxBodySizeMb": 0
 }
 ```
 
@@ -107,9 +110,9 @@ pocket-claude allows you to manage project directories from the browser or confi
 
 ### Add from Browser (Recommended)
 
-1. Click the **P** button in the header
-2. Enter project name and directory path
-3. Click **Add Project**
+1. Click the **⚙** (Settings) button in the header
+2. Scroll to the **Projects** section
+3. Enter project name and directory path, then click **Add**
 
 Settings are persisted across server restarts.
 
@@ -158,7 +161,7 @@ These are automatically added as `env_0`, `env_1`, etc.
 ```
 
 - **Frontend**: Single HTML file with vanilla JavaScript
-- **Backend**: Express server spawning `claude -p` processes
+- **Backend**: Express server managing a persistent `claude` process per session (stream-json mode)
 - **Communication**: Server-Sent Events (SSE) for streaming
 - **Session Management**: JSON files for persistence
 
