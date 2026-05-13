@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>pocket-claude</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <script src="themes.js"></script>
@@ -457,6 +458,7 @@
     text-align: center;
   }
   #resume-btn:active { background: var(--primary-dark); }
+  #resume-btn:disabled { opacity: 0.75; cursor: default; letter-spacing: 0.03em; }
 
   /* ── プロジェクト ── */
   #projects-body {
@@ -2421,8 +2423,8 @@ async function connectSSE(sessionId, isReconnect = false) {
   if (!ts) return
 
   if (isReconnect && ts._initialLoaded) {
-    // 再接続時: 出力エリアをクリアしてログから再描画 → skipHistory=1で新イベントのみ監視
-    ts.pane.innerHTML = ''
+    // 再接続時: ステートをリセットするが、paneのクリアはloadHistoryBulk内でfetch後に行う
+    // （即座に空にするとfetch中に空画面が見えてしまうため）
     ts.currentTextEl = null
     ts._rawText = ''
     ts._ctxTokens = 0
@@ -2463,13 +2465,18 @@ async function loadHistoryBulk(sessionId) {
     }
     const events = await res.json()
 
-    // 全イベントを一括処理（履歴再生なのでisLive=false）
-    events.forEach(ev => handleEvent(sessionId, ev, false))
+    // fetch完了後にペインをクリア（fetch中は既存コンテンツを保持して空画面を避ける）
+    ts.pane.innerHTML = ''
 
-    // 一括描画完了後に最下部へスクロール
+    // 一括描画中は自動スクロールを無効化（イベント毎のrAFを抑制し最後にまとめてスクロール）
+    ts.autoScroll = false
+    events.forEach(ev => handleEvent(sessionId, ev, false))
     ts.autoScroll = true
+
+    // 最下部へスクロール: rAF後にさらにsetTimeoutを重ねることでiOSの遅延レイアウトに対応
     requestAnimationFrame(() => {
       ts.pane.scrollTop = ts.pane.scrollHeight
+      setTimeout(() => { ts.pane.scrollTop = ts.pane.scrollHeight }, 100)
     })
   } catch (err) {
     console.error('Failed to load history bulk:', err)
@@ -2790,9 +2797,14 @@ function handleEvent(sessionId, ev, isLive = true) {
         const windows = Object.values(ev.modelUsage).map(m => m.contextWindow).filter(Boolean)
         if (windows.length) ts._ctxMax = Math.max(...windows)
       }
-      // _ctxTokens は stream_event(message_start/delta) から積算した値を使う。
-      // result.usage は1ターン内の全ツール呼び出し分の累積なので使わない
-      // （例: 5回ツール呼び出しがあると実コンテキスト100kでも500k+になる）
+      // result.usage.iterations[-1] が存在する場合、最終APIコールの正確なトークン数で上書き。
+      // stream_eventの積算値は稀にorphan message_deltaでズレるため、ここで補正する。
+      // result.usage（ターン全体の累積）は使わない（ツール多用時に膨張するため）
+      if (ev.usage?.iterations?.length) {
+        const last = ev.usage.iterations[ev.usage.iterations.length - 1]
+        const auth = (last.input_tokens||0) + (last.cache_creation_input_tokens||0) + (last.cache_read_input_tokens||0) + (last.output_tokens||0)
+        if (auth > 0) ts._ctxTokens = auth
+      }
       if (isLive) {
         ts.isRunning = false
         if (isActive) updateUI()
@@ -3175,41 +3187,63 @@ async function openHistoryDetail(session) {
 }
 
 async function resumeConversation(sessionId) {
-  try {
-    // 全イベントを取得（logs/<sessionId>.jsonl から）
-    const events = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`).then(r => r.json())
+  const btn = document.getElementById('resume-btn')
+  const setProgress = (pct) => { if (btn) btn.textContent = `${pct}%` }
 
-    // 既存セッションをチェック
+  // すでにタブに描画済みなら即切り替え
+  const existingTs = tabState[sessionId]
+  if (existingTs && existingTs._initialLoaded && existingTs.pane.children.length > 0) {
+    switchTab(sessionId)
+    closeHistory()
+    return
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = '0%' }
+
+  try {
+    // ── フェーズ1: ダウンロード（0→50%）──
+    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    const contentLength = parseInt(res.headers.get('Content-Length') || '0')
+    const reader = res.body.getReader()
+    const chunks = []
+    let received = 0
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      received += value.length
+      if (contentLength > 0) setProgress(Math.round(received / contentLength * 50))
+    }
+
+    const allBytes = new Uint8Array(received)
+    let offset = 0
+    for (const chunk of chunks) { allBytes.set(chunk, offset); offset += chunk.length }
+    const events = JSON.parse(new TextDecoder().decode(allBytes))
+    setProgress(50)
+
+    // ── セッション準備（履歴パネルはまだ開いたまま）──
     const sessions = loadSessions()
     let targetSession = sessions.find(s => s.sessionId === sessionId)
 
     if (!targetSession) {
-      // タイトル取得（user_inputイベントから）
       const firstUserInput = events.find(e => e.type === 'user_input')
       const title = firstUserInput?.text?.substring(0, 30) || 'Resumed conversation'
-
-      // 新規セッションとして作成
       const currentProj = getCurrentSession()?.project || Object.keys(_projectsCache)[0]
-      targetSession = {
-        sessionId,
-        name: title,
-        project: currentProj,
-        lastUsed: Date.now()
-      }
+      targetSession = { sessionId, name: title, project: currentProj, lastUsed: Date.now() }
       sessions.push(targetSession)
       saveSessions(sessions)
       ensureTabState(targetSession)
       createTabEl(targetSession)
-
-      // サーバーにマッピングを登録（pocket sessionId = Claude sessionId）
-      await fetch('/api/register-session', {
+      fetch('/api/register-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pocketSessionId: sessionId, claudeSessionId: sessionId })
-      })
+      }).catch(() => {})
     }
 
-    // ペインをクリアしてからswitchTab（既存タブの場合も含め二重描画を防ぐ）
     const ts = tabState[sessionId]
     if (ts) {
       ts.pane.innerHTML = ''
@@ -3221,22 +3255,33 @@ async function resumeConversation(sessionId) {
       ts._currentBlockType = null
       ts._thinkingEl = null
       ts._initialLoaded = true
+      ts.autoScroll = false
     }
 
-    switchTab(sessionId)
+    // ── フェーズ2: リプレイ（50→100%、rAFでyieldしながら描画）──
+    await new Promise(resolve => {
+      let i = 0
+      const tick = () => {
+        const deadline = performance.now() + 16
+        while (i < events.length && performance.now() < deadline) {
+          handleEvent(sessionId, events[i], false)
+          i++
+        }
+        setProgress(50 + Math.round(i / events.length * 50))
+        if (i < events.length) requestAnimationFrame(tick)
+        else resolve()
+      }
+      requestAnimationFrame(tick)
+    })
 
-    // 全イベントを再生（履歴再生なのでisLive=false）
-    for (const ev of events) {
-      handleEvent(sessionId, ev, false)
-    }
-
-    // 最下部にスクロール
     if (ts) ts.autoScroll = true
-    scrollToBottom(ts)
 
-    restoreRateLimitPanel(sessionId)
+    // 描画完了後にタブ切り替えと履歴パネルを閉じる
+    switchTab(sessionId)
     closeHistory()
+    scrollToBottom(ts)
   } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Resume this conversation' }
     alert(`Resume error: ${e.message}`)
   }
 }
