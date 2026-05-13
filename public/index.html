@@ -2423,8 +2423,6 @@ async function connectSSE(sessionId, isReconnect = false) {
   if (!ts) return
 
   if (isReconnect && ts._initialLoaded) {
-    // 再接続時: ステートをリセットするが、paneのクリアはloadHistoryBulk内でfetch後に行う
-    // （即座に空にするとfetch中に空画面が見えてしまうため）
     ts.currentTextEl = null
     ts._rawText = ''
     ts._ctxTokens = 0
@@ -2433,6 +2431,7 @@ async function connectSSE(sessionId, isReconnect = false) {
     ts._currentBlockType = null
     ts._thinkingEl = null
     ts._initialLoaded = false
+    ts.pane.innerHTML = ''  // 再接続時は即クリア（SSEリプレイで既存内容に重複しないよう）
   }
 
   // 完了済みセッション（実行中でない）かつ初回接続の場合は一括描画
@@ -2615,11 +2614,11 @@ function startNetworkMonitoring() {
   // 2. ページ表示復帰時の接続確認（バックグラウンドから復帰）
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && currentSessionId) {
-      // ページ表示時に接続状態をチェック
-      if (currentES && currentES.readyState === EventSource.CLOSED) {
-        handleDisconnection(currentSessionId, true)
-      } else if (!currentES) {
-        // EventSourceが存在しない場合は再接続
+      const needsReconnect = !currentES || currentES.readyState === EventSource.CLOSED
+      if (needsReconnect) {
+        // 手動復帰: 保留中のバックオフタイマーをキャンセルして即時再接続
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+        if (currentES) { currentES.close(); currentES = null }
         reconnectAttempts = 0
         connectSSE(currentSessionId, true)
       }
