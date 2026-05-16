@@ -5,6 +5,7 @@ const { getClaudeSessionId } = require('./sessions')
 const SCHEDULES_FILE = path.join(__dirname, '..', 'schedules.json')
 
 // sessionId -> { resetAt, prompt, project, model, effort, thinking, timerId }
+// prompt が null の場合は状態記録のみ（タイマーなし）
 const schedules = new Map()
 
 function saveSchedules() {
@@ -44,7 +45,6 @@ async function doResume(sessionId) {
   broadcast(sessionId, { type: 'system', text: '⏱ レート制限リセット後、自動再開しました' })
 
   if (state.process) {
-    // 常駐プロセスが生きている（レートリミット後もstdinを待機中）→ 注入
     injectPrompt(sessionId, s.prompt)
   } else {
     broadcast(sessionId, { type: 'user_input', text: s.prompt })
@@ -54,17 +54,19 @@ async function doResume(sessionId) {
 
 function scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking) {
   cancelResume(sessionId)
-  const delay = Math.max(0, new Date(resetAt).getTime() - Date.now())
-  const timerId = setTimeout(() => doResume(sessionId), delay)
-  schedules.set(sessionId, {
+  const entry = {
     resetAt,
-    prompt,
+    prompt: prompt || null,
     project,
     model: model || null,
     effort: effort || null,
-    thinking: thinking || null,
-    timerId
-  })
+    thinking: thinking || null
+  }
+  if (prompt) {
+    const delay = Math.max(0, new Date(resetAt).getTime() - Date.now())
+    entry.timerId = setTimeout(() => doResume(sessionId), delay)
+  }
+  schedules.set(sessionId, entry)
   saveSchedules()
 }
 
@@ -79,7 +81,7 @@ function cancelResume(sessionId) {
 function getSchedule(sessionId) {
   const s = schedules.get(sessionId)
   if (!s) return null
-  return { resetAt: s.resetAt, prompt: s.prompt }
+  return { resetAt: s.resetAt, autoResume: !!s.prompt }
 }
 
 function loadSchedules() {
@@ -89,9 +91,12 @@ function loadSchedules() {
     for (const [sessionId, s] of Object.entries(data)) {
       const resetTime = new Date(s.resetAt).getTime()
       if (resetTime > now) {
-        const delay = resetTime - now
-        const timerId = setTimeout(() => doResume(sessionId), delay)
-        schedules.set(sessionId, { ...s, timerId })
+        const entry = { ...s }
+        if (s.prompt) {
+          const delay = resetTime - now
+          entry.timerId = setTimeout(() => doResume(sessionId), delay)
+        }
+        schedules.set(sessionId, entry)
       }
       // 過去のスケジュールは破棄
     }

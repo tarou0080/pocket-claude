@@ -730,7 +730,10 @@
   .img-thumb { position: relative; display: inline-block; }
   .img-thumb img { max-height: 60px; max-width: 90px; border-radius: 6px; border: 1px solid var(--border); object-fit: cover; }
   .img-thumb-remove { position: absolute; top: -4px; right: -4px; background: var(--red); color: #fff; border: none; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; line-height: 16px; text-align: center; cursor: pointer; padding: 0; }
+  .line-user-images { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0; }
+  .line-user-images img { max-height: 120px; max-width: 180px; border-radius: 6px; border: 1px solid var(--border); object-fit: cover; }
   .line-system  { color: var(--text-dim); }
+  .line-compact { color: var(--orange); font-weight: bold; }
   .line-done    { color: var(--green); border-top: 1px solid var(--surface3); margin-top: 6px; padding-top: 6px; }
   .line-done.warn { color: var(--orange); }
   .line-error   { color: var(--red); }
@@ -1721,6 +1724,7 @@ function ensureTabState(session) {
     currentTextEl: null,
     _rawText: '',
     _ctxTokens: 0,
+    _prevCtxTokens: 0,
     pane,
     autoScroll: true,  // デフォルトで自動スクロール有効
     _initialLoaded: false,  // 一括描画済みフラグ
@@ -2167,12 +2171,19 @@ function clearRateLimitPanel(sessionId) {
 }
 
 async function restoreRateLimitPanel(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+  // ts.rl は pane.innerHTML = '' 後もメモリに残る（同端末の再接続で使用）
+  if (ts.rl && ts.rl.resetAt && ts.rl.resetAt > new Date()) {
+    showRateLimitPanel(sessionId, ts.rl.resetAt, ts.rl.autoResume ?? false)
+    return
+  }
   try {
     const data = await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`).then(r => r.json())
     if (data.resetAt) {
       const resetAt = new Date(data.resetAt)
       if (resetAt > new Date()) {
-        showRateLimitPanel(sessionId, resetAt, true)
+        showRateLimitPanel(sessionId, resetAt, data.autoResume ?? false)
       }
     }
   } catch {}
@@ -2661,11 +2672,11 @@ function handleEvent(sessionId, ev, isLive = true) {
       if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
-      } else {
+      } else if (ev.text) {
         addLine(ts, `> ${ev.text}`, 'line-user')
         // 初回プロンプト時にタブタイトルを自動更新（'Claude Code'の場合のみ）
         const currentSession = loadSessions().find(s => s.sessionId === sessionId)
-        if (currentSession && currentSession.name === 'Claude Code' && ev.text) {
+        if (currentSession && currentSession.name === 'Claude Code') {
           const newTitle = ev.text.substring(0, 30)
           updateSession(sessionId, { name: newTitle })
           const tabEl = tabBar.querySelector(`[data-session-id="${sessionId}"]`)
@@ -2682,7 +2693,18 @@ function handleEvent(sessionId, ev, isLive = true) {
       if (ev.error === 'rate_limit') {
         const limitText = ev.message?.content?.find(c => c.type === 'text')?.text || 'Rate limit reached'
         addLine(ts, limitText, 'line-error')
-        if (isLive) showRateLimitPanel(sessionId, parseResetTime(limitText))
+        if (isLive) {
+          const resetAt = parseResetTime(limitText)
+          showRateLimitPanel(sessionId, resetAt)
+          // resetAt をサーバーに保存（別端末・再接続後の復元用）
+          if (resetAt) {
+            fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ resetAt: resetAt.toISOString() })
+            }).catch(() => {})
+          }
+        }
         break
       }
       // AskUserQuestion: ストリームのデルタが --include-partial-messages で壊れる場合があるため、
@@ -2810,8 +2832,13 @@ function handleEvent(sessionId, ev, isLive = true) {
       }
       finalizeText(ts)
       const ctxMax = ts._ctxMax || CTX_MAX
+      const fmtK = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
+      if (ts._prevCtxTokens > 0 && ts._ctxTokens < ts._prevCtxTokens * 0.6) {
+        addLine(ts, `⚡ compacted? (${fmtK(ts._prevCtxTokens)}→${fmtK(ts._ctxTokens)})`, 'line-compact')
+      }
+      ts._prevCtxTokens = ts._ctxTokens
       const pct = Math.round(ts._ctxTokens / ctxMax * 100)
-      const resultEl = addLine(ts, `✓ ${pct}%`, 'line-done')
+      const resultEl = addLine(ts, `✓ ${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})`, 'line-done')
       if (pct >= 50) resultEl.classList.add('warn')
       break
     }
@@ -2819,10 +2846,12 @@ function handleEvent(sessionId, ev, isLive = true) {
     case 'done': {
       finalizeText(ts)
       ts.isRunning = false
-      const pct = Math.round(ts._ctxTokens / (ts._ctxMax || CTX_MAX) * 100)
+      const ctxMaxD = ts._ctxMax || CTX_MAX
+      const fmtKD = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
+      const pct = Math.round(ts._ctxTokens / ctxMaxD * 100)
       const doneMsg = ev.reason === 'server_restart'
         ? `⚠ Interrupted (server restarted)`
-        : `✓ Done (exit ${ev.exitCode}) — ${pct}%`
+        : `✓ Done (exit ${ev.exitCode}) — ${pct}% (${fmtKD(ts._ctxTokens)} / ${fmtKD(ctxMaxD)})`
       const doneEl = addLine(ts, doneMsg, 'line-done')
       if (ev.reason === 'server_restart' || ev.exitCode !== 0 || pct >= 50) doneEl.classList.add('warn')
       if (isActive) updateUI()
@@ -2926,6 +2955,18 @@ function addLine(ts, text, cls) {
   ts.pane.appendChild(div)
   scrollToBottom(ts)
   return div
+}
+
+function addImageLine(ts, images) {
+  const div = document.createElement('div')
+  div.className = 'line-user-images'
+  images.forEach(img => {
+    const el = document.createElement('img')
+    el.src = img.objectUrl
+    div.appendChild(el)
+  })
+  ts.pane.appendChild(div)
+  scrollToBottom(ts)
 }
 
 function addToolLine(ts, toolName, toolId) {
@@ -3249,6 +3290,7 @@ async function resumeConversation(sessionId) {
       ts.currentTextEl = null
       ts._rawText = ''
       ts._ctxTokens = 0
+      ts._prevCtxTokens = 0
       ts._currentToolEl = null
       ts._currentToolInput = ''
       ts._currentBlockType = null
@@ -3545,7 +3587,7 @@ function clearAskUserQuestionUI() {
 // ── 送信 ──
 async function send() {
   const prompt = promptEl.value.trim()
-  if (!prompt) return
+  if (!prompt && _attachedImages.length === 0) return
   const ts = getTS()
   const currentSession = getCurrentSession()
   if (!currentSession) return
@@ -3553,6 +3595,10 @@ async function send() {
   const imagesToSend = _attachedImages.length > 0
     ? _attachedImages.map(i => ({ mediaType: i.mediaType, data: i.data }))
     : null
+
+  // チャット欄に画像を即時表示（SSEより先に見せる）
+  if (_attachedImages.length > 0) addImageLine(ts, _attachedImages)
+
   _attachedImages = []
   renderImagePreviews()
 
@@ -3562,7 +3608,7 @@ async function send() {
   // レート制限パネルをクリア（手動送信で上書き）
   clearRateLimitPanel(currentSessionId)
   fetch(`/api/schedule-resume/${encodeURIComponent(currentSessionId)}`, { method: 'DELETE' }).catch(() => {})
-  // user_inputイベントで表示されるため、ここでは表示しない
+  // テキストはuser_inputイベントで表示されるため、ここでは表示しない
   try {
     const res = await fetch('/api/send', {
       method: 'POST',

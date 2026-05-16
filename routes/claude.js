@@ -26,10 +26,9 @@ router.get('/status', (req, res) => {
 // プロンプト送信
 router.post('/send', async (req, res) => {
   const { prompt, sessionId, project, model, effort, thinking, images } = req.body
-  if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'prompt required' })
-
   // images: [{ mediaType, data }] の配列（base64）
   const imageData = (Array.isArray(images) && images.length > 0) ? images : null
+  if (!imageData && (!prompt || !prompt.trim())) return res.status(400).json({ error: 'prompt required' })
 
   const { randomUUID } = require('crypto')
   const actualSessionId = sessionId || randomUUID()
@@ -139,7 +138,7 @@ router.post('/reset', (req, res) => {
 router.post('/schedule-resume/:sessionId', (req, res) => {
   const { sessionId } = req.params
   const { resetAt, prompt, project, model, effort, thinking } = req.body
-  if (!sessionId || !resetAt || !prompt) return res.status(400).json({ error: 'sessionId, resetAt, prompt required' })
+  if (!sessionId || !resetAt) return res.status(400).json({ error: 'sessionId, resetAt required' })
   scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking)
   res.json({ ok: true })
 })

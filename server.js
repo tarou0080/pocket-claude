@@ -61,8 +61,8 @@ loadPosts()
 
 app.use((req, res, next) => {
   const mb = config.maxBodySizeMb
-  const limit = (typeof mb === 'number' && mb > 0) ? `${mb}mb` : undefined
-  express.json(limit ? { limit } : {})(req, res, next)
+  const limit = (typeof mb === 'number' && mb > 0) ? `${mb}mb` : Infinity
+  express.json({ limit })(req, res, next)
 })
 
 

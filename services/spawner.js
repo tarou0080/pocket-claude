@@ -141,7 +141,7 @@ function _sendMessage(proc, prompt, imageData) {
     })
   }
 
-  content.push({ type: 'text', text: prompt })
+  if (prompt) content.push({ type: 'text', text: prompt })
 
   const msg = {
     type: 'user',
