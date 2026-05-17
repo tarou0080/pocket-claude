@@ -904,6 +904,33 @@
     border-radius: 3px;
   }
   .queue-clear-btn:hover { color: var(--red); background: var(--red-bg); }
+
+  /* iOS Safariのinputフォーカス時の自動ズームを防止（font-size < 16pxで発生） */
+  #settings-modal input, #settings-modal textarea {
+    font-size: 16px !important;
+  }
+
+  /* 最下部へスクロールボタン */
+  #scroll-bottom-btn {
+    display: none;
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    z-index: 5;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  #scroll-bottom-btn.visible { display: flex; }
+  #scroll-bottom-btn:active { background: var(--border); }
 </style>
 </head>
 <body>
@@ -1062,7 +1089,9 @@
   </div>
 </div>
 
-<div id="output-container"></div>
+<div id="output-container">
+  <button id="scroll-bottom-btn" aria-label="最下部へスクロール">↓</button>
+</div>
 
 <div id="queue-panel"></div>
 
@@ -1099,6 +1128,7 @@ const attachHeaderBtn = document.getElementById('attach-header-btn')
 const tabBar          = document.getElementById('tab-bar')
 const addTabBtn       = document.getElementById('add-tab-btn')
 const outputCont      = document.getElementById('output-container')
+const scrollBottomBtn = document.getElementById('scroll-bottom-btn')
 const queuePanel      = document.getElementById('queue-panel')
 const effortIndicator     = document.getElementById('effort-indicator')
 const settingsBtn     = document.getElementById('settings-btn')
@@ -1744,6 +1774,7 @@ function ensureTabState(session) {
     } else {
       ts.autoScroll = false
     }
+    if (session.sessionId === currentSessionId) updateScrollBtn()
   })
 }
 
@@ -1867,6 +1898,7 @@ async function switchTab(sessionId) {
   renderQueuePanel(sessionId)
   await connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
   await restoreRateLimitPanel(sessionId)  // SSE接続完了後に確実に復元
+  updateScrollBtn()
 }
 
 // ── プロジェクト管理 ──
@@ -2914,6 +2946,23 @@ function handleEvent(sessionId, ev, isLive = true) {
 function isAtBottom(pane, threshold = 100) {
   return pane.scrollHeight - pane.scrollTop - pane.clientHeight < threshold
 }
+
+function updateScrollBtn() {
+  const ts = currentSessionId ? tabState[currentSessionId] : null
+  if (ts && !ts.autoScroll) {
+    scrollBottomBtn.classList.add('visible')
+  } else {
+    scrollBottomBtn.classList.remove('visible')
+  }
+}
+
+scrollBottomBtn.addEventListener('click', () => {
+  const ts = currentSessionId ? tabState[currentSessionId] : null
+  if (!ts) return
+  ts.autoScroll = true
+  ts.pane.scrollTop = ts.pane.scrollHeight
+  updateScrollBtn()
+})
 
 function scrollToBottom(ts) {
   if (ts.autoScroll && tabState[currentSessionId] === ts) {
