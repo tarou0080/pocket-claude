@@ -2087,9 +2087,11 @@ function parseResetTime(text) {
 function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
   const ts = tabState[sessionId]
   if (!ts) return
+  if (resetAt && resetAt <= new Date()) return
   if (!ts.rl) ts.rl = {}
   if (ts.rl.el) { ts.rl.el.remove(); ts.rl.el = null }
   if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
+  if (ts.rl.autoClearId) { clearTimeout(ts.rl.autoClearId); ts.rl.autoClearId = null }
   ts.rl.resetAt = resetAt
   ts.rl.autoResume = autoResumeOn
 
@@ -2173,6 +2175,14 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
   ts.pane.appendChild(panel)
 
   if (autoResumeOn && resetAt) startRateLimitCountdown(sessionId)
+
+  if (resetAt) {
+    const delay = Math.max(0, resetAt.getTime() - Date.now())
+    ts.rl.autoClearId = setTimeout(() => {
+      const cur = tabState[sessionId]
+      if (cur && cur.rl && !cur.rl.autoResume) clearRateLimitPanel(sessionId)
+    }, delay)
+  }
 }
 
 function startRateLimitCountdown(sessionId) {
@@ -2201,6 +2211,7 @@ function clearRateLimitPanel(sessionId) {
   const ts = tabState[sessionId]
   if (!ts || !ts.rl) return
   if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
+  if (ts.rl.autoClearId) { clearTimeout(ts.rl.autoClearId); ts.rl.autoClearId = null }
   if (ts.rl.el) { ts.rl.el.remove(); ts.rl.el = null }
   ts.rl = null
 }
