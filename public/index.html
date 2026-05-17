@@ -916,9 +916,10 @@
     position: absolute;
     bottom: 14px;
     right: 14px;
-    height: 36px;
-    padding: 0 14px;
-    border-radius: 18px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
     background: var(--accent);
     border: none;
     color: #fff;
@@ -929,9 +930,7 @@
     z-index: 5;
     align-items: center;
     justify-content: center;
-    gap: 5px;
     box-shadow: 0 3px 10px rgba(0,0,0,0.4);
-    white-space: nowrap;
   }
   #scroll-bottom-btn.visible { display: flex; }
   #scroll-bottom-btn:active { opacity: 0.8; }
@@ -1094,7 +1093,7 @@
 </div>
 
 <div id="output-container">
-  <button id="scroll-bottom-btn" aria-label="最下部へスクロール">↓ 最下部へ</button>
+  <button id="scroll-bottom-btn" aria-label="Scroll to bottom">↓</button>
 </div>
 
 <div id="queue-panel"></div>
