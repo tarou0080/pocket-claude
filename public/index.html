@@ -2671,8 +2671,9 @@ function startNetworkMonitoring() {
   // 2. ページ表示復帰時の接続確認（バックグラウンドから復帰）
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && currentSessionId) {
+      const ts = tabState[currentSessionId]
       const heartbeatStale = (Date.now() - lastHeartbeat) > 30000
-      const needsReconnect = !currentES || currentES.readyState === EventSource.CLOSED || heartbeatStale
+      const needsReconnect = !currentES || currentES.readyState === EventSource.CLOSED || heartbeatStale || (ts && ts.isRunning)
       if (needsReconnect) {
         // 手動復帰: 保留中のバックオフタイマーをキャンセルして即時再接続
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
