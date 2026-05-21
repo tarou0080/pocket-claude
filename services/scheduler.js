@@ -28,6 +28,7 @@ async function doResume(sessionId) {
   if (!s) return
   schedules.delete(sessionId)
   saveSchedules()
+  console.log(`[resume] sessionId=${sessionId} prompt="${s.prompt}"`);
 
   const { getState, broadcast } = require('./stream')
   const { startClaude, injectPrompt, gitPull } = require('./spawner')
@@ -45,8 +46,10 @@ async function doResume(sessionId) {
   broadcast(sessionId, { type: 'system', text: '⏱ レート制限リセット後、自動再開しました' })
 
   if (state.process) {
+    console.log(`[resume] injecting into live process`)
     injectPrompt(sessionId, s.prompt)
   } else {
+    console.log(`[resume] starting new claude process`)
     broadcast(sessionId, { type: 'user_input', text: s.prompt })
     startClaude(sessionId, s.prompt, s.model, s.project, claudeSessionId, s.effort, s.thinking)
   }
@@ -63,7 +66,8 @@ function scheduleResume(sessionId, resetAt, prompt, project, model, effort, thin
     thinking: thinking || null
   }
   if (prompt) {
-    const delay = Math.max(0, new Date(resetAt).getTime() - Date.now())
+    // +60s buffer: API の rate limit は resetAt ちょうどに発火すると境界で弾かれる race condition がある
+    const delay = Math.max(0, new Date(resetAt).getTime() - Date.now()) + 60000
     entry.timerId = setTimeout(() => doResume(sessionId), delay)
   }
   schedules.set(sessionId, entry)

@@ -2141,14 +2141,13 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
       ts.rl.autoResume = true
       onBtn.classList.add('active'); offBtn.classList.remove('active')
       const session = loadSessions().find(s => s.sessionId === sessionId)
-      if (!session) return
       await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           resetAt: ts.rl.resetAt.toISOString(),
           prompt: appSettings.resumePrompt || '続けてください',
-          project: session.project,
+          project: session?.project ?? null,
           model: (ts.model || appSettings.defaultModel) || null,
           effort: (ts.effort ?? appSettings.effort) || null,
           thinking: ts.thinking ?? appSettings.thinking

@@ -139,6 +139,7 @@ router.post('/schedule-resume/:sessionId', (req, res) => {
   const { sessionId } = req.params
   const { resetAt, prompt, project, model, effort, thinking } = req.body
   if (!sessionId || !resetAt) return res.status(400).json({ error: 'sessionId, resetAt required' })
+  console.log(`[schedule-resume] POST sessionId=${sessionId} autoResume=${!!prompt} resetAt=${resetAt}`)
   scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking)
   res.json({ ok: true })
 })
