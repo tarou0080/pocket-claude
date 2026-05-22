@@ -2134,8 +2134,12 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
         offBtn.classList.add('active'); onBtn.classList.remove('active')
         if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
         countdown.hidden = true
+        fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
+      } else {
+        // すでにOFF → パネルを閉じる
+        clearRateLimitPanel(sessionId)
+        fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true }).catch(() => {})
       }
-      fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
     })
 
     onBtn.addEventListener('click', async () => {
@@ -2224,8 +2228,12 @@ async function restoreRateLimitPanel(sessionId) {
   const ts = tabState[sessionId]
   if (!ts) return
   // ts.rl は pane.innerHTML = '' 後もメモリに残る（同端末の再接続で使用）
+  // el が DOM に接続済みなら再生成しない（タブ切り替え時の二重表示防止）
+  // el が detach されている場合のみ復元（reconnect で pane.innerHTML = '' された直後）
   if (ts.rl && ts.rl.resetAt && ts.rl.resetAt > new Date()) {
-    showRateLimitPanel(sessionId, ts.rl.resetAt, ts.rl.autoResume ?? false)
+    if (!ts.rl.el || !ts.rl.el.isConnected) {
+      showRateLimitPanel(sessionId, ts.rl.resetAt, ts.rl.autoResume ?? false)
+    }
     return
   }
   try {
@@ -2234,6 +2242,11 @@ async function restoreRateLimitPanel(sessionId) {
       const resetAt = new Date(data.resetAt)
       if (resetAt > new Date()) {
         showRateLimitPanel(sessionId, resetAt, data.autoResume ?? false)
+        // autoResume=false のエントリはリロードするたびに復元されないよう即削除
+        // (autoResume=true は doResume がサーバー側で管理するため残す)
+        if (!data.autoResume) {
+          fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true }).catch(() => {})
+        }
       }
     }
   } catch {}
