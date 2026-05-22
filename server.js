@@ -73,6 +73,7 @@ app.get('/', (req, res) => {
   let html = fs.readFileSync(htmlPath, 'utf8')
   html = html.replace('<html lang="en">', `<html lang="${lang}">`)
   res.set('Cache-Control', 'no-store')
+  res.set('Surrogate-Control', 'no-store')
   res.send(html)
 })
 
