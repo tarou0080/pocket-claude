@@ -2128,11 +2128,13 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
     onBtn.textContent = 'ON'
 
     offBtn.addEventListener('click', () => {
-      if (!ts.rl || !ts.rl.autoResume) return
-      ts.rl.autoResume = false
-      offBtn.classList.add('active'); onBtn.classList.remove('active')
-      if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
-      countdown.hidden = true
+      if (!ts.rl) return
+      if (ts.rl.autoResume) {
+        ts.rl.autoResume = false
+        offBtn.classList.add('active'); onBtn.classList.remove('active')
+        if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
+        countdown.hidden = true
+      }
       fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
     })
 
@@ -2179,7 +2181,10 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
     const delay = Math.max(0, resetAt.getTime() - Date.now())
     ts.rl.autoClearId = setTimeout(() => {
       const cur = tabState[sessionId]
-      if (cur && cur.rl && !cur.rl.autoResume) clearRateLimitPanel(sessionId)
+      if (cur && cur.rl && !cur.rl.autoResume) {
+        clearRateLimitPanel(sessionId)
+        fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
+      }
     }, delay)
   }
 }
