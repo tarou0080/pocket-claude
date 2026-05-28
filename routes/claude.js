@@ -147,6 +147,7 @@ router.post('/schedule-resume/:sessionId', (req, res) => {
 // 自動再開スケジュールキャンセル
 router.delete('/schedule-resume/:sessionId', (req, res) => {
   const { sessionId } = req.params
+  console.log(`[schedule-resume] DELETE sessionId=${sessionId}`)
   cancelResume(sessionId)
   res.json({ ok: true })
 })
@@ -155,7 +156,15 @@ router.delete('/schedule-resume/:sessionId', (req, res) => {
 router.get('/schedule-resume/:sessionId', (req, res) => {
   const { sessionId } = req.params
   const s = getSchedule(sessionId)
+  console.log(`[schedule-resume] GET sessionId=${sessionId} → resetAt=${s?.resetAt || 'null'} autoResume=${s ? !!s.prompt : 'null'}`)
   res.json(s || { resetAt: null })
+})
+
+// フロントエンドからのデバッグログ受信
+router.post('/client-log', (req, res) => {
+  const { event, data } = req.body || {}
+  if (event) console.log(`[client] ${event} ${data ? JSON.stringify(data) : ''}`)
+  res.json({ ok: true })
 })
 
 module.exports = router

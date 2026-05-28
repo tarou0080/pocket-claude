@@ -89,6 +89,11 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
           })
         }
 
+        if (parsed.type === 'assistant' && parsed.error === 'rate_limit') {
+          const limitText = parsed.message?.content?.find(c => c.type === 'text')?.text || ''
+          console.log(`[rate-limit] broadcast sessionId=${sessionId} text="${limitText}"`)
+        }
+
         broadcast(sessionId, parsed)
 
         // result イベント = 1ターン完了 → キューを処理
