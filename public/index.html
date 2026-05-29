@@ -2283,7 +2283,9 @@ async function init() {
         models.forEach(m => ALL_MODELS.push(m))
         const saved = appSettings.enabledModels
         const validValues = ALL_MODELS.map(m => m.value)
-        appSettings.enabledModels = saved.filter(v => validValues.includes(v))
+        const kept = saved.filter(v => validValues.includes(v))
+        const newModels = validValues.filter(v => !saved.includes(v))
+        appSettings.enabledModels = [...kept, ...newModels]
         if (appSettings.enabledModels.length === 0) appSettings.enabledModels = validValues
       }
     }
