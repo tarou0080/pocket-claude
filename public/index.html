@@ -2755,6 +2755,7 @@ function handleEvent(sessionId, ev, isLive = true) {
   switch (ev.type) {
     case 'user_input':
       clearRateLimitPanel(sessionId)
+      if (isActive) clearAskUserQuestionUI()  // 回答(user_input)で選択肢パネルを消去。再生時もask→user_input順で残骸が残らない
       if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
