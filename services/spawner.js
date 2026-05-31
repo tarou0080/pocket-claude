@@ -186,18 +186,47 @@ function stopClaude(sessionId) {
 }
 
 // AskUserQuestion への応答を注入
-function respondToAsk(sessionId, answer) {
+// answers: { [質問文]: 選択ラベル(複数選択はカンマ区切り) }
+// 通常のユーザーテキストではなく tool_result で返すことで、保留中の AskUserQuestion tool_use を
+// 正しく解決する（テキストで返すとCLIが割り込み＝キャンセル扱いし、モデルが質問を無視する）。
+function respondToAsk(sessionId, answers) {
   const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
-  broadcast(sessionId, { type: 'user_input', text: answer })
-  _sendMessage(s.process, answer)
+  const pending = s.pendingAsk
+  if (!pending || !pending.toolUseId) return false
+  if (!answers || typeof answers !== 'object') return false
+
+  // AskUserQuestionOutput 形式（sdk-tools.d.ts 準拠）: questions のエコー + answers マップ
+  const resultContent = JSON.stringify({ questions: pending.questions || [], answers })
+  const display = Object.values(answers).filter(Boolean).join(' / ')
+
+  broadcast(sessionId, { type: 'user_input', text: display })
+  _sendToolResult(s.process, pending.toolUseId, resultContent)
+  s.pendingAsk = null
   return true
+}
+
+// tool_use への応答（tool_result ブロック）を stdin に注入
+function _sendToolResult(proc, toolUseId, content) {
+  if (!proc || !proc.stdin || proc.stdin.destroyed) return
+  const msg = {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: toolUseId, content }],
+    },
+  }
+  try {
+    proc.stdin.write(JSON.stringify(msg) + '\n')
+  } catch {}
 }
 
 // 実行中プロセスへのプロンプト注入（割り込み送信）
 function injectPrompt(sessionId, prompt, imageData) {
   const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
+  // 選択肢に答えず自由入力で割り込んだ場合、保留中のaskは解決されないので破棄（後続の/respondが空振りしないように）
+  s.pendingAsk = null
   try {
     broadcast(sessionId, { type: 'user_input', text: prompt })
     _sendMessage(s.process, prompt, imageData)

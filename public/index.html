@@ -724,7 +724,10 @@
   .ask-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .ask-btn { background: var(--surface3); border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 4px 12px; font-size: 13px; cursor: pointer; transition: background 0.15s; }
   .ask-btn:hover { background: var(--accent); color: var(--bg); }
+  .ask-btn.selected { background: var(--accent); color: var(--bg); }
   .ask-btn:disabled { opacity: 0.4; cursor: default; }
+  .ask-submit { background: var(--accent); border: 1px solid var(--accent); color: var(--bg); border-radius: 8px; padding: 5px 16px; font-size: 13px; cursor: pointer; margin-top: 8px; }
+  .ask-submit:disabled { opacity: 0.4; cursor: default; }
   /* 画像プレビュー */
   #image-preview-area { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
   .img-thumb { position: relative; display: inline-block; }
@@ -2195,10 +2198,9 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
     const delay = Math.max(0, resetAt.getTime() - Date.now())
     ts.rl.autoClearId = setTimeout(() => {
       const cur = tabState[sessionId]
-      if (cur && cur.rl && !cur.rl.autoResume) {
-        clearRateLimitPanel(sessionId)
-        fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
-      }
+      // クライアント表示の消去のみ。サーバーDELETEはしない（ON登録を一時的なクライアント状態で破壊しないため）。
+      // サーバー側スケジュールの寿命はdoResume発火・明示OFF・loadSchedulesの過去破棄が管理する。
+      if (cur && cur.rl && !cur.rl.autoResume) clearRateLimitPanel(sessionId)
     }, delay)
   }
 }
@@ -2784,8 +2786,11 @@ function handleEvent(sessionId, ev, isLive = true) {
         if (isLive) {
           const resetAt = parseResetTime(limitText)
           clientLog('rate_limit:parseResetTime', { sessionId, result: resetAt?.toISOString() || null })
-          showRateLimitPanel(sessionId, resetAt)
-          // resetAt をサーバーに保存（別端末・再接続後の復元用）
+          // 2回目以降のrate_limitで既存のON状態を既定falseに戻さない（ユーザーのON選択を保持）
+          const wasAutoResume = ts.rl?.autoResume ?? false
+          showRateLimitPanel(sessionId, resetAt, wasAutoResume)
+          // resetAt をサーバーに保存（別端末・再接続後の復元用）。
+          // prompt無し保存はサーバー側で既存ON登録を壊さないようガード済み。
           if (resetAt) {
             fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
               method: 'POST',
@@ -3623,6 +3628,29 @@ function renderAskUserQuestionUI(sessionId, toolUseId, questions) {
   panel.id = 'ask-ui-panel'
   panel.style.cssText = 'background:var(--surface3);border-top:1px solid var(--accent);padding:10px 12px;'
 
+  // 質問文 → 回答ラベル（複数選択はカンマ区切り）。全質問が埋まってから1回だけ送信する。
+  const answers = {}
+  // 単一質問・単一選択・選択肢ありのときだけ、クリック即送信（従来の軽快なUXを維持）
+  const autoSubmit = questions.length === 1 && questions[0].options?.length && !questions[0].multiSelect
+
+  const submit = async () => {
+    const allAnswered = questions.every(q => answers[q.question] != null && answers[q.question] !== '')
+    if (!allAnswered) return
+    panel.querySelectorAll('button,input').forEach(b => b.disabled = true)
+    clearAskUserQuestionUI()
+    await fetch('/api/respond', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: sessionId, answers }),
+    }).catch(() => {})
+  }
+
+  let submitBtn = null
+  const refreshSubmit = () => {
+    if (!submitBtn) return
+    submitBtn.disabled = !questions.every(q => answers[q.question] != null && answers[q.question] !== '')
+  }
+
   questions.forEach(q => {
     const qWrap = document.createElement('div')
     qWrap.style.marginBottom = '8px'
@@ -3633,6 +3661,8 @@ function renderAskUserQuestionUI(sessionId, toolUseId, questions) {
     qWrap.appendChild(label)
 
     if (q.options?.length) {
+      const multi = !!q.multiSelect
+      const selected = new Set()
       const btns = document.createElement('div')
       btns.className = 'ask-btns'
       q.options.forEach(opt => {
@@ -3640,48 +3670,45 @@ function renderAskUserQuestionUI(sessionId, toolUseId, questions) {
         btn.className = 'ask-btn'
         btn.textContent = opt.label
         btn.title = opt.description || ''
-        btn.onclick = async () => {
-          // 全ボタン無効化
-          panel.querySelectorAll('.ask-btn').forEach(b => b.disabled = true)
-          clearAskUserQuestionUI()
-          await fetch('/api/respond', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session: sessionId, answer: opt.label }),
-          })
+        btn.onclick = () => {
+          if (multi) {
+            // 複数選択: トグル
+            if (selected.has(opt.label)) { selected.delete(opt.label); btn.classList.remove('selected') }
+            else { selected.add(opt.label); btn.classList.add('selected') }
+            answers[q.question] = [...selected].join(', ')
+          } else {
+            // 単一選択: グループ内の他を解除
+            btns.querySelectorAll('.ask-btn').forEach(b => b.classList.remove('selected'))
+            btn.classList.add('selected')
+            answers[q.question] = opt.label
+          }
+          refreshSubmit()
+          if (autoSubmit) submit()
         }
         btns.appendChild(btn)
       })
       qWrap.appendChild(btns)
     } else {
       // オプションなし → テキスト入力
-      const row = document.createElement('div')
-      row.style.cssText = 'display:flex;gap:6px;'
       const input = document.createElement('input')
       input.type = 'text'
-      input.style.cssText = 'flex:1;background:var(--surface);border:1px solid var(--border-input);color:var(--text);border-radius:8px;padding:4px 10px;font-size:13px;outline:none;'
-      const btn = document.createElement('button')
-      btn.className = 'ask-btn'
-      btn.textContent = '送信'
-      const submit = async () => {
-        const val = input.value.trim()
-        if (!val) return
-        panel.querySelectorAll('.ask-btn,input').forEach(b => b.disabled = true)
-        clearAskUserQuestionUI()
-        await fetch('/api/respond', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session: sessionId, answer: val }),
-        })
-      }
-      btn.onclick = submit
+      input.style.cssText = 'width:100%;background:var(--surface);border:1px solid var(--border-input);color:var(--text);border-radius:8px;padding:4px 10px;font-size:13px;outline:none;'
+      input.addEventListener('input', () => { answers[q.question] = input.value.trim(); refreshSubmit() })
       input.addEventListener('keydown', e => { if (e.key === 'Enter') submit() })
-      row.appendChild(input)
-      row.appendChild(btn)
-      qWrap.appendChild(row)
+      qWrap.appendChild(input)
     }
     panel.appendChild(qWrap)
   })
+
+  // 自動送信ケース以外は明示の送信ボタンを置く（複数質問・複数選択・テキスト入力）
+  if (!autoSubmit) {
+    submitBtn = document.createElement('button')
+    submitBtn.className = 'ask-submit'
+    submitBtn.textContent = '送信'
+    submitBtn.disabled = true
+    submitBtn.onclick = submit
+    panel.appendChild(submitBtn)
+  }
 
   _askUiEl = panel
   inputAreaEl.insertBefore(panel, inputAreaEl.firstChild)

@@ -68,10 +68,12 @@ router.post('/send', async (req, res) => {
 
 // AskUserQuestion への応答
 router.post('/respond', (req, res) => {
-  const { session, answer } = req.body
-  if (!session || !answer || !answer.trim()) return res.status(400).json({ error: 'session and answer required' })
-  const ok = respondToAsk(session, answer.trim())
-  if (!ok) return res.status(409).json({ error: 'no active process or ask' })
+  const { session, answers } = req.body
+  if (!session || !answers || typeof answers !== 'object' || Array.isArray(answers) || !Object.keys(answers).length) {
+    return res.status(400).json({ error: 'session and answers (object) required' })
+  }
+  const ok = respondToAsk(session, answers)
+  if (!ok) return res.status(409).json({ error: 'no active process or pending ask' })
   res.json({ ok: true })
 })
 

@@ -56,6 +56,10 @@ async function doResume(sessionId) {
 }
 
 function scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking) {
+  // prompt無しの保存（resetAt記録のみ）が、既存のON登録（prompt有り）を破壊しないようにする。
+  // rate_limitが複数回届くと、後発のprompt無しPOSTがON用タイマーをcancelResumeで潰す問題への対処。
+  const existing = schedules.get(sessionId)
+  if (!prompt && existing && existing.prompt) return
   cancelResume(sessionId)
   const entry = {
     resetAt,
