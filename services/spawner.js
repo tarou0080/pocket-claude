@@ -40,6 +40,10 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
     '--verbose',
     '--include-partial-messages',
     '--permission-mode', permissionMode,
+    // ヘッドレス(stream-json)モードでは AskUserQuestion を対話的に解決できず、CLIが
+    // 即座に is_error の tool_result を自己注入してターンを閉じる（モデルは「未回答＝スキップ」と認識）。
+    // 選択肢ツールを無効化し、モデルには素のテキストで質問させる。回答は通常の /api/send で返す。
+    '--disallowed-tools', 'AskUserQuestion',
     ...(model ? ['--model', model] : []),
     ...(Object.keys(settings).length ? ['--settings', JSON.stringify(settings)] : []),
   ]
@@ -75,20 +79,6 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
           saveClaudeSessionId(sessionId, parsed.session_id)
         }
 
-        // AskUserQuestion の tool_use を検知 → フロントに通知
-        if (parsed.type === 'assistant' && parsed.message?.content) {
-          parsed.message.content.forEach(item => {
-            if (item.type === 'tool_use' && item.name === 'AskUserQuestion') {
-              s.pendingAsk = { toolUseId: item.id, questions: item.input?.questions || [] }
-              broadcast(sessionId, {
-                type: 'ask_user_question',
-                toolUseId: item.id,
-                questions: item.input?.questions || [],
-              })
-            }
-          })
-        }
-
         if (parsed.type === 'assistant' && parsed.error === 'rate_limit') {
           const limitText = parsed.message?.content?.find(c => c.type === 'text')?.text || ''
           console.log(`[rate-limit] broadcast sessionId=${sessionId} text="${limitText}"`)
@@ -98,7 +88,6 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
 
         // result イベント = 1ターン完了 → キューを処理
         if (parsed.type === 'result') {
-          s.pendingAsk = null
           _processQueue(sessionId, project)
         }
       } catch {
@@ -114,13 +103,11 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
 
   proc.on('close', code => {
     s.process = null
-    s.pendingAsk = null
     broadcast(sessionId, { type: 'done', exitCode: code, timestamp: new Date().toISOString() })
   })
 
   proc.on('error', err => {
     s.process = null
-    s.pendingAsk = null
     broadcast(sessionId, { type: 'error', message: err.message })
   })
 }
@@ -178,55 +165,16 @@ function stopClaude(sessionId) {
   const s = getState(sessionId)
   if (s.process) {
     s.pendingQueue = []
-    s.pendingAsk = null
     s.process.kill('SIGTERM')
     return true
   }
   return false
 }
 
-// AskUserQuestion への応答を注入
-// answers: { [質問文]: 選択ラベル(複数選択はカンマ区切り) }
-// 通常のユーザーテキストではなく tool_result で返すことで、保留中の AskUserQuestion tool_use を
-// 正しく解決する（テキストで返すとCLIが割り込み＝キャンセル扱いし、モデルが質問を無視する）。
-function respondToAsk(sessionId, answers) {
-  const s = getState(sessionId)
-  if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
-  const pending = s.pendingAsk
-  if (!pending || !pending.toolUseId) return false
-  if (!answers || typeof answers !== 'object') return false
-
-  // AskUserQuestionOutput 形式（sdk-tools.d.ts 準拠）: questions のエコー + answers マップ
-  const resultContent = JSON.stringify({ questions: pending.questions || [], answers })
-  const display = Object.values(answers).filter(Boolean).join(' / ')
-
-  broadcast(sessionId, { type: 'user_input', text: display })
-  _sendToolResult(s.process, pending.toolUseId, resultContent)
-  s.pendingAsk = null
-  return true
-}
-
-// tool_use への応答（tool_result ブロック）を stdin に注入
-function _sendToolResult(proc, toolUseId, content) {
-  if (!proc || !proc.stdin || proc.stdin.destroyed) return
-  const msg = {
-    type: 'user',
-    message: {
-      role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: toolUseId, content }],
-    },
-  }
-  try {
-    proc.stdin.write(JSON.stringify(msg) + '\n')
-  } catch {}
-}
-
 // 実行中プロセスへのプロンプト注入（割り込み送信）
 function injectPrompt(sessionId, prompt, imageData) {
   const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
-  // 選択肢に答えず自由入力で割り込んだ場合、保留中のaskは解決されないので破棄（後続の/respondが空振りしないように）
-  s.pendingAsk = null
   try {
     broadcast(sessionId, { type: 'user_input', text: prompt })
     _sendMessage(s.process, prompt, imageData)
@@ -260,4 +208,4 @@ function updatePending(sessionId, index, prompt) {
   return true
 }
 
-module.exports = { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, respondToAsk, gitPull }
+module.exports = { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, gitPull }

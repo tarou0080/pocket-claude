@@ -2,7 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const router = express.Router()
-const { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, respondToAsk, gitPull } = require('../services/spawner')
+const { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
 const { getClaudeSessionId } = require('../services/sessions')
@@ -64,17 +64,6 @@ router.post('/send', async (req, res) => {
   broadcast(actualSessionId, { type: 'user_input', text: prompt })
   startClaude(actualSessionId, prompt, model, actualProject, claudeSessionId, effort || null, thinking !== undefined ? thinking : null, imageData)
   res.json({ ok: true, sessionId: actualSessionId, queued: false })
-})
-
-// AskUserQuestion への応答
-router.post('/respond', (req, res) => {
-  const { session, answers } = req.body
-  if (!session || !answers || typeof answers !== 'object' || Array.isArray(answers) || !Object.keys(answers).length) {
-    return res.status(400).json({ error: 'session and answers (object) required' })
-  }
-  const ok = respondToAsk(session, answers)
-  if (!ok) return res.status(409).json({ error: 'no active process or pending ask' })
-  res.json({ ok: true })
 })
 
 // 停止

@@ -715,19 +715,6 @@
   .tool-result-label:first-child { margin-top: 0; }
   .diff-removed { display: block; background: rgba(220,50,50,0.15); color: var(--red); white-space: pre-wrap; padding: 0 4px; }
   .diff-added { display: block; background: rgba(80,180,80,0.15); color: var(--green-user); white-space: pre-wrap; padding: 0 4px; }
-  .ask-questions { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; white-space: normal; }
-  .ask-question { border-left: 2px solid var(--accent); padding-left: 8px; }
-  .ask-header { font-size: 10px; color: var(--text-darker); text-transform: uppercase; letter-spacing: 0.5px; }
-  .ask-text { color: var(--text); margin: 2px 0 4px; }
-  .ask-option { color: var(--text-dim); padding: 1px 0; }
-  .ask-option strong { color: var(--text); }
-  .ask-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .ask-btn { background: var(--surface3); border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 4px 12px; font-size: 13px; cursor: pointer; transition: background 0.15s; }
-  .ask-btn:hover { background: var(--accent); color: var(--bg); }
-  .ask-btn.selected { background: var(--accent); color: var(--bg); }
-  .ask-btn:disabled { opacity: 0.4; cursor: default; }
-  .ask-submit { background: var(--accent); border: 1px solid var(--accent); color: var(--bg); border-radius: 8px; padding: 5px 16px; font-size: 13px; cursor: pointer; margin-top: 8px; }
-  .ask-submit:disabled { opacity: 0.4; cursor: default; }
   /* 画像プレビュー */
   #image-preview-area { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 2px; }
   .img-thumb { position: relative; display: inline-block; }
@@ -2757,7 +2744,6 @@ function handleEvent(sessionId, ev, isLive = true) {
   switch (ev.type) {
     case 'user_input':
       clearRateLimitPanel(sessionId)
-      if (isActive) clearAskUserQuestionUI()  // 回答(user_input)で選択肢パネルを消去。再生時もask→user_input順で残骸が残らない
       if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
@@ -2802,24 +2788,6 @@ function handleEvent(sessionId, ev, isLive = true) {
           }
         }
         break
-      }
-      // AskUserQuestion: ストリームのデルタが --include-partial-messages で壊れる場合があるため、
-      // 完全なassistantメッセージから正確なデータで表示を更新する
-      // 履歴読み込み時はcontent_block_startが記録されていない場合があるため、要素がなければ作成する
-      if (ev.message?.content) {
-        ev.message.content.forEach(item => {
-          if (item.type === 'tool_use' && item.name === 'AskUserQuestion' && item.input) {
-            let toolEl = ts.pane.querySelector(`[data-tool-id="${item.id}"]`)
-            if (!toolEl) {
-              // 要素が未作成の場合（履歴読み込み等）は新規作成
-              finalizeText(ts)
-              toolEl = addToolLine(ts, item.name, item.id)
-            }
-            if (!toolEl.dataset.toolType) {
-              updateToolDesc(toolEl, item.input)
-            }
-          }
-        })
       }
       break
 
@@ -2972,17 +2940,11 @@ function handleEvent(sessionId, ev, isLive = true) {
       }
       break
 
-    case 'ask_user_question':
-      if (isActive) renderAskUserQuestionUI(sessionId, ev.toolUseId, ev.questions || [])
-      break
-
     case 'queue_update':
       handleQueueUpdate(sessionId, ev.queue || [])
       break
 
     case 'done':
-      // プロセス終了 → AskUserQuestion UIが残っていたら削除
-      if (isActive) clearAskUserQuestionUI()
       break
 
     case 'raw':
@@ -3157,53 +3119,6 @@ function updateToolDesc(toolEl, params) {
     case 'Glob':
       desc = params.pattern ? params.pattern : ''
       break
-    case 'AskUserQuestion': {
-      const qs = params.questions || []
-      desc = `${qs.length}件の質問`
-      const rd = toolEl._resultDiv
-      if (rd && qs.length) {
-        const container = document.createElement('div')
-        container.className = 'ask-questions'
-        qs.forEach(q => {
-          const qDiv = document.createElement('div')
-          qDiv.className = 'ask-question'
-          if (q.header) {
-            const headerEl = document.createElement('div')
-            headerEl.className = 'ask-header'
-            headerEl.textContent = q.header
-            qDiv.appendChild(headerEl)
-          }
-          const textEl = document.createElement('div')
-          textEl.className = 'ask-text'
-          textEl.textContent = q.question || ''
-          qDiv.appendChild(textEl)
-          if (q.options?.length) {
-            q.options.forEach((opt, i) => {
-              const optEl = document.createElement('div')
-              optEl.className = 'ask-option'
-              const strong = document.createElement('strong')
-              strong.textContent = `${i + 1}. ${opt.label}`
-              optEl.appendChild(strong)
-              if (opt.description) {
-                optEl.appendChild(document.createTextNode(` — ${opt.description}`))
-              }
-              qDiv.appendChild(optEl)
-            })
-          }
-          container.appendChild(qDiv)
-        })
-        rd.innerHTML = ''
-        // tool-result の 11px を上書きして pane の outputFontSize に合わせる
-        const paneEl = toolEl.closest('.output-pane')
-        container.style.fontSize = paneEl ? paneEl.style.fontSize || '13px' : '13px'
-        rd.appendChild(container)
-        rd.classList.add('expanded')
-        const toggleSpan = toolEl.querySelector('.tool-toggle')
-        if (toggleSpan) toggleSpan.textContent = '▾'
-        toolEl.dataset.toolType = 'ask'
-      }
-      break
-    }
     default:
       desc = Object.keys(params).slice(0, 2).map(k => `${k}: ${String(params[k]).substring(0, 30)}`).join(', ')
   }
@@ -3616,108 +3531,6 @@ document.addEventListener('drop', e => {
     if (file.type.startsWith('image/')) addImageAttachment(file)
   }
 })
-
-// ── AskUserQuestion 応答UI ──
-let _askUiEl = null
-
-function renderAskUserQuestionUI(sessionId, toolUseId, questions) {
-  clearAskUserQuestionUI()
-  if (!questions.length) return
-
-  const panel = document.createElement('div')
-  panel.id = 'ask-ui-panel'
-  panel.style.cssText = 'background:var(--surface3);border-top:1px solid var(--accent);padding:10px 12px;'
-
-  // 質問文 → 回答ラベル（複数選択はカンマ区切り）。全質問が埋まってから1回だけ送信する。
-  const answers = {}
-  // 単一質問・単一選択・選択肢ありのときだけ、クリック即送信（従来の軽快なUXを維持）
-  const autoSubmit = questions.length === 1 && questions[0].options?.length && !questions[0].multiSelect
-
-  const submit = async () => {
-    const allAnswered = questions.every(q => answers[q.question] != null && answers[q.question] !== '')
-    if (!allAnswered) return
-    panel.querySelectorAll('button,input').forEach(b => b.disabled = true)
-    clearAskUserQuestionUI()
-    await fetch('/api/respond', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: sessionId, answers }),
-    }).catch(() => {})
-  }
-
-  let submitBtn = null
-  const refreshSubmit = () => {
-    if (!submitBtn) return
-    submitBtn.disabled = !questions.every(q => answers[q.question] != null && answers[q.question] !== '')
-  }
-
-  questions.forEach(q => {
-    const qWrap = document.createElement('div')
-    qWrap.style.marginBottom = '8px'
-
-    const label = document.createElement('div')
-    label.style.cssText = 'font-size:12px;color:var(--text-dim);margin-bottom:4px;'
-    label.textContent = q.question || ''
-    qWrap.appendChild(label)
-
-    if (q.options?.length) {
-      const multi = !!q.multiSelect
-      const selected = new Set()
-      const btns = document.createElement('div')
-      btns.className = 'ask-btns'
-      q.options.forEach(opt => {
-        const btn = document.createElement('button')
-        btn.className = 'ask-btn'
-        btn.textContent = opt.label
-        btn.title = opt.description || ''
-        btn.onclick = () => {
-          if (multi) {
-            // 複数選択: トグル
-            if (selected.has(opt.label)) { selected.delete(opt.label); btn.classList.remove('selected') }
-            else { selected.add(opt.label); btn.classList.add('selected') }
-            answers[q.question] = [...selected].join(', ')
-          } else {
-            // 単一選択: グループ内の他を解除
-            btns.querySelectorAll('.ask-btn').forEach(b => b.classList.remove('selected'))
-            btn.classList.add('selected')
-            answers[q.question] = opt.label
-          }
-          refreshSubmit()
-          if (autoSubmit) submit()
-        }
-        btns.appendChild(btn)
-      })
-      qWrap.appendChild(btns)
-    } else {
-      // オプションなし → テキスト入力
-      const input = document.createElement('input')
-      input.type = 'text'
-      input.style.cssText = 'width:100%;background:var(--surface);border:1px solid var(--border-input);color:var(--text);border-radius:8px;padding:4px 10px;font-size:13px;outline:none;'
-      input.addEventListener('input', () => { answers[q.question] = input.value.trim(); refreshSubmit() })
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') submit() })
-      qWrap.appendChild(input)
-    }
-    panel.appendChild(qWrap)
-  })
-
-  // 自動送信ケース以外は明示の送信ボタンを置く（複数質問・複数選択・テキスト入力）
-  if (!autoSubmit) {
-    submitBtn = document.createElement('button')
-    submitBtn.className = 'ask-submit'
-    submitBtn.textContent = '送信'
-    submitBtn.disabled = true
-    submitBtn.onclick = submit
-    panel.appendChild(submitBtn)
-  }
-
-  _askUiEl = panel
-  inputAreaEl.insertBefore(panel, inputAreaEl.firstChild)
-  updateLayout()
-}
-
-function clearAskUserQuestionUI() {
-  if (_askUiEl) { _askUiEl.remove(); _askUiEl = null; updateLayout() }
-}
 
 // ── 送信 ──
 async function send() {
