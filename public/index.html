@@ -1206,8 +1206,9 @@ function t(key) { return STRINGS[appSettings?.lang || 'ja'][key] }
 
 // ── 設定管理 ──
 const ALL_MODELS = [
-  { value: '', label: 'Default (Sonnet 4.6)' },
-  { value: 'claude-opus-4-7',         label: 'Opus 4.7' },
+  { value: '', label: 'Default' },
+  { value: 'claude-fable-5',          label: 'Fable 5' },
+  { value: 'claude-opus-4-8',         label: 'Opus 4.8' },
   { value: 'claude-sonnet-4-6',       label: 'Sonnet 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ]
