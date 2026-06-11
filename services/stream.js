@@ -2,6 +2,11 @@ const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
 
+// 1セッションあたりのメモリ内バッファ上限。常駐プロセス＋長時間セッションで
+// buffer が単調増加しメモリを食い潰すのを防ぐ。超過分は古いものから捨てる
+// （完全な履歴はログファイルに残るため、再接続時の復元はそちらが担う）
+const MAX_BUFFER = 5000
+
 // sessionIDごとの実行状態（メモリ）
 const state = {}
 
@@ -31,6 +36,7 @@ function broadcast(sessionId, event) {
   if (event.type === 'user_input') s.turning = true
   else if (event.type === 'result' || event.type === 'done' || event.type === 'error') s.turning = false
   s.buffer.push(event)
+  if (s.buffer.length > MAX_BUFFER) s.buffer.splice(0, s.buffer.length - MAX_BUFFER)
   fs.appendFile(logFile(sessionId), JSON.stringify(event) + '\n', () => {})
   const line = `data: ${JSON.stringify(event)}\n\n`
   s.sseClients.forEach(res => {

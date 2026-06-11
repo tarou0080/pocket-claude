@@ -4,6 +4,21 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.2.0] - 2026-06-12
+
+### Security
+- **Removed dead `config/security.js`** - It defined `isPathAllowed()` / `ALLOWED_BASE_DIRS` but was never wired into project loading, giving a false sense of protection. The project-directory trust model (delegated to the network/auth layer) is now documented explicitly in the README instead.
+- **`git pull` hardened** - Now runs with `--no-verify` (prevents repo hooks like `post-merge` from firing) and `GIT_TERMINAL_PROMPT=0` (no auth hangs).
+- **Process-error messages no longer leak internals** - Spawn errors are logged server-side; clients receive a generic message.
+- **Dependencies updated** - `npm audit fix` resolves 4 known advisories (path-to-regexp, qs, body-parser, express) — 0 remaining.
+
+### Changed (internal)
+- `getClaudeSessionId` / `saveClaudeSessionId` consolidated into `services/sessions.js`; `services/spawner.js` no longer re-implements them (DRY).
+- SSE in-memory buffer capped at 5000 events per session to prevent unbounded memory growth in long-lived sessions (full history still persisted to log files).
+
+### Docs
+- README: documented the project-directory trust model; corrected the stale "systemd Integration" feature note to "Port-in-use guard".
+
 ## [v2.1.0] - 2026-06-11
 
 ### Removed

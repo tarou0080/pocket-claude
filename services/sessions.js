@@ -11,6 +11,14 @@ function getClaudeSessionId(sessionId) {
   } catch { return null }
 }
 
+// pocket-session ID と Claude session ID のマッピングを保存
+function saveClaudeSessionId(sessionId, claudeSessionId) {
+  try {
+    fs.mkdirSync(sessionsDir, { recursive: true })
+    fs.writeFileSync(path.join(sessionsDir, `${sessionId}.json`), JSON.stringify({ claudeSessionId }))
+  } catch {}
+}
+
 // セッションID取得
 function getSessionId(tabId) {
   const tabs = loadTabs()
@@ -28,4 +36,4 @@ function saveSessionId(tabId, sessionId) {
   }
 }
 
-module.exports = { getClaudeSessionId, getSessionId, saveSessionId }
+module.exports = { getClaudeSessionId, saveClaudeSessionId, getSessionId, saveSessionId }

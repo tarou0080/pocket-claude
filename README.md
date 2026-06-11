@@ -37,7 +37,7 @@ Turn your Claude Code CLI into a web app:
 - **Rate Limit Auto-Resume** - Automatically re-sends when Claude's rate limit resets
 - **Language Switching** - UI available in Japanese and English
 - **Request Body Size Limit** - Configurable from Settings panel (MB; 0 = unlimited)
-- **systemd Integration** - Warns if running outside systemd management
+- **Port-in-use guard** - Exits with a clear message if the port is already taken (avoids broken double-start)
 
 ## Screenshots
 
@@ -174,6 +174,8 @@ pocket-claude is designed for **local/trusted network use**:
 - **Trusted environment** - Not designed for public internet exposure
 
 For remote access, consider using a VPN or SSH tunnel instead of exposing the server directly.
+
+> **Trust model**: pocket-claude does **not** restrict which directories can be registered as projects. Anyone who can reach the API (or edit `projects.json`) can run `claude` in any directory the server user can access — and with `bypassPermissions`, that means arbitrary command execution. This is by design: pocket-claude is a thin wrapper that delegates access control to your network/auth layer (VPN, reverse-proxy auth, firewall). Do not expose it to untrusted clients.
 
 ### Environment Variables
 

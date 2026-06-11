@@ -4,6 +4,21 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v2.2.0] - 2026-06-12
+
+### セキュリティ
+- **死にコード `config/security.js` を削除** - `isPathAllowed()` / `ALLOWED_BASE_DIRS` を定義していたがプロジェクト読み込みに配線されておらず、「防御しているように見えて防御していない」状態だった。プロジェクトディレクトリの信頼モデル（ネットワーク/認証層へ委譲）を README に明記する方針に統一。
+- **`git pull` を堅牢化** - `--no-verify`（`post-merge` 等のリポジトリ hook 発火を防止）と `GIT_TERMINAL_PROMPT=0`（認証待ちハング防止）を付与。
+- **プロセスエラーで内部情報を漏らさない** - spawn エラーはサーバーログに記録し、クライアントには一般メッセージのみ返す。
+- **依存パッケージ更新** - `npm audit fix` で既知脆弱性 4 件（path-to-regexp, qs, body-parser, express）を解消（残 0 件）。
+
+### 変更（内部）
+- `getClaudeSessionId` / `saveClaudeSessionId` を `services/sessions.js` に集約。`services/spawner.js` の重複実装を撤去（DRY）。
+- SSE のメモリ内バッファをセッションあたり 5000 件で上限化。長時間セッションでのメモリ単調増加を防止（完全な履歴はログファイルに永続化される）。
+
+### ドキュメント
+- README: プロジェクトディレクトリの信頼モデルを明記。陳腐化していた「systemd 連携」の記述を「ポート使用中ガード」に修正。
+
 ## [v2.1.0] - 2026-06-11
 
 ### 廃止

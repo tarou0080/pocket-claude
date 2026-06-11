@@ -1,24 +1,8 @@
 const { spawn } = require('child_process')
-const fs = require('fs')
-const path = require('path')
 const config = require('../config/index')
 const { broadcast, getState } = require('./stream')
 const { gitPull } = require('./git')
-
-const sessionsDir = path.join(__dirname, '..', 'sessions')
-
-function saveClaudeSessionId(sessionId, claudeSessionId) {
-  try {
-    fs.mkdirSync(sessionsDir, { recursive: true })
-    fs.writeFileSync(path.join(sessionsDir, `${sessionId}.json`), JSON.stringify({ claudeSessionId }))
-  } catch {}
-}
-
-function getClaudeSessionId(sessionId) {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8')).claudeSessionId || null
-  } catch { return null }
-}
+const { saveClaudeSessionId } = require('./sessions')
 
 // claude プロセス起動（常駐モード: --input-format stream-json）
 function startClaude(sessionId, prompt, model, project, claudeSessionId, effort, thinking, imageData) {
@@ -108,7 +92,9 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
 
   proc.on('error', err => {
     s.process = null
-    broadcast(sessionId, { type: 'error', message: err.message })
+    // 詳細はサーバーログへ。クライアントには内部パス等を漏らさない一般メッセージのみ
+    console.error(`[spawn:error] sessionId=${sessionId} ${err.message}`)
+    broadcast(sessionId, { type: 'error', message: 'Failed to start Claude process' })
   })
 }
 
