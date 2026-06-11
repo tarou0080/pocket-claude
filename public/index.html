@@ -2254,9 +2254,11 @@ async function restoreRateLimitPanel(sessionId) {
         }
       } else {
         clientLog('restoreRateLimitPanel:server-skip', { sessionId, reason: 'resetAt in past' })
+        clearRateLimitPanel(sessionId)  // 再開済み（リセット時刻経過）→ 取り残しパネルを消す
       }
     } else {
       clientLog('restoreRateLimitPanel:server-empty', { sessionId })
+      clearRateLimitPanel(sessionId)  // サーバー側スケジュール消滅（再開済み）→ 取り残しパネルを消す
     }
   } catch {}
 }
