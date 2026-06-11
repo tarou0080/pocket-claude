@@ -4,6 +4,31 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.1.0] - 2026-06-11
+
+### Removed
+- **AskUserQuestion choice UI** - The tool is now disabled at the CLI level (`--disallowed-tools AskUserQuestion`). In headless stream-json mode the CLI self-resolves the tool call with an error before any answer can be injected, so a tappable choice UI cannot work by design. The model now asks questions in plain text and you reply in the normal input field. The `/api/respond` endpoint and all related UI code were removed.
+
+### Added
+- **Claude Fable 5** added to the built-in model fallback list (Opus 4.7 → 4.8 also updated)
+- **Scroll-to-bottom button** - Circular button appears when scrolled up in the output area
+- **Resume with progress** - Session resume shows percentage progress instead of a blank screen
+- Image attachment UX improvements
+
+### Fixed
+- Rate-limit panel and send-queue panel now re-sync with the server on SSE reconnect; stale panels no longer linger when auto-resume or queue consumption happened while the device was in background
+- Auto-resume ON registration no longer destroyed by subsequent rate-limit events
+- Auto-resume ON button silent failure fixed; schedule registration is now logged
+- Models newly added to `config.json` now appear in the selector automatically
+- SSE freeze after returning from background fixed; running sessions always reconnect on visibility change
+- Duplicate log rendering after background resume fixed
+- Rate-limit card no longer reappears after reload, tab switch, or past its reset time
+- `Surrogate-Control: no-store` added to bypass Cloudflare caching of API responses
+- iOS Safari auto-zoom prevented on settings modal inputs
+
+### Changed (internal)
+- `projects.json` and `schedules.json` removed from version control (local state files; see `projects.example.json`)
+
 ## [v2.0.0] - 2026-05-09
 
 ### Added
