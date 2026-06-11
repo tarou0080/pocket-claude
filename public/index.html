@@ -2601,6 +2601,8 @@ function connectSSEStream(sessionId, skipHistory = false) {
         .then(data => {
           const ts = tabState[sessionId]
           if (ts && data.running && !ts.isRunning) ts.isRunning = true
+          // 送信待ちキューもサーバーを正として同期（切断中にqueue_updateを取りこぼしても古い表示が残らない）
+          handleQueueUpdate(sessionId, data.queue || [])
           updateUI()
         })
         .catch(() => updateUI())
