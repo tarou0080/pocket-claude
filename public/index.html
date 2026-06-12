@@ -2606,24 +2606,39 @@ function connectSSEStream(sessionId, skipHistory = false) {
     }
   }
 
+  // skipHistoryでない場合のみ、最初のメッセージ受信時に自動スクロール
+  function scrollOnFirst() {
+    if (!skipHistory && firstMessage && currentSessionId === sessionId) {
+      firstMessage = false
+      const ts = tabState[sessionId]
+      if (ts) {
+        ts.autoScroll = true
+        // DOM描画完了を待ってからスクロール
+        setTimeout(() => {
+          ts.pane.scrollTop = ts.pane.scrollHeight
+        }, 100)
+      }
+    }
+  }
+
   es.onmessage = e => {
     try {
       lastHeartbeat = Date.now()
       handleEvent(sessionId, JSON.parse(e.data))
-      // skipHistoryでない場合のみ、最初のメッセージ受信時に自動スクロール
-      if (!skipHistory && firstMessage && currentSessionId === sessionId) {
-        firstMessage = false
-        const ts = tabState[sessionId]
-        if (ts) {
-          ts.autoScroll = true
-          // DOM描画完了を待ってからスクロール
-          setTimeout(() => {
-            ts.pane.scrollTop = ts.pane.scrollHeight
-          }, 100)
-        }
-      }
+      scrollOnFirst()
     } catch {}
   }
+
+  // ログ再生イベント（サーバーが event: history で送る）。
+  // ライブと区別して isLive=false で処理する。リプレイをライブ扱いすると、
+  // 古いrate_limit文言を現在時刻で再パースして翌日resetAtのゾンビカードが生まれる
+  es.addEventListener('history', e => {
+    try {
+      lastHeartbeat = Date.now()
+      handleEvent(sessionId, JSON.parse(e.data), false)
+      scrollOnFirst()
+    } catch {}
+  })
 
   es.onerror = () => {
     handleDisconnection(sessionId, true)
@@ -2777,17 +2792,8 @@ function handleEvent(sessionId, ev, isLive = true) {
           // 2回目以降のrate_limitで既存のON状態を既定falseに戻さない（ユーザーのON選択を保持）
           const wasAutoResume = ts.rl?.autoResume ?? false
           showRateLimitPanel(sessionId, resetAt, wasAutoResume)
-          // resetAt をサーバーに保存（別端末・再接続後の復元用）。
-          // prompt無し保存はサーバー側で既存ON登録を壊さないようガード済み。
-          if (resetAt) {
-            fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ resetAt: resetAt.toISOString() })
-            }).catch(() => {})
-          } else {
-            clientLog('rate_limit:server-save-skipped', { sessionId, reason: 'resetAt is null' })
-          }
+          // resetAtのサーバー保存はspawner.js（サーバー自身）が行う。クライアントからの
+          // prompt無しPOSTは、サーバーが期限切れ破棄したエントリを再生成する穴になるため行わない
         }
         break
       }

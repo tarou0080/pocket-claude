@@ -19,9 +19,11 @@ router.get('/', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no')
 
   // skipHistory=1の場合は履歴をスキップ（完了済みセッションの再接続時に使用）
+  // ログ再生は名前付きイベント(event: history)で送り、ライブのbroadcast（無名イベント）と
+  // プロトコルレベルで区別する。クライアントは history を isLive=false で処理する
   if (!skipHistory) {
     const logEvents = loadLogFile(sessionId)
-    logEvents.forEach(ev => res.write(`data: ${JSON.stringify(ev)}\n\n`))
+    logEvents.forEach(ev => res.write(`event: history\ndata: ${JSON.stringify(ev)}\n\n`))
   }
   registerSSEClient(sessionId, res)
 
