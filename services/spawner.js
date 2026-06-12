@@ -3,6 +3,7 @@ const config = require('../config/index')
 const { broadcast, getState } = require('./stream')
 const { gitPull } = require('./git')
 const { saveClaudeSessionId } = require('./sessions')
+const { parseResetTime } = require('./reset-time')
 
 // claude プロセス起動（常駐モード: --input-format stream-json）
 function startClaude(sessionId, prompt, model, project, claudeSessionId, effort, thinking, imageData) {
@@ -66,6 +67,15 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
         if (parsed.type === 'assistant' && parsed.error === 'rate_limit') {
           const limitText = parsed.message?.content?.find(c => c.type === 'text')?.text || ''
           console.log(`[rate-limit] broadcast sessionId=${sessionId} text="${limitText}"`)
+          // サーバーを真実源としてresetAtを保存する。クライアントが切断中（iPhoneバックグラウンド等）でも
+          // 再接続時の restoreRateLimitPanel がGETで拾えるようにする。
+          // prompt=null の保存は既存のON登録（prompt有り）を上書きしない（scheduler側ガード）。
+          const resetAt = parseResetTime(limitText)
+          if (resetAt) {
+            const { scheduleResume } = require('./scheduler')
+            scheduleResume(sessionId, resetAt.toISOString(), null, project)
+            console.log(`[rate-limit] saved resetAt=${resetAt.toISOString()}`)
+          }
         }
 
         broadcast(sessionId, parsed)

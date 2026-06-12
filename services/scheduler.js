@@ -69,13 +69,26 @@ function scheduleResume(sessionId, resetAt, prompt, project, model, effort, thin
     effort: effort || null,
     thinking: thinking || null
   }
+  // +60s buffer: API の rate limit は resetAt ちょうどに発火すると境界で弾かれる race condition がある
+  const delay = Math.max(0, new Date(resetAt).getTime() - Date.now()) + 60000
   if (prompt) {
-    // +60s buffer: API の rate limit は resetAt ちょうどに発火すると境界で弾かれる race condition がある
-    const delay = Math.max(0, new Date(resetAt).getTime() - Date.now()) + 60000
     entry.timerId = setTimeout(() => doResume(sessionId), delay)
+  } else {
+    // 状態記録のみのエントリはresetAt経過で自動破棄（クライアントDELETE頼みにしない）
+    entry.timerId = setTimeout(() => expireEntry(sessionId), delay)
   }
   schedules.set(sessionId, entry)
   saveSchedules()
+}
+
+// prompt無しエントリ（resetAt状態記録のみ）の期限切れ破棄。
+// ON登録（prompt有り）に昇格していた場合は何もしない（doResumeが寿命を管理する）。
+function expireEntry(sessionId) {
+  const s = schedules.get(sessionId)
+  if (!s || s.prompt) return
+  schedules.delete(sessionId)
+  saveSchedules()
+  console.log(`[scheduler] expired resetAt entry sessionId=${sessionId}`)
 }
 
 function cancelResume(sessionId) {
@@ -100,9 +113,11 @@ function loadSchedules() {
       const resetTime = new Date(s.resetAt).getTime()
       if (resetTime > now) {
         const entry = { ...s }
+        const delay = resetTime - now + 60000
         if (s.prompt) {
-          const delay = resetTime - now
           entry.timerId = setTimeout(() => doResume(sessionId), delay)
+        } else {
+          entry.timerId = setTimeout(() => expireEntry(sessionId), delay)
         }
         schedules.set(sessionId, entry)
       }

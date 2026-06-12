@@ -2247,11 +2247,8 @@ async function restoreRateLimitPanel(sessionId) {
       const resetAt = new Date(data.resetAt)
       if (resetAt > new Date()) {
         showRateLimitPanel(sessionId, resetAt, data.autoResume ?? false)
-        // autoResume=false のエントリはリロードするたびに復元されないよう即削除
-        // (autoResume=true は doResume がサーバー側で管理するため残す)
-        if (!data.autoResume) {
-          fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE', keepalive: true }).catch(() => {})
-        }
+        // サーバーエントリはここではDELETEしない。制限中はリロード何回目でもパネルを出すのが正で、
+        // 期限切れエントリの破棄はサーバー（schedulerのexpire/loadSchedules）が管理する。
       } else {
         clientLog('restoreRateLimitPanel:server-skip', { sessionId, reason: 'resetAt in past' })
         clearRateLimitPanel(sessionId)  // 再開済み（リセット時刻経過）→ 取り残しパネルを消す
