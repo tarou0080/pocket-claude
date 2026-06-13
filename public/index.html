@@ -1024,6 +1024,10 @@
       <div>
         <div class="settings-section-title" id="stitle-resume"></div>
         <input type="text" id="resume-prompt-input" style="width:100%;background:var(--surface3);color:var(--text);border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;font-size:13px;outline:none;">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--text);cursor:pointer;">
+          <input type="checkbox" id="resume-default-on-chk" style="width:16px;height:16px;cursor:pointer;">
+          レート制限時に自動再開をデフォルトON
+        </label>
       </div>
       <!-- Theme -->
       <div>
@@ -1234,6 +1238,7 @@ function loadSettings() {
     enabledModels: ALL_MODELS.map(m => m.value),
     theme: window.DEFAULT_THEME || 'pocket-claude',
     resumePrompt: '続けてください',
+    resumeDefaultOn: false,
     lang: 'ja',
   }
   try {
@@ -1331,9 +1336,16 @@ function openScheduleModal() {
   scheduleModal.classList.add('open')
   scheduleBtn.classList.add('active')
   scheduleSave.onclick = saveScheduledPost
-  const now = new Date()
-  const localStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-  scheduleDatetime.value = localStr
+  // 現在タブに有効な制限（resetAt が未来）があればその時刻を初期値にする
+  const curTs = currentSessionId ? tabState[currentSessionId] : null
+  const rlResetAt = curTs?.rl?.resetAt
+  let initDate
+  if (rlResetAt && rlResetAt > new Date()) {
+    initDate = rlResetAt
+  } else {
+    initDate = new Date()
+  }
+  scheduleDatetime.value = new Date(initDate.getTime() - initDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
   // schedulePrompt.value = '' を削除（送信成功時のみクリア）
   schedulePrompt.focus()
 }
@@ -1567,6 +1579,11 @@ function renderSettingsModal() {
   const resumeInput = document.getElementById('resume-prompt-input')
   resumeInput.value = appSettings.resumePrompt || '続けてください'
   resumeInput.oninput = (e) => { appSettings.resumePrompt = e.target.value; saveSettings(appSettings) }
+
+  // Resume default ON checkbox
+  const resumeDefaultOnChk = document.getElementById('resume-default-on-chk')
+  resumeDefaultOnChk.checked = appSettings.resumeDefaultOn ?? false
+  resumeDefaultOnChk.onchange = (e) => { appSettings.resumeDefaultOn = e.target.checked; saveSettings(appSettings) }
 
   // Theme list
   const themeList = document.getElementById('settings-theme-list')
@@ -2085,6 +2102,24 @@ function parseResetTime(text) {
   return null
 }
 
+async function scheduleResumeForSession(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts || !ts.rl || !ts.rl.resetAt) return
+  const session = loadSessions().find(s => s.sessionId === sessionId)
+  await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      resetAt: ts.rl.resetAt.toISOString(),
+      prompt: appSettings.resumePrompt || '続けてください',
+      project: session?.project ?? null,
+      model: (ts.model || appSettings.defaultModel) || null,
+      effort: (ts.effort ?? appSettings.effort) || null,
+      thinking: ts.thinking ?? appSettings.thinking
+    })
+  }).catch(() => {})
+}
+
 function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
   const ts = tabState[sessionId]
   if (!ts) return
@@ -2147,19 +2182,7 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
       if (!ts.rl || ts.rl.autoResume) return
       ts.rl.autoResume = true
       onBtn.classList.add('active'); offBtn.classList.remove('active')
-      const session = loadSessions().find(s => s.sessionId === sessionId)
-      await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          resetAt: ts.rl.resetAt.toISOString(),
-          prompt: appSettings.resumePrompt || '続けてください',
-          project: session?.project ?? null,
-          model: (ts.model || appSettings.defaultModel) || null,
-          effort: (ts.effort ?? appSettings.effort) || null,
-          thinking: ts.thinking ?? appSettings.thinking
-        })
-      }).catch(() => {})
+      await scheduleResumeForSession(sessionId)
       countdown.hidden = false
       startRateLimitCountdown(sessionId)
     })
@@ -2790,10 +2813,14 @@ function handleEvent(sessionId, ev, isLive = true) {
           const resetAt = parseResetTime(limitText)
           clientLog('rate_limit:parseResetTime', { sessionId, result: resetAt?.toISOString() || null })
           // 2回目以降のrate_limitで既存のON状態を既定falseに戻さない（ユーザーのON選択を保持）
-          const wasAutoResume = ts.rl?.autoResume ?? false
+          // 新規制限（ts.rl?.autoResume が undefined）の場合のみ appSettings.resumeDefaultOn を既定値として使用
+          const isNewLimit = ts.rl?.autoResume === undefined
+          const wasAutoResume = ts.rl?.autoResume ?? appSettings.resumeDefaultOn ?? false
           showRateLimitPanel(sessionId, resetAt, wasAutoResume)
           // resetAtのサーバー保存はspawner.js（サーバー自身）が行う。クライアントからの
-          // prompt無しPOSTは、サーバーが期限切れ破棄したエントリを再生成する穴になるため行わない
+          // prompt無しPOSTは、サーバーが期限切れ破棄したエントリを再生成する穴になるため行わない。
+          // ただしデフォルトONで新規制限が発生した場合はサーバー登録が必要なためPOSTを発行する。
+          if (isNewLimit && wasAutoResume && resetAt) scheduleResumeForSession(sessionId)
         }
         break
       }
