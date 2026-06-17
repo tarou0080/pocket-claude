@@ -1316,6 +1316,13 @@ async function loadBodyLimit() {
     const data = await res.json()
     const input = document.getElementById('body-limit-input')
     if (input) input.value = typeof data.maxBodySizeMb === 'number' ? data.maxBodySizeMb : 0
+    // サーバーの resumeDefaultOn をローカル設定に反映（サーバーを正とする）
+    if (typeof data.resumeDefaultOn === 'boolean') {
+      appSettings.resumeDefaultOn = data.resumeDefaultOn
+      saveSettings(appSettings)
+      const chk = document.getElementById('resume-default-on-chk')
+      if (chk) chk.checked = data.resumeDefaultOn
+    }
   } catch {}
 }
 
@@ -1583,7 +1590,18 @@ function renderSettingsModal() {
   // Resume default ON checkbox
   const resumeDefaultOnChk = document.getElementById('resume-default-on-chk')
   resumeDefaultOnChk.checked = appSettings.resumeDefaultOn ?? false
-  resumeDefaultOnChk.onchange = (e) => { appSettings.resumeDefaultOn = e.target.checked; saveSettings(appSettings) }
+  resumeDefaultOnChk.onchange = async (e) => {
+    appSettings.resumeDefaultOn = e.target.checked
+    saveSettings(appSettings)
+    // サーバー側の resumeDefaultOn も同期（ブラウザ不在時の自動再開に必要）
+    try {
+      await fetch('/api/server-config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resumeDefaultOn: e.target.checked }),
+      })
+    } catch {}
+  }
 
   // Theme list
   const themeList = document.getElementById('settings-theme-list')

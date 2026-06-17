@@ -18,27 +18,35 @@ router.get('/', (_req, res) => {
   const cfg = readConfigFile()
   res.json({
     maxBodySizeMb: typeof cfg.maxBodySizeMb === 'number' ? cfg.maxBodySizeMb : 0,
+    resumeDefaultOn: typeof cfg.resumeDefaultOn === 'boolean' ? cfg.resumeDefaultOn : false,
   })
 })
 
 // PATCH /api/server-config — 設定値を更新
 router.patch('/', (req, res) => {
-  const { maxBodySizeMb } = req.body
+  const { maxBodySizeMb, resumeDefaultOn } = req.body
   if (maxBodySizeMb !== undefined) {
     if (typeof maxBodySizeMb !== 'number' || maxBodySizeMb < 0 || !Number.isFinite(maxBodySizeMb)) {
       return res.status(400).json({ error: 'maxBodySizeMb must be a non-negative number (0 = unlimited)' })
     }
   }
+  if (resumeDefaultOn !== undefined) {
+    if (typeof resumeDefaultOn !== 'boolean') {
+      return res.status(400).json({ error: 'resumeDefaultOn must be a boolean' })
+    }
+  }
 
   const cfg = readConfigFile()
   if (maxBodySizeMb !== undefined) cfg.maxBodySizeMb = maxBodySizeMb
+  if (resumeDefaultOn !== undefined) cfg.resumeDefaultOn = resumeDefaultOn
 
   try {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2))
     // メモリ上のconfigも更新（再起動不要）
     const config = require('../config/index')
     if (maxBodySizeMb !== undefined) config.maxBodySizeMb = maxBodySizeMb
-    res.json({ ok: true, maxBodySizeMb: cfg.maxBodySizeMb })
+    if (resumeDefaultOn !== undefined) config.resumeDefaultOn = resumeDefaultOn
+    res.json({ ok: true, maxBodySizeMb: cfg.maxBodySizeMb, resumeDefaultOn: cfg.resumeDefaultOn ?? false })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

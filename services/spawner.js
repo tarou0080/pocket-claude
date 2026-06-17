@@ -73,8 +73,18 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
           const resetAt = parseResetTime(limitText)
           if (resetAt) {
             const { scheduleResume } = require('./scheduler')
-            scheduleResume(sessionId, resetAt.toISOString(), null, project)
-            console.log(`[rate-limit] saved resetAt=${resetAt.toISOString()}`)
+            const cfg = require('../config/index')
+            if (cfg.resumeDefaultOn) {
+              // resumeDefaultON=true: prompt付きで登録 → doResumeタイマーが入る
+              // 既存にprompt有りのON登録があればscheduler側ガードで何もしない（二重登録しない）
+              const resumePrompt = '続けてください'
+              scheduleResume(sessionId, resetAt.toISOString(), resumePrompt, project)
+              console.log(`[rate-limit] auto-resume default-on registered sessionId=${sessionId} resetAt=${resetAt.toISOString()}`)
+            } else {
+              // resumeDefaultOn=false: 状態記録のみ（タイマーなし）
+              scheduleResume(sessionId, resetAt.toISOString(), null, project)
+              console.log(`[rate-limit] saved resetAt=${resetAt.toISOString()}`)
+            }
           }
         }
 
