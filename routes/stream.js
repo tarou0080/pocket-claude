@@ -10,21 +10,30 @@ router.get('/', (req, res) => {
     return
   }
 
-  const s = getState(sessionId)
-  const skipHistory = req.query.skipHistory === '1'
+  getState(sessionId)
+
+  // fromLine: クライアントが最後に受信した行の次から送る（増分同期）。
+  // Last-Event-ID ヘッダがある場合（EventSource のネイティブ自動再接続）は +1 して利用する。
+  let fromLine = Math.max(0, parseInt(req.query.fromLine, 10) || 0)
+  const lastEventIdHeader = req.headers['last-event-id']
+  if (!req.query.fromLine && lastEventIdHeader) {
+    const parsed = parseInt(lastEventIdHeader, 10)
+    if (!isNaN(parsed)) fromLine = parsed + 1
+  }
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.setHeader('X-Accel-Buffering', 'no')
 
-  // skipHistory=1の場合は履歴をスキップ（完了済みセッションの再接続時に使用）
   // ログ再生は名前付きイベント(event: history)で送り、ライブのbroadcast（無名イベント）と
-  // プロトコルレベルで区別する。クライアントは history を isLive=false で処理する
-  if (!skipHistory) {
-    const logEvents = loadLogFile(sessionId)
-    logEvents.forEach(ev => res.write(`event: history\ndata: ${JSON.stringify(ev)}\n\n`))
-  }
+  // プロトコルレベルで区別する。クライアントは history を isLive=false で処理する。
+  // appendFileSync 化により、loadLogFile(readFileSync) と registerSSEClient の間に
+  // 新規行が割り込むことはなく、取りこぼし/重複ゼロを保証する（同期ブロック内）。
+  const all = loadLogFile(sessionId)
+  all.slice(fromLine).forEach((ev, i) => {
+    res.write(`event: history\nid: ${fromLine + i}\ndata: ${JSON.stringify(ev)}\n\n`)
+  })
   registerSSEClient(sessionId, res)
 
   const heartbeat = setInterval(() => {

@@ -1852,6 +1852,7 @@ function createTabEl(session) {
 // ── タブ削除 ──
 async function deleteTab(sessionId) {
   clearRateLimitPanel(sessionId)
+  localStorage.removeItem(`pc-lastline-${sessionId}`)
   fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
   tabBar.querySelector(`[data-session-id="${sessionId}"]`)?.remove()
   tabState[sessionId]?.pane.remove()
@@ -2542,32 +2543,25 @@ async function cancelScheduledPost(id) {
   }
 }
 
+// ── 行番号オフセット（localStorage） ──
+// キー: pc-lastline-<sessionId>、値: 最後に受信した行番号（数値）。未保存=-1
+function getLastLine(sessionId) {
+  const v = localStorage.getItem(`pc-lastline-${sessionId}`)
+  return v !== null ? parseInt(v, 10) : -1
+}
+function setLastLine(sessionId, lineId) {
+  localStorage.setItem(`pc-lastline-${sessionId}`, String(lineId))
+}
+
 // ── SSE接続 ──
-async function connectSSE(sessionId, isReconnect = false) {
+// 設計変更（行番号オフセット同期）: 再接続時もペインをクリアせず続きを追記する。
+// loadHistoryBulk(HTTP全量取得)への依存を廃止し、SSEの event:history で増分取得する。
+async function connectSSE(sessionId) {
   const ts = tabState[sessionId]
   if (!ts) return
 
-  if (isReconnect && ts._initialLoaded) {
-    ts.currentTextEl = null
-    ts._rawText = ''
-    ts._ctxTokens = 0
-    ts._currentToolEl = null
-    ts._currentToolInput = ''
-    ts._currentBlockType = null
-    ts._thinkingEl = null
-    ts._initialLoaded = false
-    ts.pane.innerHTML = ''  // 再接続時は即クリア（SSEリプレイで既存内容に重複しないよう）
-  }
-
-  // 完了済みセッション（実行中でない）かつ初回接続の場合は一括描画
-  if (!ts.isRunning && !ts._initialLoaded) {
-    await loadHistoryBulk(sessionId)
-    ts._initialLoaded = true
-    // 一括描画後はskipHistory=1でSSE接続（新イベント監視のみ）
-    connectSSEStream(sessionId, true)
-  } else {
-    connectSSEStream(sessionId, !!ts._initialLoaded)
-  }
+  // ペインは初回生成済みを維持する。再接続でもクリアしない。
+  connectSSEStream(sessionId)
 
   // 接続完了後、経路に関わらず永続データを必ず復元
   await Promise.all([
@@ -2576,39 +2570,8 @@ async function connectSSE(sessionId, isReconnect = false) {
   ])
 }
 
-// 完了済みセッションの一括描画
-async function loadHistoryBulk(sessionId) {
-  const ts = tabState[sessionId]
-  if (!ts) return
-
-  try {
-    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`)
-    if (!res.ok) {
-      // 履歴がない場合は通常のSSE接続にフォールバック
-      return
-    }
-    const events = await res.json()
-
-    // fetch完了後にペインをクリア（fetch中は既存コンテンツを保持して空画面を避ける）
-    ts.pane.innerHTML = ''
-
-    // 一括描画中は自動スクロールを無効化（イベント毎のrAFを抑制し最後にまとめてスクロール）
-    ts.autoScroll = false
-    events.forEach(ev => handleEvent(sessionId, ev, false))
-    ts.autoScroll = true
-
-    // 最下部へスクロール: rAF後にさらにsetTimeoutを重ねることでiOSの遅延レイアウトに対応
-    requestAnimationFrame(() => {
-      ts.pane.scrollTop = ts.pane.scrollHeight
-      setTimeout(() => { ts.pane.scrollTop = ts.pane.scrollHeight }, 100)
-    })
-  } catch (err) {
-    console.error('Failed to load history bulk:', err)
-  }
-}
-
 // SSE接続（実際のストリーム処理）
-function connectSSEStream(sessionId, skipHistory = false) {
+function connectSSEStream(sessionId) {
   // 既存の接続をクローズ
   if (currentES) {
     currentES.close()
@@ -2621,10 +2584,14 @@ function connectSSEStream(sessionId, skipHistory = false) {
     reconnectTimer = null
   }
 
-  const url = `/api/stream?session=${encodeURIComponent(sessionId)}${skipHistory ? '&skipHistory=1' : ''}`
+  // 最後に受信した行番号の次から取得（増分同期）。未受信なら fromLine=0 で全量取得
+  const lastLine = getLastLine(sessionId)
+  const fromLine = lastLine + 1
+  const url = `/api/stream?session=${encodeURIComponent(sessionId)}&fromLine=${fromLine}`
   const es = new EventSource(url)
   currentES = es
-  let firstMessage = true
+  // history イベントを少なくとも1件受信したら自動スクロールする（初回接続時の復元後スクロール）
+  let firstHistoryReceived = false
 
   es.onopen = () => {
     // 接続成功時に再接続カウンターをリセット
@@ -2647,26 +2614,14 @@ function connectSSEStream(sessionId, skipHistory = false) {
     }
   }
 
-  // skipHistoryでない場合のみ、最初のメッセージ受信時に自動スクロール
-  function scrollOnFirst() {
-    if (!skipHistory && firstMessage && currentSessionId === sessionId) {
-      firstMessage = false
-      const ts = tabState[sessionId]
-      if (ts) {
-        ts.autoScroll = true
-        // DOM描画完了を待ってからスクロール
-        setTimeout(() => {
-          ts.pane.scrollTop = ts.pane.scrollHeight
-        }, 100)
-      }
-    }
-  }
-
   es.onmessage = e => {
     try {
       lastHeartbeat = Date.now()
-      handleEvent(sessionId, JSON.parse(e.data))
-      scrollOnFirst()
+      const lineId = parseInt(e.lastEventId, 10)
+      // dedup ガード（fromLine方式で基本重複しないが安全弁）
+      if (!isNaN(lineId) && lineId <= getLastLine(sessionId)) return
+      handleEvent(sessionId, JSON.parse(e.data), true)
+      if (!isNaN(lineId)) setLastLine(sessionId, lineId)
     } catch {}
   }
 
@@ -2676,8 +2631,22 @@ function connectSSEStream(sessionId, skipHistory = false) {
   es.addEventListener('history', e => {
     try {
       lastHeartbeat = Date.now()
+      const lineId = parseInt(e.lastEventId, 10)
+      // dedup ガード
+      if (!isNaN(lineId) && lineId <= getLastLine(sessionId)) return
       handleEvent(sessionId, JSON.parse(e.data), false)
-      scrollOnFirst()
+      if (!isNaN(lineId)) setLastLine(sessionId, lineId)
+      // history 受信後、最初の1件で自動スクロール（初回接続時の復元完了スクロール）
+      if (!firstHistoryReceived && currentSessionId === sessionId) {
+        firstHistoryReceived = true
+        requestAnimationFrame(() => {
+          const ts = tabState[sessionId]
+          if (ts) {
+            ts.pane.scrollTop = ts.pane.scrollHeight
+            setTimeout(() => { ts.pane.scrollTop = ts.pane.scrollHeight }, 100)
+          }
+        })
+      }
     } catch {}
   })
 
@@ -2722,7 +2691,7 @@ function handleDisconnection(sessionId, isAutoReconnect = true) {
     if (reconnectTimer) clearTimeout(reconnectTimer)
     reconnectTimer = setTimeout(() => {
       if (currentSessionId === sessionId) {
-        connectSSE(sessionId, true)
+        connectSSE(sessionId)
       }
     }, delay)
   }
@@ -2732,7 +2701,7 @@ function handleDisconnection(sessionId, isAutoReconnect = true) {
 function manualReconnect() {
   if (!currentSessionId) return
   reconnectAttempts = 0
-  connectSSE(currentSessionId, true)
+  connectSSE(currentSessionId)
 }
 
 // ── ネットワーク監視 ──
@@ -2742,7 +2711,7 @@ function startNetworkMonitoring() {
     // オンライン復帰時は即座に再接続
     if (currentSessionId && (!currentES || currentES.readyState === EventSource.CLOSED)) {
       reconnectAttempts = 0
-      connectSSE(currentSessionId, true)
+      connectSSE(currentSessionId)
     }
   })
 
@@ -2764,7 +2733,7 @@ function startNetworkMonitoring() {
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
         if (currentES) { currentES.close(); currentES = null }
         reconnectAttempts = 0
-        connectSSE(currentSessionId, true)
+        connectSSE(currentSessionId)
       }
     }
   })

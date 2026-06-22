@@ -10,6 +10,21 @@ const MAX_BUFFER = 5000
 // sessionIDごとの実行状態（メモリ）
 const state = {}
 
+// 行番号カウンタ（セッションIDごとのログファイル行インデックス）
+const lineCounts = {}
+
+// 次の行インデックスを返し、カウンタをインクリメントする。
+// 初回呼び出し時はファイルの現在行数で初期化する（サーバー再起動後も継続できる）。
+function nextLineId(sessionId) {
+  if (lineCounts[sessionId] === undefined) {
+    const events = loadLogFile(sessionId)
+    lineCounts[sessionId] = events.length
+  }
+  const id = lineCounts[sessionId]
+  lineCounts[sessionId]++
+  return id
+}
+
 // 状態取得
 function getState(sessionId) {
   if (!state[sessionId]) {
@@ -37,8 +52,12 @@ function broadcast(sessionId, event) {
   else if (event.type === 'result' || event.type === 'done' || event.type === 'error') s.turning = false
   s.buffer.push(event)
   if (s.buffer.length > MAX_BUFFER) s.buffer.splice(0, s.buffer.length - MAX_BUFFER)
-  fs.appendFile(logFile(sessionId), JSON.stringify(event) + '\n', () => {})
-  const line = `data: ${JSON.stringify(event)}\n\n`
+  // 行IDを取得してからファイルに追記する（id=そのイベントが占める行インデックス）。
+  // appendFileSync で同期化することで、history 読み出し（readFileSync）時に
+  // 必ず最新行まで反映されている状態を保証する（read-then-subscribe の取りこぼし/重複排除）
+  const id = nextLineId(sessionId)
+  fs.appendFileSync(logFile(sessionId), JSON.stringify(event) + '\n')
+  const line = `id: ${id}\ndata: ${JSON.stringify(event)}\n\n`
   s.sseClients.forEach(res => {
     try {
       res.write(line)
