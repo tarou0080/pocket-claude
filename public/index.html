@@ -1787,6 +1787,7 @@ function ensureTabState(session) {
     pane,
     autoScroll: true,  // デフォルトで自動スクロール有効
     _initialLoaded: false,  // 一括描画済みフラグ
+    lastLine: -1,  // 受信済み最終行番号（paneと同寿命。リロードで-1に戻り全文再取得）
     model: session.model || appSettings.defaultModel || '',
     effort: session.effort !== undefined ? session.effort : (appSettings.effort || ''),
     thinking: session.thinking !== undefined ? session.thinking : appSettings.thinking,
@@ -1852,7 +1853,7 @@ function createTabEl(session) {
 // ── タブ削除 ──
 async function deleteTab(sessionId) {
   clearRateLimitPanel(sessionId)
-  localStorage.removeItem(`pc-lastline-${sessionId}`)
+  // lastLineはtabState[sessionId]に同梱されdelete tabState[...]で一緒に消える（下記）
   fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
   tabBar.querySelector(`[data-session-id="${sessionId}"]`)?.remove()
   tabState[sessionId]?.pane.remove()
@@ -2543,14 +2544,18 @@ async function cancelScheduledPost(id) {
   }
 }
 
-// ── 行番号オフセット（localStorage） ──
-// キー: pc-lastline-<sessionId>、値: 最後に受信した行番号（数値）。未保存=-1
+// ── 行番号オフセット（in-memory: tabState[sessionId].lastLine） ──
+// 描画済みメッセージ(pane DOM)と同じ寿命にするためメモリに置く。完全リロードで
+// tabStateごと消える→lastLine=-1→fromLine=0→全文再取得され再描画される（真っ黒対策）。
+// タブ切替/回線復帰ではtabState/paneが残るのでlastLineも保持され増分のみ取得。
+// 値: 最後に受信した行番号。未取得=-1
 function getLastLine(sessionId) {
-  const v = localStorage.getItem(`pc-lastline-${sessionId}`)
-  return v !== null ? parseInt(v, 10) : -1
+  const ts = tabState[sessionId]
+  return ts && ts.lastLine != null ? ts.lastLine : -1
 }
 function setLastLine(sessionId, lineId) {
-  localStorage.setItem(`pc-lastline-${sessionId}`, String(lineId))
+  const ts = tabState[sessionId]
+  if (ts) ts.lastLine = lineId
 }
 
 // ── SSE接続 ──
