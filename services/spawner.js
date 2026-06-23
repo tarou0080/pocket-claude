@@ -12,10 +12,18 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   const s = getState(sessionId)
 
   const permissionMode = config.permissionMode || 'ask'
+
+  // プロキシ経由モデル(GLM等): 該当時のみ翻訳プロキシへ向ける環境変数を子プロセスに注入する。
+  // 非選択時は process.env そのまま＝プロキシが落ちていても他モデルは完全に無影響。
+  const proxyEnv = (config.proxyModels && config.proxyModels[model]) || null
+
   const settings = {}
-  if (effort) settings.effort = effort
-  if (thinking === 'on' || thinking === true) settings.alwaysThinkingEnabled = true
-  else if (thinking === 'off' || thinking === false) settings.alwaysThinkingEnabled = false
+  // effort/alwaysThinkingEnabled は Claude 固有設定。プロキシ経由(GLM等)では送らない。
+  if (!proxyEnv) {
+    if (effort) settings.effort = effort
+    if (thinking === 'on' || thinking === true) settings.alwaysThinkingEnabled = true
+    else if (thinking === 'off' || thinking === false) settings.alwaysThinkingEnabled = false
+  }
 
   const args = [
     ...(claudeSessionId ? ['--resume', claudeSessionId] : []),
@@ -44,7 +52,7 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   console.log(`[spawn] project=${project} cwd=${projectDir}`)
   const proc = spawn('claude', args, {
     cwd: projectDir,
-    env: { ...process.env },
+    env: { ...process.env, ...(proxyEnv || {}) },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   s.process = proc
