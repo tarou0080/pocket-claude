@@ -2769,13 +2769,17 @@ function resolveToolContent(content, toolUseResult) {
 
 // ── イベント処理 ──
 function handleEvent(sessionId, ev, isLive = true) {
+  // isLive===false（event:history の再生）では永続/再接続跨ぎ状態
+  // （rate-limitカード・送信待ちキュー・isRunning）を一切変更しない＝描画専用。
+  // 状態の真実源は onopen のサーバー照合（/api/status・restoreRateLimitPanel）。
+  // replayで状態を触ると bec3682/0355997/今回(自動再開カード消失) と同じ穴になる。
   const ts = tabState[sessionId]
   if (!ts) return
   const isActive = sessionId === currentSessionId
 
   switch (ev.type) {
     case 'user_input':
-      clearRateLimitPanel(sessionId)
+      if (isLive) clearRateLimitPanel(sessionId)
       if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
@@ -2936,7 +2940,7 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'done': {
       finalizeText(ts)
-      ts.isRunning = false
+      if (isLive) ts.isRunning = false
       const ctxMaxD = ts._ctxMax || CTX_MAX
       const fmtKD = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
       const pct = Math.round(ts._ctxTokens / ctxMaxD * 100)
@@ -2951,7 +2955,7 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'error':
       finalizeText(ts)
-      ts.isRunning = false
+      if (isLive) ts.isRunning = false
       addLine(ts, `Error: ${ev.message}`, 'line-error')
       if (isActive) updateUI()
       break
@@ -2968,10 +2972,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       break
 
     case 'queue_update':
-      handleQueueUpdate(sessionId, ev.queue || [])
-      break
-
-    case 'done':
+      if (isLive) handleQueueUpdate(sessionId, ev.queue || [])
       break
 
     case 'raw':
