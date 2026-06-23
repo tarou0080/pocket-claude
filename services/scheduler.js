@@ -4,9 +4,29 @@ const { getClaudeSessionId } = require('./sessions')
 
 const SCHEDULES_FILE = path.join(__dirname, '..', 'schedules.json')
 
-// sessionId -> { resetAt, prompt, project, model, effort, thinking, timerId }
-// prompt が null の場合は状態記録のみ（タイマーなし）
+// resetAt ちょうどに発火すると API のリセット境界 race condition で即 429 になるため、
+// 実際のキックは resetAt から 3分後にする（旧 60秒 から拡大）。
+const RESUME_BUFFER_MS = 180000
+// 同じ時刻に再開するセッションが複数あると一斉再送で再び制限に当たる。
+// 衝突するものは 3分 ずつ後ろの空きスロットへずらす。
+const STAGGER_MS = 180000
+
+// sessionId -> { resetAt, prompt, project, model, effort, thinking, fireAt, timerId }
+// prompt が null の場合は状態記録のみ（再開しない＝ずらし対象外）
+// fireAt は実際にタイマーが発火する時刻(ms)。カードはこの時刻を表示する。
 const schedules = new Map()
+
+// 他の「実際に再開する(prompt有り)」エントリの fireAt と STAGGER_MS 未満で
+// 被らない発火時刻を返す。被る間は STAGGER_MS ずつ後ろへずらす。
+function computeFireAt(baseFireAt, excludeSessionId) {
+  const taken = []
+  schedules.forEach((s, id) => {
+    if (id !== excludeSessionId && s.prompt && s.fireAt) taken.push(s.fireAt)
+  })
+  let fireAt = baseFireAt
+  while (taken.some(t => Math.abs(t - fireAt) < STAGGER_MS)) fireAt += STAGGER_MS
+  return fireAt
+}
 
 function saveSchedules() {
   const data = {}
@@ -61,16 +81,19 @@ function scheduleResume(sessionId, resetAt, prompt, project, model, effort, thin
   const existing = schedules.get(sessionId)
   if (!prompt && existing && existing.prompt) return
   cancelResume(sessionId)
+  const baseFireAt = Math.max(Date.now(), new Date(resetAt).getTime()) + RESUME_BUFFER_MS
+  // prompt有り（実際に再開する）エントリのみ同時刻衝突を避けてずらす
+  const fireAt = prompt ? computeFireAt(baseFireAt, sessionId) : baseFireAt
   const entry = {
     resetAt,
     prompt: prompt || null,
     project,
     model: model || null,
     effort: effort || null,
-    thinking: thinking || null
+    thinking: thinking || null,
+    fireAt
   }
-  // +60s buffer: API の rate limit は resetAt ちょうどに発火すると境界で弾かれる race condition がある
-  const delay = Math.max(0, new Date(resetAt).getTime() - Date.now()) + 60000
+  const delay = Math.max(0, fireAt - Date.now())
   if (prompt) {
     entry.timerId = setTimeout(() => doResume(sessionId), delay)
   } else {
@@ -102,7 +125,11 @@ function cancelResume(sessionId) {
 function getSchedule(sessionId) {
   const s = schedules.get(sessionId)
   if (!s) return null
-  return { resetAt: s.resetAt, autoResume: !!s.prompt }
+  return {
+    resetAt: s.resetAt,
+    fireAt: s.fireAt ? new Date(s.fireAt).toISOString() : null,
+    autoResume: !!s.prompt
+  }
 }
 
 function loadSchedules() {
@@ -112,8 +139,11 @@ function loadSchedules() {
     for (const [sessionId, s] of Object.entries(data)) {
       const resetTime = new Date(s.resetAt).getTime()
       if (resetTime > now) {
-        const entry = { ...s }
-        const delay = resetTime - now + 60000
+        // 再起動後も同じバッファ・ずらしロジックで発火時刻を再計算する
+        const baseFireAt = Math.max(now, resetTime) + RESUME_BUFFER_MS
+        const fireAt = s.prompt ? computeFireAt(baseFireAt, sessionId) : baseFireAt
+        const entry = { ...s, fireAt }
+        const delay = Math.max(0, fireAt - now)
         if (s.prompt) {
           entry.timerId = setTimeout(() => doResume(sessionId), delay)
         } else {

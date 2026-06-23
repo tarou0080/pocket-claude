@@ -2126,33 +2126,61 @@ async function scheduleResumeForSession(sessionId) {
   const ts = tabState[sessionId]
   if (!ts || !ts.rl || !ts.rl.resetAt) return
   const session = loadSessions().find(s => s.sessionId === sessionId)
-  await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      resetAt: ts.rl.resetAt.toISOString(),
-      prompt: appSettings.resumePrompt || '続けてください',
-      project: session?.project ?? null,
-      model: (ts.model || appSettings.defaultModel) || null,
-      effort: (ts.effort ?? appSettings.effort) || null,
-      thinking: ts.thinking ?? appSettings.thinking
+  try {
+    const r = await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        resetAt: ts.rl.resetAt.toISOString(),
+        prompt: appSettings.resumePrompt || '続けてください',
+        project: session?.project ?? null,
+        model: (ts.model || appSettings.defaultModel) || null,
+        effort: (ts.effort ?? appSettings.effort) || null,
+        thinking: ts.thinking ?? appSettings.thinking
+      })
     })
-  }).catch(() => {})
+    // サーバーが計算した実際のキック時刻(fireAt)をカードへ反映（ずらし結果を表示）
+    const data = await r.json().catch(() => null)
+    if (data && data.fireAt) applyFireAt(sessionId, new Date(data.fireAt))
+  } catch {}
 }
 
-function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
+// 実際のキック時刻(fireAt)をカードへ反映：時刻ラベル・カウントダウン・自動消去タイマーを更新
+function applyFireAt(sessionId, fireAt) {
+  const ts = tabState[sessionId]
+  if (!ts || !ts.rl || !ts.rl.el) return
+  ts.rl.fireAt = fireAt
+  const timeEl = ts.rl.el.querySelector('.rl-time')
+  if (timeEl && ts.rl.autoResume) {
+    const h = fireAt.getHours().toString().padStart(2, '0')
+    const m = fireAt.getMinutes().toString().padStart(2, '0')
+    timeEl.textContent = `再開予定: ${h}:${m}`
+  }
+  if (ts.rl.autoClearId) { clearTimeout(ts.rl.autoClearId); ts.rl.autoClearId = null }
+  ts.rl.autoClearId = setTimeout(() => {
+    const cur = tabState[sessionId]
+    if (cur && cur.rl && !cur.rl.autoResume) clearRateLimitPanel(sessionId)
+  }, Math.max(0, fireAt.getTime() - Date.now()))
+  if (ts.rl.autoResume) startRateLimitCountdown(sessionId)
+}
+
+function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false, fireAt = null) {
   const ts = tabState[sessionId]
   if (!ts) return
-  if (resetAt && resetAt <= new Date()) {
-    clientLog('showRateLimitPanel:skipped', { sessionId, reason: 'resetAt in past', resetAt: resetAt?.toISOString() })
+  // 表示の生死判定は実際にキックする時刻(fireAt)優先。
+  // ずらしの結果 resetAt は過ぎていても fireAt が未来ならカードは残す。
+  const liveTarget = fireAt || resetAt
+  if (liveTarget && liveTarget <= new Date()) {
+    clientLog('showRateLimitPanel:skipped', { sessionId, reason: 'fireAt/resetAt in past', resetAt: resetAt?.toISOString(), fireAt: fireAt?.toISOString() })
     return
   }
-  clientLog('showRateLimitPanel:called', { sessionId, resetAt: resetAt?.toISOString() || null, autoResumeOn })
+  clientLog('showRateLimitPanel:called', { sessionId, resetAt: resetAt?.toISOString() || null, fireAt: fireAt?.toISOString() || null, autoResumeOn })
   if (!ts.rl) ts.rl = {}
   if (ts.rl.el) { ts.rl.el.remove(); ts.rl.el = null }
   if (ts.rl.countdownId) { clearInterval(ts.rl.countdownId); ts.rl.countdownId = null }
   if (ts.rl.autoClearId) { clearTimeout(ts.rl.autoClearId); ts.rl.autoClearId = null }
   ts.rl.resetAt = resetAt
+  ts.rl.fireAt = fireAt
   ts.rl.autoResume = autoResumeOn
 
   const panel = document.createElement('div')
@@ -2211,9 +2239,12 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
     toggle.appendChild(onBtn)
     row.appendChild(toggle)
 
-    const h = resetAt.getHours().toString().padStart(2, '0')
-    const m = resetAt.getMinutes().toString().padStart(2, '0')
-    timeEl.textContent = `リセット: ${h}:${m}`
+    // ONかつ実キック時刻が分かっていれば「再開予定」を表示、それ以外は「リセット」時刻
+    const showFire = autoResumeOn && ts.rl.fireAt
+    const t = showFire ? ts.rl.fireAt : resetAt
+    const h = t.getHours().toString().padStart(2, '0')
+    const m = t.getMinutes().toString().padStart(2, '0')
+    timeEl.textContent = showFire ? `再開予定: ${h}:${m}` : `リセット: ${h}:${m}`
   } else {
     timeEl.textContent = 'リセット時刻: 不明'
   }
@@ -2223,10 +2254,10 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
   panel.appendChild(countdown)
   ts.pane.appendChild(panel)
 
-  if (autoResumeOn && resetAt) startRateLimitCountdown(sessionId)
+  if (autoResumeOn && (fireAt || resetAt)) startRateLimitCountdown(sessionId)
 
-  if (resetAt) {
-    const delay = Math.max(0, resetAt.getTime() - Date.now())
+  if (fireAt || resetAt) {
+    const delay = Math.max(0, (fireAt || resetAt).getTime() - Date.now())
     ts.rl.autoClearId = setTimeout(() => {
       const cur = tabState[sessionId]
       // クライアント表示の消去のみ。サーバーDELETEはしない（ON登録を一時的なクライアント状態で破壊しないため）。
@@ -2238,12 +2269,13 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false) {
 
 function startRateLimitCountdown(sessionId) {
   const ts = tabState[sessionId]
-  if (!ts || !ts.rl || !ts.rl.resetAt || !ts.rl.el) return
+  if (!ts || !ts.rl || !(ts.rl.fireAt || ts.rl.resetAt) || !ts.rl.el) return
   if (ts.rl.countdownId) clearInterval(ts.rl.countdownId)
   const countdown = ts.rl.el.querySelector('.rl-countdown')
   function tick() {
     if (!ts.rl) return
-    const diff = ts.rl.resetAt.getTime() - Date.now()
+    // 実際にキックする時刻(fireAt)までをカウントダウンする
+    const diff = (ts.rl.fireAt || ts.rl.resetAt).getTime() - Date.now()
     if (diff <= 0) {
       clearInterval(ts.rl.countdownId)
       ts.rl.countdownId = null
@@ -2274,10 +2306,11 @@ async function restoreRateLimitPanel(sessionId) {
   // ts.rl は pane.innerHTML = '' 後もメモリに残る（同端末の再接続で使用）
   // el が DOM に接続済みなら再生成しない（タブ切り替え時の二重表示防止）
   // el が detach されている場合のみ復元（reconnect で pane.innerHTML = '' された直後）
-  if (ts.rl && ts.rl.resetAt && ts.rl.resetAt > new Date()) {
+  const memTarget = ts.rl && (ts.rl.fireAt || ts.rl.resetAt)
+  if (memTarget && memTarget > new Date()) {
     if (!ts.rl.el || !ts.rl.el.isConnected) {
-      clientLog('restoreRateLimitPanel:memory', { sessionId, resetAt: ts.rl.resetAt.toISOString(), autoResume: ts.rl.autoResume ?? false })
-      showRateLimitPanel(sessionId, ts.rl.resetAt, ts.rl.autoResume ?? false)
+      clientLog('restoreRateLimitPanel:memory', { sessionId, resetAt: ts.rl.resetAt?.toISOString(), fireAt: ts.rl.fireAt?.toISOString(), autoResume: ts.rl.autoResume ?? false })
+      showRateLimitPanel(sessionId, ts.rl.resetAt, ts.rl.autoResume ?? false, ts.rl.fireAt || null)
     } else {
       clientLog('restoreRateLimitPanel:memory-skip', { sessionId, reason: 'el already connected' })
     }
@@ -2285,15 +2318,17 @@ async function restoreRateLimitPanel(sessionId) {
   }
   try {
     const data = await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`).then(r => r.json())
-    clientLog('restoreRateLimitPanel:server', { sessionId, resetAt: data.resetAt || null, autoResume: data.autoResume ?? null })
+    clientLog('restoreRateLimitPanel:server', { sessionId, resetAt: data.resetAt || null, fireAt: data.fireAt || null, autoResume: data.autoResume ?? null })
     if (data.resetAt) {
       const resetAt = new Date(data.resetAt)
-      if (resetAt > new Date()) {
-        showRateLimitPanel(sessionId, resetAt, data.autoResume ?? false)
+      const fireAt = data.fireAt ? new Date(data.fireAt) : null
+      // 生死は実際のキック時刻(fireAt)優先。ずらしで resetAt は過ぎていても fireAt が未来なら残す。
+      if ((fireAt || resetAt) > new Date()) {
+        showRateLimitPanel(sessionId, resetAt, data.autoResume ?? false, fireAt)
         // サーバーエントリはここではDELETEしない。制限中はリロード何回目でもパネルを出すのが正で、
         // 期限切れエントリの破棄はサーバー（schedulerのexpire/loadSchedules）が管理する。
       } else {
-        clientLog('restoreRateLimitPanel:server-skip', { sessionId, reason: 'resetAt in past' })
+        clientLog('restoreRateLimitPanel:server-skip', { sessionId, reason: 'fireAt/resetAt in past' })
         clearRateLimitPanel(sessionId)  // 再開済み（リセット時刻経過）→ 取り残しパネルを消す
       }
     } else {

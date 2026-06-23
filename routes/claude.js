@@ -132,7 +132,8 @@ router.post('/schedule-resume/:sessionId', (req, res) => {
   if (!sessionId || !resetAt) return res.status(400).json({ error: 'sessionId, resetAt required' })
   console.log(`[schedule-resume] POST sessionId=${sessionId} autoResume=${!!prompt} resetAt=${resetAt}`)
   scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking)
-  res.json({ ok: true })
+  // 計算後の実際のキック時刻(fireAt)を返し、クライアントがカードに表示できるようにする
+  res.json(getSchedule(sessionId) || { ok: true })
 })
 
 // 自動再開スケジュールキャンセル
