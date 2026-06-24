@@ -2338,6 +2338,28 @@ async function restoreRateLimitPanel(sessionId) {
   } catch {}
 }
 
+// 背面タブ（SSE未接続）の永続状態をサーバー照合で復元する。
+// 前面タブは connectSSE の onopen が同等の照合を行うため、ここでは扱わない。
+// リロード/回線復帰/iPhone復帰で「前面1タブしか復元しない」穴を塞ぐ唯一の経路（プル型・冪等）。
+async function reconcileSession(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+  try {
+    const data = await fetch(`/api/status?session=${encodeURIComponent(sessionId)}`).then(r => r.json())
+    ts.isRunning = !!data.running        // サーバーを正としてバッジを照合（背面タブの古いtrue/falseを上書き）
+    handleQueueUpdate(sessionId, data.queue || [])  // 送信待ちキューもサーバー照合
+  } catch {}
+  await restoreRateLimitPanel(sessionId) // 再開カードを照合
+  updateUI()                             // 全タブのバッジを再描画
+}
+
+// 前面タブ以外を全て照合する（前面はSSE接続のonopenが復元するため除外）。
+function reconcileBackgroundTabs() {
+  loadSessions().forEach(s => {
+    if (s.sessionId !== currentSessionId) reconcileSession(s.sessionId)
+  })
+}
+
 // ── 初期化 ──
 async function init() {
   applyTheme()
@@ -2386,6 +2408,12 @@ async function init() {
   const lastSessionId = localStorage.getItem('currentSessionId')
   const startSession = sessions.find(s => s.sessionId === lastSessionId) || sessions[0]
   switchTab(startSession.sessionId)
+
+  // 前面タブは switchTab で復元済み。背面タブの永続状態（カード・実行中・キュー）も
+  // ここで全タブ照合する（前面1タブしか復元されずカードが消える問題の根治）。
+  sessions.forEach(s => {
+    if (s.sessionId !== startSession.sessionId) reconcileSession(s.sessionId)
+  })
 
   // 定期的に更新（1分毎）
   setInterval(loadScheduledPosts, 60000)
@@ -2753,6 +2781,8 @@ function startNetworkMonitoring() {
       reconnectAttempts = 0
       connectSSE(currentSessionId)
     }
+    // 背面タブの永続状態も全照合（前面は上の再接続で復元される）
+    reconcileBackgroundTabs()
   })
 
   window.addEventListener('offline', () => {
@@ -2775,6 +2805,8 @@ function startNetworkMonitoring() {
         reconnectAttempts = 0
         connectSSE(currentSessionId)
       }
+      // 背面タブの永続状態も全照合（前面は上の再接続で復元される）
+      reconcileBackgroundTabs()
     }
   })
 
