@@ -34,6 +34,8 @@ router.get('/', (req, res) => {
   all.slice(fromLine).forEach((ev, i) => {
     res.write(`event: history\nid: ${fromLine + i}\ndata: ${JSON.stringify(ev)}\n\n`)
   })
+  // キャッシュlastLineがサーバー実行数を超えていない（stale）かチェックするためのメタ情報
+  res.write(`event: history-meta\ndata: ${JSON.stringify({ maxLine: all.length - 1 })}\n\n`)
   registerSSEClient(sessionId, res)
 
   const heartbeat = setInterval(() => {

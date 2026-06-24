@@ -1794,6 +1794,17 @@ function ensureTabState(session) {
     draftPrompt: session.draftPrompt || '',
   }
 
+  // ツール行クリック委譲リスナー（要素ごとリスナーの代替。HTML復元後もDOM構造で動作する）
+  pane.addEventListener('click', (e) => {
+    const toolLine = e.target.closest('.line-tool')
+    if (!toolLine || !pane.contains(toolLine)) return
+    const resultDiv = toolLine.nextElementSibling
+    if (!resultDiv || !resultDiv.classList.contains('tool-result')) return
+    const expanded = resultDiv.classList.toggle('expanded')
+    const toggleSpan = toolLine.querySelector('.tool-toggle')
+    if (toggleSpan) toggleSpan.textContent = expanded ? '▾' : '▸'
+  })
+
   // ユーザーが手動でスクロールしたら自動スクロールを無効化
   pane.addEventListener('scroll', () => {
     const ts = tabState[session.sessionId]
@@ -1853,6 +1864,7 @@ function createTabEl(session) {
 // ── タブ削除 ──
 async function deleteTab(sessionId) {
   clearRateLimitPanel(sessionId)
+  deleteConv(sessionId)  // IndexedDBキャッシュも削除
   // lastLineはtabState[sessionId]に同梱されdelete tabState[...]で一緒に消える（下記）
   fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
   tabBar.querySelector(`[data-session-id="${sessionId}"]`)?.remove()
@@ -1927,6 +1939,7 @@ async function switchTab(sessionId) {
   applyTabSettings(sessionId)
   updateUI()
   renderQueuePanel(sessionId)
+  await restoreConvCache(sessionId)  // IndexedDBキャッシュから会話を復元（フレッシュ時のみ）
   await connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
   await restoreRateLimitPanel(sessionId)  // SSE接続完了後に確実に復元
   updateScrollBtn()
@@ -2415,6 +2428,21 @@ async function init() {
     if (s.sessionId !== startSession.sessionId) reconcileSession(s.sessionId)
   })
 
+  // 存在しないセッションのキャッシュを掃除（容量肥大防止）
+  ;(async () => {
+    try {
+      const db = await openConvDB()
+      const keys = await new Promise((resolve, reject) => {
+        const tx = db.transaction('conversations', 'readonly')
+        const req = tx.objectStore('conversations').getAllKeys()
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const activeIds = new Set(loadSessions().map(s => s.sessionId))
+      keys.forEach(k => { if (!activeIds.has(k)) deleteConv(k) })
+    } catch {}
+  })()
+
   // 定期的に更新（1分毎）
   setInterval(loadScheduledPosts, 60000)
 
@@ -2618,7 +2646,98 @@ function getLastLine(sessionId) {
 }
 function setLastLine(sessionId, lineId) {
   const ts = tabState[sessionId]
-  if (ts) ts.lastLine = lineId
+  if (ts) {
+    ts.lastLine = lineId
+    scheduleConvSave(sessionId)
+  }
+}
+
+// ── 会話IndexedDBキャッシュ ──
+// DB名: pocket-claude、store: conversations、keyPath: sessionId
+// レコード: { sessionId, html, lastLine, savedAt }
+// 中身(html)とオフセット(lastLine)は必ず同寿命で1レコードに保存する。
+// IndexedDB不可・例外時は握りつぶしてキャッシュ無効として動作継続。
+
+let _convDB = null
+function openConvDB() {
+  if (_convDB) return Promise.resolve(_convDB)
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open('pocket-claude', 1)
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result
+        if (!db.objectStoreNames.contains('conversations')) {
+          db.createObjectStore('conversations', { keyPath: 'sessionId' })
+        }
+      }
+      req.onsuccess = (e) => { _convDB = e.target.result; resolve(_convDB) }
+      req.onerror = () => reject(req.error)
+    } catch (err) { reject(err) }
+  })
+}
+
+async function loadConv(sessionId) {
+  try {
+    const db = await openConvDB()
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('conversations', 'readonly')
+      const req = tx.objectStore('conversations').get(sessionId)
+      req.onsuccess = () => resolve(req.result || null)
+      req.onerror = () => reject(req.error)
+    })
+  } catch { return null }
+}
+
+async function saveConvNow(sessionId) {
+  try {
+    const ts = tabState[sessionId]
+    if (!ts) return
+    const html = ts.pane.innerHTML
+    const lastLine = getLastLine(sessionId)
+    const db = await openConvDB()
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('conversations', 'readwrite')
+      const req = tx.objectStore('conversations').put({ sessionId, html, lastLine, savedAt: Date.now() })
+      req.onsuccess = () => resolve()
+      req.onerror = () => reject(req.error)
+    })
+  } catch {}
+}
+
+async function deleteConv(sessionId) {
+  try {
+    const db = await openConvDB()
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('conversations', 'readwrite')
+      const req = tx.objectStore('conversations').delete(sessionId)
+      req.onsuccess = () => resolve()
+      req.onerror = () => reject(req.error)
+    })
+  } catch {}
+}
+
+const _convSaveTimers = {}
+function scheduleConvSave(sessionId) {
+  if (_convSaveTimers[sessionId]) clearTimeout(_convSaveTimers[sessionId])
+  _convSaveTimers[sessionId] = setTimeout(() => {
+    delete _convSaveTimers[sessionId]
+    saveConvNow(sessionId)
+  }, 800)
+}
+
+// 復元: フレッシュ時のみキャッシュから会話を復元する（タブ切替で既に中身ある場合は上書きしない）
+async function restoreConvCache(sessionId) {
+  try {
+    const ts = tabState[sessionId]
+    if (!ts) return
+    // フレッシュ時のみ復元（lastLine!==-1 か pane に既にコンテンツがあれば何もしない）
+    if (ts.lastLine !== -1 || ts.pane.firstChild) return
+    const rec = await loadConv(sessionId)
+    if (rec && rec.html) {
+      ts.pane.innerHTML = rec.html
+      ts.lastLine = (typeof rec.lastLine === 'number' ? rec.lastLine : -1)
+    }
+  } catch {}
 }
 
 // ── SSE接続 ──
@@ -2714,6 +2833,21 @@ function connectSSEStream(sessionId) {
             setTimeout(() => { ts.pane.scrollTop = ts.pane.scrollHeight }, 100)
           }
         })
+      }
+    } catch {}
+  })
+
+  // キャッシュlastLineがサーバー最大行を超えている場合（jsonl削除・セッション再利用）はキャッシュ破棄して全文取り直し
+  es.addEventListener('history-meta', (e) => {
+    try {
+      const { maxLine } = JSON.parse(e.data)
+      if (getLastLine(sessionId) > maxLine) {
+        // キャッシュがサーバーより先に進んでいる＝stale。破棄して全文取り直し。
+        const ts = tabState[sessionId]
+        if (ts) { ts.pane.innerHTML = ''; ts.lastLine = -1 }
+        deleteConv(sessionId)
+        if (currentES) { currentES.close(); currentES = null }
+        connectSSEStream(sessionId)  // fromLine=0で再接続（maxLine>=-1なので無限ループしない）
       }
     } catch {}
   })
@@ -2896,7 +3030,8 @@ function handleEvent(sessionId, ev, isLive = true) {
           if (item.type === 'tool_result') {
             const toolId = item.tool_use_id
             const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
-            if (toolEl && toolEl._resultDiv && toolEl.dataset.toolType !== 'ask') {
+            const rd = toolEl?._resultDiv || toolEl?.nextElementSibling
+            if (toolEl && rd && rd.classList?.contains('tool-result') && toolEl.dataset.toolType !== 'ask') {
               renderToolResult(toolEl, resolveToolContent(item.content, ev.tool_use_result), item.is_error)
             }
           }
@@ -3052,7 +3187,8 @@ function handleEvent(sessionId, ev, isLive = true) {
               if (item.type === 'tool_result') {
                 const toolId = item.tool_use_id
                 const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
-                if (toolEl && toolEl._resultDiv && toolEl.dataset.toolType !== 'ask') {
+                const rd = toolEl?._resultDiv || toolEl?.nextElementSibling
+                if (toolEl && rd && rd.classList?.contains('tool-result') && toolEl.dataset.toolType !== 'ask') {
                   renderToolResult(toolEl, resolveToolContent(item.content, parsed.tool_use_result), item.is_error)
                 }
               }
@@ -3163,11 +3299,6 @@ function addToolLine(ts, toolName, toolId) {
   const resultDiv = document.createElement('div')
   resultDiv.className = 'tool-result'
 
-  div.addEventListener('click', () => {
-    const expanded = resultDiv.classList.toggle('expanded')
-    toggleSpan.textContent = expanded ? '▾' : '▸'
-  })
-
   ts.pane.appendChild(div)
   ts.pane.appendChild(resultDiv)
 
@@ -3223,7 +3354,7 @@ function updateToolDesc(toolEl, params) {
 }
 
 function renderToolResult(toolEl, resultText, isError) {
-  const rd = toolEl._resultDiv
+  const rd = toolEl._resultDiv || toolEl.nextElementSibling
   if (!rd) return
   const toolName = toolEl.querySelector('.tool-name')?.textContent.replace(/[\[\]]/g, '') || ''
   const params = toolEl._toolParams || {}
