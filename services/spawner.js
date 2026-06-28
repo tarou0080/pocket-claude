@@ -10,6 +10,9 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   const projects = config.projects
   const projectDir = projects[project] || projects[Object.keys(projects)[0]]
   const s = getState(sessionId)
+  // spawn時のモデルを記録。/api/send がアイドル時のモデル変更を検知し、
+  // 異なれば --resume で再起動して新モデルを適用するために使う。
+  s.model = model || null
 
   const permissionMode = config.permissionMode || 'ask'
 

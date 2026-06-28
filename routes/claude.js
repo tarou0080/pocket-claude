@@ -37,6 +37,24 @@ router.post('/send', async (req, res) => {
 
   const s = getState(actualSessionId)
 
+  // アイドル中(ターン外)にモデルが変更された場合は、常駐プロセスを停止して
+  // --resume で新モデル再起動する（会話文脈は継続）。ターン中は表示側でモデル選択を
+  // ロックしているため、ここに来る変更は基本アイドル時のみ。turning中は従来どおり注入。
+  if (s.process && !s.turning && (model || null) !== (s.model || null)) {
+    console.log(`[send] model switch ${s.model || 'default'} → ${model || 'default'} : restart with --resume sessionId=${actualSessionId}`)
+    s.pendingQueue = []
+    const oldProc = s.process
+    // spawnerのcloseハンドラ(=s.process=null/doneブロードキャスト)を外す。
+    // タイムアウト先行時に遅れて発火し、再起動後の新プロセスを誤って無効化するレースを防ぐ。
+    oldProc.removeAllListeners('close')
+    await new Promise(resolve => {
+      oldProc.once('close', resolve)
+      oldProc.kill('SIGTERM')
+      setTimeout(resolve, 3000) // 終了が来ない場合の保険
+    })
+    if (s.process === oldProc) s.process = null // 未起動扱いに戻し、startClaude(--resume) へ進ませる
+  }
+
   if (s.process) {
     // プロセス稼働中 → 直接stdinに注入（割り込み送信）
     const injected = injectPrompt(actualSessionId, prompt, imageData)

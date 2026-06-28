@@ -2456,6 +2456,9 @@ function getTS() { return tabState[currentSessionId] || {} }
 function updateUI() {
   const ts = getTS()
   const running = ts.isRunning || false
+  // 走行中はモデル切替をロック。常駐プロセスのモデルはspawn時の--modelで固定のため、
+  // ターン中の変更は反映できない。アイドル復帰後の変更は次回送信時に--resume再起動で適用する。
+  modelSel.disabled = running
   // disconnected状態を維持（再接続中は上書きしない）
   if (!statusDot.classList.contains('disconnected')) {
     statusDot.className = running ? 'running' : 'connected'
@@ -2692,7 +2695,12 @@ async function saveConvNow(sessionId) {
   try {
     const ts = tabState[sessionId]
     if (!ts) return
-    const html = ts.pane.innerHTML
+    // 再開カード(.rl-panel)は一時UI。会話キャッシュに焼き込むとリロード時に
+    // 死んだカードが復元され、restoreRateLimitPanelの生カードと二重表示になる。
+    // 保存前にcloneから除去して会話ログ本体だけをキャッシュする。
+    const snapshot = ts.pane.cloneNode(true)
+    snapshot.querySelectorAll('.rl-panel').forEach(el => el.remove())
+    const html = snapshot.innerHTML
     const lastLine = getLastLine(sessionId)
     const db = await openConvDB()
     await new Promise((resolve, reject) => {
@@ -2735,6 +2743,9 @@ async function restoreConvCache(sessionId) {
     const rec = await loadConv(sessionId)
     if (rec && rec.html) {
       ts.pane.innerHTML = rec.html
+      // 旧バージョンが焼き込んだ死んだ再開カードを除去（既存キャッシュ救済）。
+      // 生きたカードは直後の restoreRateLimitPanel が再生成する。
+      ts.pane.querySelectorAll('.rl-panel').forEach(el => el.remove())
       ts.lastLine = (typeof rec.lastLine === 'number' ? rec.lastLine : -1)
     }
   } catch {}
