@@ -4,6 +4,23 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.3.0] - 2026-07-01
+
+### Added
+- **GLM-5.2 (Cloudflare) model option** - Opt-in alternative backend. Only sessions that explicitly select it are routed through a translation proxy; the default Claude path is unaffected and has zero dependency on the proxy's availability.
+- **Auto-resume improvements** - Rate-limit auto-resume now waits reset-time + 3 minutes (was +60s) before retrying, and staggers simultaneous resumes across sessions 3 minutes apart to avoid re-triggering the limit. Resume cards now show the actual scheduled kick-off time instead of a generic countdown.
+- **Auto-resume default-on setting** - New setting to have rate-limited sessions automatically resume without manually toggling it per incident; persists server-side so it still fires if the client was disconnected when the limit hit. New scheduled-post modals default their date/time field to the rate-limit reset time while a limit is active.
+
+### Fixed
+- **Instant conversation restore on reload** - Rendered conversation HTML is now cached (IndexedDB) and restored immediately on page reload, then synced incrementally instead of re-fetching and re-rendering the entire history from scratch.
+- **Background-tab state loss on reload** - Resume cards, the running-session badge, and the send queue are now reconciled against the server for every open tab (not just the foreground one) on reload, reconnect, and app-resume, so state left in background tabs is no longer lost.
+- **Stale/zombie state during reconnect replay** - Log replay after a reconnect is now tagged distinctly from live events, so replaying old history can no longer resurrect an already-resolved rate-limit card, clear a still-relevant one, or otherwise disturb live UI state.
+- **Full-reload blank-conversation regression** - Fixed a case where a hard reload could show an empty conversation instead of the cached history.
+- **Resume card double-display and model-switch lag** - Fixed the resume card occasionally appearing twice, and model switches now reflect immediately rather than on the next message.
+
+### Changed
+- Model list updated: Claude Sonnet 4.6 replaced with Claude Sonnet 5 (`claude-sonnet-5`).
+
 ## [v2.2.0] - 2026-06-12
 
 ### Security
