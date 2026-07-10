@@ -17,6 +17,9 @@ if (isNaN(PORT) || PORT < 1024 || PORT > 65535) {
   console.error(`[startup] Invalid PORT: ${process.env.PORT || config.port}`)
   process.exit(1)
 }
+// バインド先アドレス。既定は全IF(0.0.0.0)だが config.host で特定IFに限定できる。
+// リバースプロキシ(Nicky)経由の外部公開のみ許可し家庭LANから直叩きさせない場合は "10.0.0.10"。
+const HOST = process.env.HOST || config.host || '0.0.0.0'
 
 // ディレクトリ初期化
 initDirectories()
@@ -103,8 +106,8 @@ app.use('/api/projects', projectsRouter)
 app.use('/api/scheduled-posts', scheduledPostsRouter)
 app.use('/api/server-config', serverConfigRouter)
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`pocket-claude v4 (modular) running on port ${PORT}`)
+const server = app.listen(PORT, HOST, () => {
+  console.log(`pocket-claude v4 (modular) running on ${HOST}:${PORT}`)
 })
 
 server.on('error', (err) => {
