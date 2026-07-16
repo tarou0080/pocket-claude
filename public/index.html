@@ -2817,14 +2817,18 @@ function connectSSEStream(sessionId) {
     reconnectAttempts = 0
     lastHeartbeat = Date.now()
     if (currentSessionId === sessionId) {
-      statusDot.className = 'connected'
-      statusDot.textContent = ''
-      // 履歴再生(isLive=false)では取れない実行中状態をサーバーと同期してから描画
+      // 緑(connected)を強制せず、disconnectedだけ解除して既知状態のまま描画する。
+      // 実行中の再接続で 30px枠→8pxドット→30px枠 と形が跳ねるのを防ぐ（照合結果はfetch後に反映）
+      statusDot.classList.remove('disconnected')
+      updateUI()
+      // 履歴再生(isLive=false)では取れない実行中状態をサーバーと同期してから描画。
+      // reconcileSessionと同じ双方向照合（!!data.running）にする。昇格のみだと、切断中に
+      // ターンが完了したとき isRunning=true が残り「実行中」点滅とモデル選択ロックが解けない
       fetch(`/api/status?session=${encodeURIComponent(sessionId)}`)
         .then(r => r.json())
         .then(data => {
           const ts = tabState[sessionId]
-          if (ts && data.running && !ts.isRunning) ts.isRunning = true
+          if (ts) ts.isRunning = !!data.running
           // 送信待ちキューもサーバーを正として同期（切断中にqueue_updateを取りこぼしても古い表示が残らない）
           handleQueueUpdate(sessionId, data.queue || [])
           updateUI()
