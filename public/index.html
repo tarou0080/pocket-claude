@@ -802,6 +802,18 @@
   }
   #send-btn:active { opacity: 0.8; transform: scale(0.96); }
 
+  #status-slot {
+    position: fixed;
+    left: 0; right: 0;
+    z-index: 18;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 8px;
+    pointer-events: none;
+  }
+  #status-slot > * { pointer-events: auto; }
+
   #queue-panel {
     position: fixed;
     bottom: 0; left: 0; right: 0;
@@ -1090,6 +1102,8 @@
   <button id="scroll-bottom-btn" aria-label="Scroll to bottom">↓</button>
 </div>
 
+<div id="status-slot"></div>
+
 <div id="queue-panel"></div>
 
 <div id="input-area">
@@ -1126,6 +1140,7 @@ const tabBar          = document.getElementById('tab-bar')
 const addTabBtn       = document.getElementById('add-tab-btn')
 const outputCont      = document.getElementById('output-container')
 const scrollBottomBtn = document.getElementById('scroll-bottom-btn')
+const statusSlot      = document.getElementById('status-slot')
 const queuePanel      = document.getElementById('queue-panel')
 const effortIndicator     = document.getElementById('effort-indicator')
 const settingsBtn     = document.getElementById('settings-btn')
@@ -1932,6 +1947,11 @@ async function switchTab(sessionId) {
     t.classList.toggle('active', t.dataset.sessionId === sessionId))
   document.querySelectorAll('.output-pane').forEach(p =>
     p.classList.toggle('active', p.dataset.sessionId === sessionId))
+  // 旧タブのカードをスロットからdetach（メモリ保持）
+  const prevTs = currentSessionId ? tabState[currentSessionId] : null
+  if (prevTs && prevTs.rl && prevTs.rl.el && prevTs.rl.el.isConnected) {
+    statusSlot.removeChild(prevTs.rl.el)
+  }
   currentSessionId = sessionId
   localStorage.setItem('currentSessionId', sessionId)
   updateSession(sessionId, { lastUsed: Date.now() })
@@ -1940,8 +1960,7 @@ async function switchTab(sessionId) {
   updateUI()
   renderQueuePanel(sessionId)
   await restoreConvCache(sessionId)  // IndexedDBキャッシュから会話を復元（フレッシュ時のみ）
-  await connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール
-  await restoreRateLimitPanel(sessionId)  // SSE接続完了後に確実に復元
+  await connectSSE(sessionId)  // SSE接続でログ復元後に自動スクロール（onopenでrestoreRateLimitPanel実行）
   updateScrollBtn()
 }
 
@@ -2265,7 +2284,8 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false, fireAt = n
   row.appendChild(timeEl)
   panel.appendChild(row)
   panel.appendChild(countdown)
-  ts.pane.appendChild(panel)
+  // カードはpaneではなくグローバルスロットへ。前面タブのみDOM取付け、背面タブはメモリ保持のみ。
+  if (currentSessionId === sessionId) statusSlot.appendChild(panel)
 
   if (autoResumeOn && (fireAt || resetAt)) startRateLimitCountdown(sessionId)
 
@@ -2330,7 +2350,11 @@ async function restoreRateLimitPanel(sessionId) {
     return
   }
   try {
-    const data = await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`).then(r => r.json())
+    const res = await fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`)
+    // 非ok（302リダイレクト→Autheliaポータルなど）はJSON parseせず状態を変更しない
+    if (!res.ok) return
+    const data = await res.json().catch(() => null)
+    if (!data) return
     clientLog('restoreRateLimitPanel:server', { sessionId, resetAt: data.resetAt || null, fireAt: data.fireAt || null, autoResume: data.autoResume ?? null })
     if (data.resetAt) {
       const resetAt = new Date(data.resetAt)
@@ -2761,11 +2785,8 @@ async function connectSSE(sessionId) {
   // ペインは初回生成済みを維持する。再接続でもクリアしない。
   connectSSEStream(sessionId)
 
-  // 接続完了後、経路に関わらず永続データを必ず復元
-  await Promise.all([
-    loadScheduledPosts(),
-    restoreRateLimitPanel(sessionId)
-  ])
+  // 接続完了後、経路に関わらず永続データを必ず復元（rl照合はonopenで実施）
+  await loadScheduledPosts()
 }
 
 // SSE接続（実際のストリーム処理）
@@ -2810,6 +2831,8 @@ function connectSSEStream(sessionId) {
         })
         .catch(() => updateUI())
     }
+    // 再接続のたびにサーバー照合でカードを復元（stale guard経路でも必ず走る）
+    restoreRateLimitPanel(sessionId)
   }
 
   es.onmessage = e => {
@@ -3898,14 +3921,17 @@ function updateLayout() {
 
   topBarEl.style.top = offsetTop + 'px'
 
-  const inputH = inputAreaEl.offsetHeight
-  const queueH = queuePanel.offsetHeight
-  const bottomH = inputH + queueH
+  const inputH  = inputAreaEl.offsetHeight
+  const queueH  = queuePanel.offsetHeight
+  const slotH   = statusSlot.offsetHeight
+  const bottomH = inputH + queueH + slotH
 
   inputAreaEl.style.top    = (offsetTop + vvHeight - inputH) + 'px'
   inputAreaEl.style.bottom = 'auto'
-  queuePanel.style.top    = (offsetTop + vvHeight - bottomH) + 'px'
+  queuePanel.style.top    = (offsetTop + vvHeight - inputH - queueH) + 'px'
   queuePanel.style.bottom = 'auto'
+  statusSlot.style.top    = (offsetTop + vvHeight - inputH - queueH - slotH) + 'px'
+  statusSlot.style.bottom = 'auto'
 
   const topH = topBarEl.offsetHeight
   outputCont.style.top    = (offsetTop + topH) + 'px'
@@ -3921,6 +3947,7 @@ const ro = new ResizeObserver(updateLayout)
 ro.observe(topBarEl)
 ro.observe(inputAreaEl)
 ro.observe(queuePanel)
+ro.observe(statusSlot)
 updateLayout()
 
 init()
