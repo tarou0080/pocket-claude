@@ -18,7 +18,7 @@ if (isNaN(PORT) || PORT < 1024 || PORT > 65535) {
   process.exit(1)
 }
 // バインド先アドレス。既定は全IF(0.0.0.0)だが config.host で特定IFに限定できる。
-// リバースプロキシ(Nicky)経由の外部公開のみ許可し家庭LANから直叩きさせない場合は "10.0.0.10"。
+// リバースプロキシ経由のアクセスのみ許可しLANから直接叩かせない場合は、プロキシから到達できるIFのIPを指定する。
 const HOST = process.env.HOST || config.host || '0.0.0.0'
 
 // ディレクトリ初期化

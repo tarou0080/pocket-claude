@@ -86,6 +86,7 @@ npm start
 ```json
 {
   "port": 3333,
+  "host": "0.0.0.0",
   "permissionMode": "ask",
   "sessionDir": "./sessions",
   "logsDir": "./logs",
@@ -170,6 +171,7 @@ npm start
 pocket-claude は **ローカル/信頼できるネットワーク用** に設計されています：
 
 - **ローカルネットワークのみ** - デフォルトで localhost または LAN で動作
+- **バインド先アドレスの限定** - `config.json` の `host`（または環境変数 `HOST`）で listen するインターフェースを限定可能。リバースプロキシ経由のアクセスのみに絞りたい場合に使用（デフォルト: `0.0.0.0`）
 - **パーミッションモード** - より安全な操作のため `permissionMode: "ask"` を使用
 - **信頼できる環境** - 公開インターネットへの露出向けではありません
 

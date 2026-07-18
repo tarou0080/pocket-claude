@@ -86,6 +86,7 @@ That's it! It works out-of-the-box with sensible defaults.
 ```json
 {
   "port": 3333,
+  "host": "0.0.0.0",
   "permissionMode": "ask",
   "sessionDir": "./sessions",
   "logsDir": "./logs",
@@ -170,6 +171,7 @@ These are automatically added as `env_0`, `env_1`, etc.
 pocket-claude is designed for **local/trusted network use**:
 
 - **Local network only** - Runs on localhost or LAN by default
+- **Configurable bind address** - Set `host` in `config.json` (or the `HOST` env var) to listen on a specific interface only, e.g. so the server is reachable solely through your reverse proxy (default: `0.0.0.0`)
 - **Permission mode** - Use `permissionMode: "ask"` for safer operation
 - **Trusted environment** - Not designed for public internet exposure
 

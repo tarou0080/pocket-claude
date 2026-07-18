@@ -4,6 +4,15 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.4.0] - 2026-07-18
+
+### Added
+- **Configurable bind address** - `host` in `config.json` (or the `HOST` env var) restricts which interface the server listens on. Default remains `0.0.0.0`; set a specific interface IP to make the server reachable only through your reverse proxy.
+
+### Fixed
+- **Resume card buried mid-conversation** - The rate-limit resume card now renders in a dedicated status slot above the input area instead of being appended to the conversation flow. History replay racing with card restore (after background resume or re-authentication) can no longer bury the card in the middle of the conversation. Trade-off: the card is always shown above the input rather than inline at the point the limit occurred.
+- **Stuck "running" indicator after app resume** - If a turn finished while the app was in the background, returning to the app no longer leaves the status dot blinking "running" with the model selector locked. Reconnect reconciliation is now fully bidirectional against the server, and the dot no longer visually jumps between shapes on every reconnect while a session is running.
+
 ## [v2.3.0] - 2026-07-01
 
 ### Added
