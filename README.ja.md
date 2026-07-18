@@ -100,6 +100,24 @@ cp config.example.json config.json
 cp projects.example.json projects.json
 ```
 
+**特定モデルだけプロキシ経由にする** (`proxyModels`・任意):
+
+```json
+{
+  "models": [
+    { "value": "my-proxy-model", "label": "My Proxy Model" }
+  ],
+  "proxyModels": {
+    "my-proxy-model": {
+      "ANTHROPIC_BASE_URL": "http://localhost:3456",
+      "ANTHROPIC_API_KEY": "your-proxy-key"
+    }
+  }
+}
+```
+
+`proxyModels` に載せたモデルは、そのモデルを選んだセッションの `claude` プロセスにのみ上記の環境変数が注入され、Anthropic互換の任意のエンドポイント（claude-code-router・LiteLLM 等の翻訳プロキシ、社内ゲートウェイなど）経由にできます。他のモデルのセッションはプロキシに一切依存しないため、プロキシが停止しても影響は該当モデルのみです。CHANGELOG の「GLM-5.2（Cloudflare）」はこの仕組みの利用例であり、内蔵モデルではありません。
+
 ### 前提条件
 
 - Node.js v18+

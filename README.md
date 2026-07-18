@@ -100,6 +100,24 @@ cp config.example.json config.json
 cp projects.example.json projects.json
 ```
 
+**Route specific models through a proxy** (`proxyModels`, optional):
+
+```json
+{
+  "models": [
+    { "value": "my-proxy-model", "label": "My Proxy Model" }
+  ],
+  "proxyModels": {
+    "my-proxy-model": {
+      "ANTHROPIC_BASE_URL": "http://localhost:3456",
+      "ANTHROPIC_API_KEY": "your-proxy-key"
+    }
+  }
+}
+```
+
+Models mapped in `proxyModels` get these environment variables injected into their `claude` process only, so you can route them through any Anthropic-compatible endpoint (translation proxies such as claude-code-router or LiteLLM, corporate gateways, etc.). Sessions using other models never touch the proxy — if it goes down, only the mapped models are affected. This is the mechanism behind the "GLM-5.2 (Cloudflare)" option mentioned in the changelog; it is not a built-in model.
+
 ### Prerequisites
 
 - Node.js v18+
