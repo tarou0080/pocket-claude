@@ -4,6 +4,11 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [Unreleased]
+
+### 変更
+- **Fable 5 のモデルラベルに Pro 従量課金を明示** - 2026-07-20 より Anthropic は Fable 5 を Max / Team Premium ではサブスクに含める一方、Pro / Team Standard では一度きりの $100 クレジット消化後に従量課金（トークン単価）に切り替えます。pocket-claude は利用者のプランを判別できないため、既定のモデルリストで `Fable 5 (Pro: metered)` と表示し、Pro ユーザーが不意の課金に気付けるようにしました（Max ユーザーは無視可）。詳細とラベル変更方法は README を参照。
+
 ## [v2.4.0] - 2026-07-18
 
 ### 追加

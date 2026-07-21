@@ -118,6 +118,8 @@ cp projects.example.json projects.json
 
 `proxyModels` に載せたモデルは、そのモデルを選んだセッションの `claude` プロセスにのみ上記の環境変数が注入され、Anthropic互換の任意のエンドポイント（claude-code-router・LiteLLM 等の翻訳プロキシ、社内ゲートウェイなど）経由にできます。他のモデルのセッションはプロキシに一切依存しないため、プロキシが停止しても影響は該当モデルのみです。CHANGELOG の「GLM-5.2（Cloudflare）」はこの仕組みの利用例であり、内蔵モデルではありません。
 
+> **Fable 5 の課金について（2026-07-20時点）:** Anthropic は Fable 5 をプラン別に課金します。**Max / Team Premium** は**サブスクに含まれる**（週制限の50%まで）。**Pro / Team Standard** は一度きりの $100 usage credit 付与後、**従量課金**（$10 / $50 per 100万入力/出力トークン）に落ちます。pocket-claude は利用者のプランを判別できないため、既定のモデルリストでは `Fable 5 (Pro: metered)` と表示します（Pro ユーザーは従量課金に注意・Max ユーザーは無視可）。ラベルは `config.json`（または `public/index.html` の `ALL_MODELS`）で自分のプランに合わせて変更できます。
+
 ### 前提条件
 
 - Node.js v18+

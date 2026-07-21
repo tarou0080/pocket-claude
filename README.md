@@ -118,6 +118,8 @@ cp projects.example.json projects.json
 
 Models mapped in `proxyModels` get these environment variables injected into their `claude` process only, so you can route them through any Anthropic-compatible endpoint (translation proxies such as claude-code-router or LiteLLM, corporate gateways, etc.). Sessions using other models never touch the proxy — if it goes down, only the mapped models are affected. This is the mechanism behind the "GLM-5.2 (Cloudflare)" option mentioned in the changelog; it is not a built-in model.
 
+> **Note on Fable 5 billing (as of 2026-07-20):** Anthropic bills Fable 5 differently by plan. **Max / Team Premium** subscribers get it **included** in the subscription (up to 50% of usage limits). **Pro / Team Standard** subscribers get a one-time $100 usage credit, after which Fable 5 falls back to **metered API billing** ($10 / $50 per million input/output tokens). Because pocket-claude can't know your plan, the default model list labels it `Fable 5 (Pro: metered)` — Pro users should expect usage charges, Max users can ignore the note. Edit the label in `config.json` (or `ALL_MODELS` in `public/index.html`) to suit your plan.
+
 ### Prerequisites
 
 - Node.js v18+
