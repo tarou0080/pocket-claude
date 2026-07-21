@@ -4,13 +4,16 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
-## [Unreleased]
+## [v2.5.0] - 2026-07-22
 
 ### Added
 - **Show the model the CLI actually resolved** - The header now displays the concrete model a session is running on (e.g. `→ Sonnet 5`), read from the `system/init` event's `model` field. This is most useful for the **Default** entry, which passes no `--model` flag and lets the Claude CLI pick its own default (currently the `sonnet` alias → Sonnet 5) — previously there was no way to tell what "Default" resolved to. The value is read live from the stream (no hardcoded model names), so it stays correct if the CLI's default changes, and it is restored on reconnect via history replay.
 
 ### Changed
 - **Fable 5 model label now flags Pro metered billing** - As of 2026-07-20 Anthropic includes Fable 5 in Max / Team Premium subscriptions but bills Pro / Team Standard users per-token (metered) once a one-time $100 credit is exhausted. Since pocket-claude can't know your plan, the default model list labels it `Fable 5 (Pro: metered)` so Pro users aren't surprised by usage charges; Max users can ignore it. See README for details and how to adjust the label.
+
+### Security
+- **Bump body-parser to 1.20.6** - Resolves a low-severity denial-of-service advisory (GHSA-v422-hmwv-36x6) where an invalid `limit` value could silently disable request body size enforcement. Transitive dependency via express; lockfile-only change, no API impact.
 
 ## [v2.4.0] - 2026-07-18
 
