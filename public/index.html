@@ -139,6 +139,16 @@
     background: var(--border);
     border-color: var(--accent);
   }
+  #resolved-model {
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+  }
+  #resolved-model:empty { display: none; }
 
   /* ── Effortインジケーター ── */
   #effort-indicator {
@@ -944,6 +954,7 @@
   <div id="header">
     <div id="status-dot"></div>
     <select id="model-select"></select>
+    <span id="resolved-model" title="実際にCLIが解決したモデル（Defaultが何かを示す）"></span>
     <div id="effort-indicator" title="Effort level">
       <span class="effort-dot" data-idx="0"></span>
       <span class="effort-dot" data-idx="1"></span>
@@ -1135,6 +1146,7 @@ const promptEl        = document.getElementById('prompt')
 const sendBtn         = document.getElementById('send-btn')
 const statusDot       = document.getElementById('status-dot')
 const modelSel        = document.getElementById('model-select')
+const resolvedModelEl = document.getElementById('resolved-model')
 const attachHeaderBtn = document.getElementById('attach-header-btn')
 const tabBar          = document.getElementById('tab-bar')
 const addTabBtn       = document.getElementById('add-tab-btn')
@@ -1911,6 +1923,20 @@ async function deleteTab(sessionId) {
   }
 }
 
+// ── 解決済みモデル表示（Default が実際に何のモデルかを示す） ──
+// value 未指定(Default)の場合 claude CLI が自前の既定（sonnet エイリアス等）に解決する。
+// その実モデルは system/init イベントの model フィールドに乗ってくるので、ハードコードせず実測値を出す。
+function modelLabelFor(id) {
+  if (!id) return ''
+  const m = ALL_MODELS.find(x => x.value === id)
+  return m ? m.label : id
+}
+function updateResolvedModel() {
+  const ts = currentSessionId ? tabState[currentSessionId] : null
+  const id = ts && ts._resolvedModel
+  resolvedModelEl.textContent = id ? '→ ' + modelLabelFor(id) : ''
+}
+
 // ── タブ固有設定の適用 ──
 function applyTabSettings(sessionId) {
   const ts = tabState[sessionId]
@@ -1928,6 +1954,8 @@ function applyTabSettings(sessionId) {
   if (promptEl.value) promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
   // Effortインジケーター更新（ts.effortを使う）
   updateEffortIndicator()
+  // 解決済みモデル表示を現在タブの実測値へ更新
+  updateResolvedModel()
 }
 
 // ── タブ切り替え ──
@@ -3201,7 +3229,16 @@ function handleEvent(sessionId, ev, isLive = true) {
       break
 
     case 'system':
-      addLine(ts, ev.text, 'line-system')
+      if (ev.subtype === 'init') {
+        // CLIが解決した実モデルを記録して表示（Default が実際に何かが分かる）。
+        // リプレイ(isLive=false)でも毎回同じ値を再設定するだけ＝冪等・表示専用。
+        if (ev.model) {
+          ts._resolvedModel = ev.model
+          if (isActive) updateResolvedModel()
+        }
+      } else if (ev.text) {
+        addLine(ts, ev.text, 'line-system')
+      }
       break
 
     case 'stderr':
