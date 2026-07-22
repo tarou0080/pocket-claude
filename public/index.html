@@ -139,16 +139,6 @@
     background: var(--border);
     border-color: var(--accent);
   }
-  #resolved-model {
-    font-size: 11px;
-    color: var(--text-dim);
-    white-space: nowrap;
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex-shrink: 0;
-  }
-  #resolved-model:empty { display: none; }
 
   /* ── Effortインジケーター ── */
   #effort-indicator {
@@ -954,7 +944,6 @@
   <div id="header">
     <div id="status-dot"></div>
     <select id="model-select"></select>
-    <span id="resolved-model" title="実際にCLIが解決したモデル（Defaultが何かを示す）"></span>
     <div id="effort-indicator" title="Effort level">
       <span class="effort-dot" data-idx="0"></span>
       <span class="effort-dot" data-idx="1"></span>
@@ -1146,7 +1135,6 @@ const promptEl        = document.getElementById('prompt')
 const sendBtn         = document.getElementById('send-btn')
 const statusDot       = document.getElementById('status-dot')
 const modelSel        = document.getElementById('model-select')
-const resolvedModelEl = document.getElementById('resolved-model')
 const attachHeaderBtn = document.getElementById('attach-header-btn')
 const tabBar          = document.getElementById('tab-bar')
 const addTabBtn       = document.getElementById('add-tab-btn')
@@ -1236,13 +1224,49 @@ const STRINGS = {
 function t(key) { return STRINGS[appSettings?.lang || 'ja'][key] }
 
 // ── 設定管理 ──
+// モデルは CLI エイリアス（fable/opus/sonnet/haiku）で持つ。claude CLI が起動時に各ティアの
+// 最新モデルへ自動解決するため、新モデルが出ても値を書き換える必要がない（動的追従）。
+// value='' の Default は --model を渡さず CLI 既定に委ねる。
 const ALL_MODELS = [
-  { value: '', label: 'Default' },
-  { value: 'claude-fable-5',          label: 'Fable 5 (Pro: metered)' },
-  { value: 'claude-opus-4-8',         label: 'Opus 4.8' },
-  { value: 'claude-sonnet-5',         label: 'Sonnet 5' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+  { value: '',       name: 'Default' },
+  { value: 'fable',  name: 'Fable', note: ' (Pro: metered)' },
+  { value: 'opus',   name: 'Opus' },
+  { value: 'sonnet', name: 'Sonnet' },
+  { value: 'haiku',  name: 'Haiku' },
 ]
+
+// エイリアス → 実際に解決された具体モデルID（例 'sonnet' → 'claude-sonnet-5'）。
+// system/init イベントから実測で学習し localStorage にキャッシュ。プルダウンのラベルに反映する。
+function loadResolvedModels() {
+  try { return JSON.parse(localStorage.getItem('pc-resolved-models') || '{}') } catch { return {} }
+}
+let resolvedModels = loadResolvedModels()
+function saveResolvedModels() {
+  localStorage.setItem('pc-resolved-models', JSON.stringify(resolvedModels))
+}
+// 具体モデルID（claude-sonnet-5 等）を表示名（Sonnet 5）へ整形。ハードコードでなく変換なので
+// 新モデルにも追従する。claude-* 以外（プロキシモデル等）は素のIDを返す。
+function prettyModel(id) {
+  if (!id) return ''
+  if (!/^claude-/.test(id)) return id
+  const s = id.replace(/^claude-/, '').replace(/-\d{8}$/, '')  // 末尾の日付(YYYYMMDD)は落とす
+  const parts = s.split('-')
+  const tier = parts.shift() || ''
+  const tierName = tier.charAt(0).toUpperCase() + tier.slice(1)
+  const ver = parts.join('.')
+  return ver ? tierName + ' ' + ver : tierName
+}
+// プルダウン/設定に出すラベル。実解決名を学習済みならそれを、未学習なら素のティア名を出す。
+function optionLabel(m) {
+  const resolved = resolvedModels[m.value]
+  const suffix = m.note || ''
+  const curated = m.name || m.label || m.value
+  if (m.value === '') {
+    return (resolved ? 'Default (' + prettyModel(resolved) + ')' : curated) + suffix
+  }
+  if (resolved && /^claude-/.test(resolved)) return prettyModel(resolved) + suffix
+  return curated + suffix
+}
 const EFFORT_OPTIONS = [
   { value: '',       dots: [0,0,0,0], label: 'Auto' },
   { value: 'low',    dots: [1,0,0,0], label: 'Low' },
@@ -1302,7 +1326,7 @@ function rebuildModelSelect() {
     if (!appSettings.enabledModels.includes(m.value)) return
     const opt = document.createElement('option')
     opt.value = m.value
-    opt.textContent = m.label
+    opt.textContent = optionLabel(m)
     modelSel.appendChild(opt)
   })
   // デフォルトモデルを適用
@@ -1520,7 +1544,7 @@ function renderSettingsModal() {
 
     const name = document.createElement('span')
     name.className = 'model-row-name'
-    name.textContent = m.label
+    name.textContent = optionLabel(m)
 
     const radio = document.createElement('input')
     radio.type = 'radio'
@@ -1923,20 +1947,6 @@ async function deleteTab(sessionId) {
   }
 }
 
-// ── 解決済みモデル表示（Default が実際に何のモデルかを示す） ──
-// value 未指定(Default)の場合 claude CLI が自前の既定（sonnet エイリアス等）に解決する。
-// その実モデルは system/init イベントの model フィールドに乗ってくるので、ハードコードせず実測値を出す。
-function modelLabelFor(id) {
-  if (!id) return ''
-  const m = ALL_MODELS.find(x => x.value === id)
-  return m ? m.label : id
-}
-function updateResolvedModel() {
-  const ts = currentSessionId ? tabState[currentSessionId] : null
-  const id = ts && ts._resolvedModel
-  resolvedModelEl.textContent = id ? '→ ' + modelLabelFor(id) : ''
-}
-
 // ── タブ固有設定の適用 ──
 function applyTabSettings(sessionId) {
   const ts = tabState[sessionId]
@@ -1954,8 +1964,6 @@ function applyTabSettings(sessionId) {
   if (promptEl.value) promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
   // Effortインジケーター更新（ts.effortを使う）
   updateEffortIndicator()
-  // 解決済みモデル表示を現在タブの実測値へ更新
-  updateResolvedModel()
 }
 
 // ── タブ切り替え ──
@@ -3230,11 +3238,16 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'system':
       if (ev.subtype === 'init') {
-        // CLIが解決した実モデルを記録して表示（Default が実際に何かが分かる）。
-        // リプレイ(isLive=false)でも毎回同じ値を再設定するだけ＝冪等・表示専用。
+        // CLIが解決した実モデルを学習し、プルダウンのラベルへ反映する。
+        // どのエイリアスの解決結果かは、そのタブが選んでいたモデル(ts.model)で仕分ける。
+        // リプレイ(isLive=false)でも同じ値を書くだけ＝冪等。値が変わった時のみ再描画。
         if (ev.model) {
-          ts._resolvedModel = ev.model
-          if (isActive) updateResolvedModel()
+          const alias = ts.model || ''
+          if (resolvedModels[alias] !== ev.model) {
+            resolvedModels[alias] = ev.model
+            saveResolvedModels()
+            rebuildModelSelect()
+          }
         }
       } else if (ev.text) {
         addLine(ts, ev.text, 'line-system')
