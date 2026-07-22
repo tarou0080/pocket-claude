@@ -4,6 +4,15 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.6.0] - 2026-07-22
+
+### Documentation
+- **Model selection guide** - README now documents how the model dropdown uses CLI tier aliases (`fable`/`opus`/`sonnet`/`haiku`) that auto-resolve to each tier's latest model, why keeping the Claude Code CLI up to date matters (a stale CLI routes aliases to older models), and how to pin a specific or older model by setting an exact model ID as the option's `value`.
+- **Settings & usage notes** - Documented the Settings panel (effort, theme, font size, language, request body-size limit) and usage notes (plain-text questions instead of tap-to-choose, image attachment, scheduled posts, rate-limit auto-resume).
+
+### Note
+- Includes the model-alias dropdown redesign commit that landed after the v2.5.0 tag.
+
 ## [v2.5.0] - 2026-07-22
 
 ### Added
