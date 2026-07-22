@@ -169,6 +169,71 @@ These are automatically added as `env_0`, `env_1`, etc.
 
 ⚠️ **Security Warning**: `bypassPermissions` mode allows Claude Code to execute tools without confirmation. Only use in trusted environments with proper authentication (e.g., VPN + 2FA).
 
+## Model selection
+
+The model dropdown ships with **tier aliases**, not pinned model IDs:
+
+| Dropdown option | Passed to `claude` | Resolves to |
+|---|---|---|
+| Default | (no `--model`) | Your CLI's own default |
+| Fable / Opus / Sonnet / Haiku | `--model sonnet`, etc. | The **latest** model in that tier |
+
+Aliases are resolved by the Claude Code CLI itself at spawn time, so when Anthropic ships a newer model in a tier you get it automatically — no config edit required. The dropdown also relabels each option with the concrete model it actually resolved to (learned from the CLI's `system/init` event), e.g. `Sonnet` becomes `Sonnet 5` and `Default` becomes `Default (Sonnet 5)`, so you can always see what will actually run.
+
+> ⚠️ **Keep your Claude Code CLI up to date.** Aliases only track the latest model *as far as your installed CLI knows*. A stale CLI resolves an alias like `sonnet` to an **older** model (we hit a case where a CLI ~47 versions behind resolved `sonnet` to a legacy 4.6 model instead of Sonnet 5). Update with:
+>
+> ```bash
+> npm install -g @anthropic-ai/claude-code@latest
+> ```
+>
+> The resolved name shown in the dropdown is your tell: if `Default (…)` or `Sonnet` shows an older model than you expect, your CLI is out of date.
+
+To keep it current automatically, add a cron job (adjust for your platform):
+
+```bash
+# Update the Claude Code CLI every Monday at 03:00
+0 3 * * 1 npm install -g @anthropic-ai/claude-code@latest >> ~/claude-cli-update.log 2>&1
+```
+
+### Pinning a specific (or older) model
+
+If you want a specific model rather than "latest in tier" — to stay on an older model, or to add one that isn't in the default list — set the dropdown option's `value` to an exact model ID. The value is passed verbatim as `claude --model <value>`.
+
+Add it in `config.json` (applied on restart; this file is not committed):
+
+```json
+{
+  "models": [
+    { "value": "",                "label": "Default" },
+    { "value": "sonnet",          "label": "Sonnet (latest)" },
+    { "value": "claude-opus-4-1", "label": "Opus 4.1 (pinned)" }
+  ]
+}
+```
+
+- Use exact IDs from the [models overview](https://platform.claude.com/docs/en/about-claude/models/overview) — a wrong ID makes `claude` return a 404.
+- Pinned IDs do **not** auto-update; that's the point. You can mix aliases (auto-latest) and pins (fixed) in the same list.
+- `config.json` is gitignored (per-instance). To change what fresh clones see by default, edit `ALL_MODELS` in `public/index.html` instead.
+
+## Settings
+
+Open the **⚙** panel in the header to adjust:
+
+- **Effort** — Global default reasoning effort (`Auto` / `Low` / `Medium` / `High`) applied to all sessions. The header's effort dots (**●●●**) instead cycle *only the current tab's* effort without changing the default.
+- **Theme** — Switch between the bundled UI themes (Blue Dark / Purple Dark). Add your own by editing `public/themes.js`.
+- **Font size** — Adjust conversation text size.
+- **Language** — Japanese / English.
+- **Request body size limit** — Max upload size in MB (`0` = unlimited), useful when attaching large images.
+
+All settings are stored in the browser and persist across restarts.
+
+## Usage notes
+
+- **Questions come as plain text, not tap-to-choose.** In headless mode the CLI cannot use interactive choice tools (`AskUserQuestion`), so Claude asks its questions as normal text and you answer in the normal input box. No multiple-choice buttons appear — this is intentional (see the changelog for the technical reason).
+- **Image attachment** — Attach images by clicking the clip icon (📎), pasting, or dragging into the input area. Text-only or image-only messages both work.
+- **Scheduled posts** — Schedule a prompt to run at a future time. It runs server-side, so no browser needs to stay open.
+- **Rate-limit auto-resume** — When Claude's rate limit resets, a queued prompt is automatically re-sent. A resume card above the input shows the scheduled kick time and counts down; enable "resume by default" in Settings to have it arm itself on every limit.
+
 ## Architecture
 
 ```
