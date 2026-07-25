@@ -2,10 +2,9 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const router = express.Router()
-const { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, gitPull } = require('../services/spawner')
+const { stopClaude, stopPending, removePending, updatePending, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
-const { getClaudeSessionId } = require('../services/sessions')
 const config = require('../config/index')
 
 const sessionsDir = path.join(__dirname, '..', 'sessions')
@@ -20,7 +19,12 @@ router.get('/status', (req, res) => {
   const sessionId = req.query.session
   if (!sessionId) return res.status(400).json({ error: 'session required' })
   const s = getState(sessionId)
-  res.json({ running: s.turning, queue: (s.pendingQueue || []).map(q => ({ prompt: q.prompt })) })
+  const resp = { running: s.turning, queue: (s.pendingQueue || []).map(q => ({ prompt: q.prompt })) }
+  // CLI側キュー(still_queued)は control_request(interrupt) の応答でのみ取得できる限定的な情報。
+  // 常時ポーリングしてまで取りに行くコストには見合わないため、直近のinterrupt時点のスナップショットを
+  // 参考情報として添えるだけに留める（サーバー真実源の照合対象を広げすぎない）。
+  if (Array.isArray(s.lastStillQueued) && s.lastStillQueued.length) resp.cliStillQueued = s.lastStillQueued
+  res.json(resp)
 })
 
 // プロンプト送信
@@ -32,63 +36,68 @@ router.post('/send', async (req, res) => {
 
   const { randomUUID } = require('crypto')
   const actualSessionId = sessionId || randomUUID()
-  const claudeSessionId = sessionId ? getClaudeSessionId(actualSessionId) : null
   const actualProject = project || Object.keys(config.projects)[0]
 
   const s = getState(actualSessionId)
 
-  // アイドル中(ターン外)にモデルが変更された場合は、常駐プロセスを停止して
-  // --resume で新モデル再起動する（会話文脈は継続）。ターン中は表示側でモデル選択を
-  // ロックしているため、ここに来る変更は基本アイドル時のみ。turning中は従来どおり注入。
+  // アイドル中(ターン外)にモデルが変更された場合は、まず control_request(set_model) で
+  // 常駐プロセスへ直接モデルを切り替える（会話文脈・プロセスとも継続、再起動なし）。
+  // ACKが来ない/失敗した場合のみ、従来どおりプロセスを止めて --resume で新モデル再起動する。
+  // ターン中は表示側でモデル選択をロックしているため、ここに来る変更は基本アイドル時のみ。
   if (s.process && !s.turning && (model || null) !== (s.model || null)) {
-    console.log(`[send] model switch ${s.model || 'default'} → ${model || 'default'} : restart with --resume sessionId=${actualSessionId}`)
-    s.pendingQueue = []
-    const oldProc = s.process
-    // spawnerのcloseハンドラ(=s.process=null/doneブロードキャスト)を外す。
-    // タイムアウト先行時に遅れて発火し、再起動後の新プロセスを誤って無効化するレースを防ぐ。
-    oldProc.removeAllListeners('close')
-    await new Promise(resolve => {
-      oldProc.once('close', resolve)
-      oldProc.kill('SIGTERM')
-      setTimeout(resolve, 3000) // 終了が来ない場合の保険
-    })
-    if (s.process === oldProc) s.process = null // 未起動扱いに戻し、startClaude(--resume) へ進ませる
-  }
-
-  if (s.process) {
-    // プロセス稼働中 → 直接stdinに注入（割り込み送信）
-    const injected = injectPrompt(actualSessionId, prompt, imageData)
-    if (!injected) {
-      if (!s.pendingQueue) s.pendingQueue = []
-      s.pendingQueue.push({
-        prompt,
-        model: model || null,
-        effort: effort || null,
-        thinking: thinking !== undefined ? thinking : null,
-        imageData,
+    const targetModel = model || 'default'
+    console.log(`[send] model switch ${s.model || 'default'} → ${targetModel} sessionId=${actualSessionId} : trying set_model`)
+    const response = await sendControlMessage(s.process, 'set_model', { model: targetModel })
+    if (response && response.subtype === 'success') {
+      s.model = model || null
+      console.log(`[send] set_model succeeded sessionId=${actualSessionId}`)
+    } else {
+      console.warn(`[send] set_model failed/no-ack sessionId=${actualSessionId} response=${JSON.stringify(response)} -> fallback to kill+resume restart`)
+      s.pendingQueue = []
+      const oldProc = s.process
+      // spawnerのcloseハンドラ(=s.process=null/doneブロードキャスト)を外す。
+      // タイムアウト先行時に遅れて発火し、再起動後の新プロセスを誤って無効化するレースを防ぐ。
+      oldProc.removeAllListeners('close')
+      await new Promise(resolve => {
+        oldProc.once('close', resolve)
+        oldProc.kill('SIGTERM')
+        setTimeout(resolve, 3000) // 終了が来ない場合の保険
       })
-      broadcast(actualSessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
+      if (s.process === oldProc) s.process = null // 未起動扱いに戻し、startClaude(--resume) へ進ませる
     }
-    return res.json({ ok: true, sessionId: actualSessionId, injected, queued: !injected, queueLength: s.pendingQueue ? s.pendingQueue.length : 0 })
   }
 
-  // git pull
-  const projectDir = config.projects[actualProject]
-  if (projectDir) {
-    const pulled = await gitPull(projectDir)
-    if (pulled) broadcast(actualSessionId, { type: 'system', text: `git pull: ${pulled}` })
+  // git pull（プロセスが死んでいて新規起動する場合のみ。生存プロセスへの注入時は従来どおり行わない）
+  if (!s.process) {
+    const projectDir = config.projects[actualProject]
+    if (projectDir) {
+      const pulled = await gitPull(projectDir)
+      if (pulled) broadcast(actualSessionId, { type: 'system', text: `git pull: ${pulled}` })
+    }
   }
 
-  broadcast(actualSessionId, { type: 'user_input', text: prompt })
-  startClaude(actualSessionId, prompt, model, actualProject, claudeSessionId, effort || null, thinking !== undefined ? thinking : null, imageData)
-  res.json({ ok: true, sessionId: actualSessionId, queued: false })
+  const result = deliverPrompt(actualSessionId, prompt, {
+    imageData,
+    project: actualProject,
+    model,
+    effort: effort || null,
+    thinking: thinking !== undefined ? thinking : null,
+  })
+  res.json({
+    ok: true,
+    sessionId: actualSessionId,
+    injected: result.status === 'injected',
+    started: result.status === 'started',
+    queued: result.status === 'queued' || result.status === 'failed',
+    queueLength: s.pendingQueue ? s.pendingQueue.length : 0,
+  })
 })
 
 // 停止
-router.post('/stop', (req, res) => {
+router.post('/stop', async (req, res) => {
   const sessionId = req.body.session
   if (!sessionId) return res.status(400).json({ error: 'session required' })
-  const stopped = stopClaude(sessionId)
+  const stopped = await stopClaude(sessionId)
   if (!stopped) return res.status(409).json({ error: 'not running' })
   res.json({ ok: true })
 })

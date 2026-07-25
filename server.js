@@ -151,7 +151,9 @@ function gracefulShutdown(signal) {
           timestamp: new Date().toISOString(),
           reason: 'server_shutdown'
         })
-        stopClaude(sessionId)
+        // shutdown中はinterrupt ACKの非同期待ちをせず、即SIGTERM(force)で確実に子プロセスを畳む
+        // （そうしないと子プロセスがpocket-claude再起動後に孤児として残るおそれがある）
+        stopClaude(sessionId, { force: true })
       }
 
       // SSEクライアントに終了を通知

@@ -3189,7 +3189,10 @@ function handleEvent(sessionId, ev, isLive = true) {
     }
 
     case 'result': {
-      if (ev.is_error && Array.isArray(ev.errors) && ev.errors.length) {
+      // ユーザーが停止ボタンでターンを中断した場合、CLIはこのsubtypeでresultを返す
+      // （プロセス自体は生きている）。自分で止めたのだから赤いエラー扱いにしない。
+      const wasInterrupted = ev.subtype === 'error_during_execution' && ev.is_error
+      if (!wasInterrupted && ev.is_error && Array.isArray(ev.errors) && ev.errors.length) {
         ev.errors.forEach(e => addLine(ts, e, 'line-error'))
       }
       // contextWindow をモデルごとに取得（モデル切り替え・将来の1Mモデル対応）
@@ -3218,8 +3221,12 @@ function handleEvent(sessionId, ev, isLive = true) {
       }
       ts._prevCtxTokens = ts._ctxTokens
       const pct = Math.round(ts._ctxTokens / ctxMax * 100)
-      const resultEl = addLine(ts, `✓ ${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})`, 'line-done')
-      if (pct >= 50) resultEl.classList.add('warn')
+      if (wasInterrupted) {
+        addLine(ts, `■ 停止しました`, 'line-system')
+      } else {
+        const resultEl = addLine(ts, `✓ ${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})`, 'line-done')
+        if (pct >= 50) resultEl.classList.add('warn')
+      }
       break
     }
 
@@ -3711,7 +3718,7 @@ function renderQueuePanel(sessionId) {
   const header = document.createElement('div')
   header.className = 'queue-header'
   const label = document.createElement('span')
-  label.textContent = `送信待ち ${queue.length}件`
+  label.textContent = `未送信 ${queue.length}件`
   const clearBtn = document.createElement('button')
   clearBtn.className = 'queue-clear-btn'
   clearBtn.textContent = 'すべてキャンセル'

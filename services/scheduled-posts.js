@@ -1,7 +1,6 @@
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
-const { getClaudeSessionId } = require('./sessions')
 
 const POSTS_FILE = path.join(__dirname, '..', 'scheduled-posts.json')
 
@@ -32,14 +31,11 @@ async function executePost(id) {
   posts.delete(id)
   savePosts()
 
-  const { getState, broadcast } = require('./stream')
-  const { startClaude, injectPrompt, gitPull } = require('./spawner')
+  const { broadcast } = require('./stream')
+  const { deliverPrompt, gitPull } = require('./spawner')
   const config = require('../config/index')
 
-  const state = getState(p.sessionId)
-  const claudeSessionId = getClaudeSessionId(p.sessionId)
   const projectDir = config.projects[p.project]
-
   if (projectDir) {
     const pulled = await gitPull(projectDir)
     if (pulled) broadcast(p.sessionId, { type: 'system', text: `git pull: ${pulled}` })
@@ -47,12 +43,9 @@ async function executePost(id) {
 
   broadcast(p.sessionId, { type: 'system', text: '🕐 予約投稿を実行しました' })
 
-  if (state.process) {
-    injectPrompt(p.sessionId, p.prompt)
-  } else {
-    broadcast(p.sessionId, { type: 'user_input', text: p.prompt })
-    startClaude(p.sessionId, p.prompt, p.model, p.project, claudeSessionId, p.effort, p.thinking)
-  }
+  // 生存確認→注入/--resume起動、失敗時のpendingQueue退避とbroadcastは deliverPrompt が一括で担う
+  const result = deliverPrompt(p.sessionId, p.prompt, { project: p.project, model: p.model, effort: p.effort, thinking: p.thinking })
+  console.log(`[scheduled-posts] deliverPrompt result=${result.status} id=${id}`)
 }
 
 function createPost({ scheduledAt, prompt, sessionId, project, model, effort, thinking }) {

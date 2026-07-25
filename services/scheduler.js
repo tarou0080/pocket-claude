@@ -1,6 +1,5 @@
 const fs = require('fs')
 const path = require('path')
-const { getClaudeSessionId } = require('./sessions')
 
 const SCHEDULES_FILE = path.join(__dirname, '..', 'schedules.json')
 
@@ -50,14 +49,11 @@ async function doResume(sessionId) {
   saveSchedules()
   console.log(`[resume] sessionId=${sessionId} prompt="${s.prompt}"`);
 
-  const { getState, broadcast } = require('./stream')
-  const { startClaude, injectPrompt, gitPull } = require('./spawner')
+  const { broadcast } = require('./stream')
+  const { deliverPrompt, gitPull } = require('./spawner')
   const config = require('../config/index')
 
-  const state = getState(sessionId)
-  const claudeSessionId = getClaudeSessionId(sessionId)
   const projectDir = config.projects[s.project]
-
   if (projectDir) {
     const pulled = await gitPull(projectDir)
     if (pulled) broadcast(sessionId, { type: 'system', text: `git pull: ${pulled}` })
@@ -65,14 +61,9 @@ async function doResume(sessionId) {
 
   broadcast(sessionId, { type: 'system', text: '⏱ レート制限リセット後、自動再開しました' })
 
-  if (state.process) {
-    console.log(`[resume] injecting into live process`)
-    injectPrompt(sessionId, s.prompt)
-  } else {
-    console.log(`[resume] starting new claude process`)
-    broadcast(sessionId, { type: 'user_input', text: s.prompt })
-    startClaude(sessionId, s.prompt, s.model, s.project, claudeSessionId, s.effort, s.thinking)
-  }
+  // 生存確認→注入/--resume起動、失敗時のpendingQueue退避とbroadcastは deliverPrompt が一括で担う
+  const result = deliverPrompt(sessionId, s.prompt, { project: s.project, model: s.model, effort: s.effort, thinking: s.thinking })
+  console.log(`[resume] deliverPrompt result=${result.status} sessionId=${sessionId}`)
 }
 
 function scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking) {

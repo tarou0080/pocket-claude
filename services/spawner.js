@@ -1,9 +1,42 @@
 const { spawn } = require('child_process')
+const { randomUUID } = require('crypto')
 const config = require('../config/index')
 const { broadcast, getState } = require('./stream')
 const { gitPull } = require('./git')
-const { saveClaudeSessionId } = require('./sessions')
+const { saveClaudeSessionId, getClaudeSessionId } = require('./sessions')
 const { parseResetTime } = require('./reset-time')
+
+// stdin へ送る control_request の応答を待つ標準タイムアウト。
+// 実測(interrupt/set_model とも成功時は数ms〜十数msでACKが返る)に対して十分な余裕を持たせつつ、
+// ACKが来ない場合のフォールバック(SIGTERM/kill+resume)への切替を遅らせすぎない値。
+const CONTROL_TIMEOUT_MS = 1800
+
+// claude CLI (stream-json) の stdin へ制御メッセージ(control_request)を送り、対応する
+// control_response を待って解決する。タイムアウト/送信失敗時は null を返す＝呼び出し元は
+// これを「ACKが来ない/失敗した」として現行動作へフォールバックすること。
+function sendControlMessage(proc, subtype, extra = {}, timeoutMs = CONTROL_TIMEOUT_MS) {
+  return new Promise(resolve => {
+    if (!proc || !proc.stdin || proc.stdin.destroyed) return resolve(null)
+    const requestId = 'req_' + randomUUID()
+    if (!proc._controlWaiters) proc._controlWaiters = new Map()
+    const timer = setTimeout(() => {
+      proc._controlWaiters.delete(requestId)
+      resolve(null)
+    }, timeoutMs)
+    proc._controlWaiters.set(requestId, response => {
+      clearTimeout(timer)
+      proc._controlWaiters.delete(requestId)
+      resolve(response)
+    })
+    try {
+      proc.stdin.write(JSON.stringify({ type: 'control_request', request_id: requestId, request: { subtype, ...extra } }) + '\n')
+    } catch {
+      clearTimeout(timer)
+      proc._controlWaiters.delete(requestId)
+      resolve(null)
+    }
+  })
+}
 
 // claude プロセス起動（常駐モード: --input-format stream-json）
 function startClaude(sessionId, prompt, model, project, claudeSessionId, effort, thinking, imageData) {
@@ -76,6 +109,18 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
     data.toString().split('\n').filter(l => l.trim()).forEach(line => {
       try {
         const parsed = JSON.parse(line)
+
+        // control_response: interrupt/set_model等の応答。内部プロトコルなので
+        // クライアントへbroadcastせず、対応する待機Promiseを解決するだけに留める。
+        if (parsed.type === 'control_response') {
+          const requestId = parsed.response?.request_id
+          if (requestId && proc._controlWaiters && proc._controlWaiters.has(requestId)) {
+            const resolve = proc._controlWaiters.get(requestId)
+            proc._controlWaiters.delete(requestId)
+            resolve(parsed.response)
+          }
+          return
+        }
 
         // session_id の初回取得
         if (parsed.type === 'system' && parsed.subtype === 'init' && !claudeSessionId) {
@@ -184,18 +229,38 @@ function _processQueue(sessionId, project) {
   _sendMessage(s.process, next.prompt, next.imageData || null)
 }
 
-// プロセス停止
-function stopClaude(sessionId) {
+// プロセス停止。
+// 既定(force未指定): まず control_request(interrupt) でターンだけを中断する。ACKが来れば
+// プロセスは生かしたまま返す（次のメッセージを即座に受け付けられる）。ACKが来ない/失敗した
+// 場合のみ、従来どおり SIGTERM でプロセスごと止める。
+// force指定時（サーバーのgraceful shutdown等）は割り込みを試さず即SIGTERM＝旧来の挙動を維持する
+// （シャットダウン中に非同期ACK待ちで子プロセスを孤児化させないため）。
+async function stopClaude(sessionId, opts = {}) {
   const s = getState(sessionId)
-  if (s.process) {
-    const hadQueue = (s.pendingQueue || []).length > 0
-    s.pendingQueue = []
-    // 破棄を通知しないと画面に「送信待ちN件」が残り続ける（次の照合まで消えない）
-    if (hadQueue) broadcast(sessionId, { type: 'queue_update', queue: [] })
-    s.process.kill('SIGTERM')
+  if (!s.process) return false
+  const proc = s.process
+
+  const hadQueue = (s.pendingQueue || []).length > 0
+  s.pendingQueue = []
+  // 破棄を通知しないと画面に「未送信N件」が残り続ける（次の照合まで消えない）
+  if (hadQueue) broadcast(sessionId, { type: 'queue_update', queue: [] })
+
+  if (opts.force) {
+    proc.kill('SIGTERM')
     return true
   }
-  return false
+
+  const response = await sendControlMessage(proc, 'interrupt')
+  if (response && response.subtype === 'success') {
+    // ターンのみ中断。プロセスは生存＝s.processはそのまま。CLIが直後に出す result
+    // イベントで stream.js の turning フラグ・/api/status の running が false へ落ちる。
+    s.lastStillQueued = Array.isArray(response.response?.still_queued) ? response.response.still_queued : []
+    return true
+  }
+
+  console.warn(`[stop] interrupt ACK not received sessionId=${sessionId} -> SIGTERM fallback`)
+  proc.kill('SIGTERM')
+  return true
 }
 
 // 実行中プロセスへのプロンプト注入（割り込み送信）
@@ -203,12 +268,60 @@ function injectPrompt(sessionId, prompt, imageData) {
   const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
   try {
+    s.lastStillQueued = null
     broadcast(sessionId, { type: 'user_input', text: prompt })
     _sendMessage(s.process, prompt, imageData)
     return true
   } catch {
     return false
   }
+}
+
+// プロンプト配送口の一本化。呼び出し元(手動送信/自動再開/予約投稿/将来の経路)はすべて
+// これ経由でセッションへプロンプトを届ける。責務:
+//   1. プロセス生存確認 → 生きていれば注入 / 死んでいれば --resume で起動
+//   2. 注入・起動に失敗したら pendingQueue へ退避し、queue_update と system イベントを
+//      broadcastして必ず画面に出す（握りつぶし禁止）
+//   3. 呼び出し元へ結果(injected/started/queued/failed)を返す
+// git pull は本関数の責務に含めない（既存の各呼び出し元の配置・条件をそのまま踏襲する）。
+function deliverPrompt(sessionId, prompt, opts = {}) {
+  const { imageData = null, project = null, model = null, effort = null, thinking = null, silent = false } = opts
+  const s = getState(sessionId)
+
+  if (s.process) {
+    const injected = injectPrompt(sessionId, prompt, imageData)
+    if (injected) return { status: 'injected' }
+    _queueAndNotify(sessionId, { prompt, model, effort, thinking, imageData })
+    return { status: 'queued' }
+  }
+
+  if (!project) {
+    console.error(`[deliverPrompt] no project specified, cannot start sessionId=${sessionId}`)
+    _queueAndNotify(sessionId, { prompt, model, effort, thinking, imageData })
+    return { status: 'failed' }
+  }
+
+  const claudeSessionId = getClaudeSessionId(sessionId)
+  if (!silent) broadcast(sessionId, { type: 'user_input', text: prompt })
+  try {
+    startClaude(sessionId, prompt, model, project, claudeSessionId, effort, thinking, imageData)
+    return { status: 'started' }
+  } catch (e) {
+    console.error(`[deliverPrompt] startClaude threw sessionId=${sessionId} ${e.message}`)
+    _queueAndNotify(sessionId, { prompt, model, effort, thinking, imageData })
+    return { status: 'failed' }
+  }
+}
+
+// 配送失敗を pendingQueue へ退避し、画面へ必ず知らせる。
+// 自動再開・予約投稿のように「ユーザーが見ていない経路」でも気づけるよう system イベントを出す。
+function _queueAndNotify(sessionId, item) {
+  const s = getState(sessionId)
+  if (!s.pendingQueue) s.pendingQueue = []
+  s.pendingQueue.push(item)
+  broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
+  const preview = item.prompt ? (item.prompt.length > 40 ? item.prompt.slice(0, 40) + '…' : item.prompt) : '(画像)'
+  broadcast(sessionId, { type: 'system', text: `⚠ 送信できませんでした。未送信として保存しました: ${preview}` })
 }
 
 // キュー個別削除
@@ -235,4 +348,4 @@ function updatePending(sessionId, index, prompt) {
   return true
 }
 
-module.exports = { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, gitPull }
+module.exports = { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, deliverPrompt, sendControlMessage, gitPull }
