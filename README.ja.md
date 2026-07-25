@@ -87,7 +87,7 @@ npm start
 {
   "port": 3333,
   "host": "0.0.0.0",
-  "permissionMode": "ask",
+  "permissionMode": "acceptEdits",
   "sessionDir": "./sessions",
   "logsDir": "./logs",
   "maxBodySizeMb": 0
@@ -257,7 +257,7 @@ pocket-claude は **ローカル/信頼できるネットワーク用** に設�
 
 - **ローカルネットワークのみ** - デフォルトで localhost または LAN で動作
 - **バインド先アドレスの限定** - `config.json` の `host`（または環境変数 `HOST`）で listen するインターフェースを限定可能。リバースプロキシ経由のアクセスのみに絞りたい場合に使用（デフォルト: `0.0.0.0`）
-- **パーミッションモード** - より安全な操作のため `permissionMode: "ask"` を使用
+- **パーミッションモード** - より安全な操作のため `permissionMode: "acceptEdits"` を使用。指定できる値は `claude --permission-mode` が受け付けるもの（`acceptEdits` / `auto` / `bypassPermissions` / `manual` / `dontAsk` / `plan`）。未知の値を書くとCLIが起動を拒否する
 - **信頼できる環境** - 公開インターネットへの露出向けではありません
 
 リモートアクセスには、サーバーを直接公開するのではなく、VPN または SSH トンネルの使用を検討してください。

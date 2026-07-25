@@ -96,6 +96,13 @@
   }
   #status-dot.running:hover { background: var(--accent-hover); border-color: var(--accent); }
   #status-dot.running:active { opacity: 0.6; }
+  /* 停止要求を送った直後。点滅を止めて「受け付けた」ことを即座に返す（サーバー応答待ちでも見た目が変わる） */
+  #status-dot.running.stopping { cursor: default; opacity: 0.5; }
+  #status-dot.running.stopping::before {
+    animation: none;
+    border-radius: 2px;
+    background: var(--text-muted);
+  }
   #status-dot.disconnected {
     background: none;
     cursor: pointer;
@@ -2420,6 +2427,7 @@ async function reconcileSession(sessionId) {
   try {
     const data = await fetch(`/api/status?session=${encodeURIComponent(sessionId)}`).then(r => r.json())
     ts.isRunning = !!data.running        // サーバーを正としてバッジを照合（背面タブの古いtrue/falseを上書き）
+    if (!ts.isRunning) ts.isStopping = false
     handleQueueUpdate(sessionId, data.queue || [])  // 送信待ちキューもサーバー照合
   } catch {}
   await restoreRateLimitPanel(sessionId) // 再開カードを照合
@@ -2521,7 +2529,7 @@ function updateUI() {
   modelSel.disabled = running
   // disconnected状態を維持（再接続中は上書きしない）
   if (!statusDot.classList.contains('disconnected')) {
-    statusDot.className = running ? 'running' : 'connected'
+    statusDot.className = running ? (ts.isStopping ? 'running stopping' : 'running') : 'connected'
     statusDot.textContent = ''
   }
 
@@ -3199,6 +3207,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       }
       if (isLive) {
         ts.isRunning = false
+        ts.isStopping = false
         if (isActive) updateUI()
       }
       finalizeText(ts)
@@ -3216,7 +3225,7 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'done': {
       finalizeText(ts)
-      if (isLive) ts.isRunning = false
+      if (isLive) { ts.isRunning = false; ts.isStopping = false }
       const ctxMaxD = ts._ctxMax || CTX_MAX
       const fmtKD = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
       const pct = Math.round(ts._ctxTokens / ctxMaxD * 100)
@@ -3231,7 +3240,7 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'error':
       finalizeText(ts)
-      if (isLive) ts.isRunning = false
+      if (isLive) { ts.isRunning = false; ts.isStopping = false }
       addLine(ts, `Error: ${ev.message}`, 'line-error')
       if (isActive) updateUI()
       break
@@ -3901,12 +3910,42 @@ async function send() {
 }
 
 // ── ボタン ──
+// 停止(実行中タップ)は「押した瞬間に見た目を変える → 結果は必ずサーバー照合で整合させる」。
+// 投げっぱなしだと、Authelia再認証の302・オフライン・409(既に停止済み)のいずれでも画面は
+// 実行中のままで無言＝「押しても止まらない」に見える。停止完了の描画はSSEのdoneを待つが、
+// doneを取りこぼしても STOP_SETTLE_MS 後の照合で必ず現実に合わせる。
+const STOP_SETTLE_MS = 8000
+
+async function requestStop(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts || ts.isStopping) return
+  ts.isStopping = true
+  updateUI()
+  let ok = false
+  try {
+    const res = await fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: sessionId }) })
+    ok = res.ok
+    if (!ok && res.status !== 409) addLine(ts, `停止できませんでした (${res.status})`, 'line-error')
+  } catch {
+    addLine(ts, `停止できませんでした (接続失敗)`, 'line-error')
+  }
+  if (!ok) {
+    // 409=サーバーは既に停止済み。それ以外=届いていない。どちらもサーバーを正として引き直す。
+    ts.isStopping = false
+    await reconcileSession(sessionId)
+    return
+  }
+  setTimeout(() => {
+    if (ts.isStopping) { ts.isStopping = false; reconcileSession(sessionId) }
+  }, STOP_SETTLE_MS)
+}
+
 statusDot.addEventListener('click', () => {
   if (statusDot.classList.contains('disconnected')) {
     manualReconnect()
   } else if (statusDot.classList.contains('running')) {
-    fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: currentSessionId }) })
+    requestStop(currentSessionId)
   }
 })
 

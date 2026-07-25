@@ -8,7 +8,7 @@ function loadConfig() {
   } catch {
     return {
       port: 3333,
-      permissionMode: 'ask',
+      permissionMode: 'acceptEdits',
       sessionDir: './sessions',
       logsDir: './logs'
     }

@@ -14,7 +14,14 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   // 異なれば --resume で再起動して新モデルを適用するために使う。
   s.model = model || null
 
-  const permissionMode = config.permissionMode || 'ask'
+  // claude CLI が受け付けない値を渡すと起動そのものが失敗する（画面には stderr だけが出て
+  // 原因が分かりにくい）。未知の値は既定へ落とし、理由をサーバーログに残す。
+  const PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan']
+  let permissionMode = config.permissionMode || 'acceptEdits'
+  if (!PERMISSION_MODES.includes(permissionMode)) {
+    console.warn(`[config] unknown permissionMode "${permissionMode}" -> fallback to acceptEdits (valid: ${PERMISSION_MODES.join(', ')})`)
+    permissionMode = 'acceptEdits'
+  }
 
   // プロキシ経由モデル(GLM等): 該当時のみ翻訳プロキシへ向ける環境変数を子プロセスに注入する。
   // 非選択時は process.env そのまま＝プロキシが落ちていても他モデルは完全に無影響。
@@ -181,7 +188,10 @@ function _processQueue(sessionId, project) {
 function stopClaude(sessionId) {
   const s = getState(sessionId)
   if (s.process) {
+    const hadQueue = (s.pendingQueue || []).length > 0
     s.pendingQueue = []
+    // 破棄を通知しないと画面に「送信待ちN件」が残り続ける（次の照合まで消えない）
+    if (hadQueue) broadcast(sessionId, { type: 'queue_update', queue: [] })
     s.process.kill('SIGTERM')
     return true
   }
