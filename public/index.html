@@ -3063,6 +3063,7 @@ function handleEvent(sessionId, ev, isLive = true) {
   switch (ev.type) {
     case 'user_input':
       if (isLive) clearRateLimitPanel(sessionId)
+      ts._pendingInterrupt = false  // 消費されなかった停止マーカーを次ターンへ持ち越さない
       if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')

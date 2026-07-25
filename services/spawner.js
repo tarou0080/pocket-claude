@@ -255,6 +255,9 @@ async function stopClaude(sessionId, opts = {}) {
     // ターンのみ中断。プロセスは生存＝s.processはそのまま。CLIが直後に出す result
     // イベントで stream.js の turning フラグ・/api/status の running が false へ落ちる。
     s.lastStillQueued = Array.isArray(response.response?.still_queued) ? response.response.still_queued : []
+    // ターンが走っていなければ interrupt は安全なno-op＝中断すべきものが無い。この時に
+    // マーカーを出すと、次に普通に完了したターンが「停止しました」と誤表示される（実測）。
+    if (!s.turning) return true
     // 直後に来る result(error_during_execution) が「ユーザーが止めた結果」であることを
     // クライアントへ知らせる印。時刻ではなく順序で解釈させるためのマーカー（ログにも残るので
     // 再生時・他端末でも同じ解釈になる）。これが無いと、本物の実行時エラーまで
