@@ -255,6 +255,11 @@ async function stopClaude(sessionId, opts = {}) {
     // ターンのみ中断。プロセスは生存＝s.processはそのまま。CLIが直後に出す result
     // イベントで stream.js の turning フラグ・/api/status の running が false へ落ちる。
     s.lastStillQueued = Array.isArray(response.response?.still_queued) ? response.response.still_queued : []
+    // 直後に来る result(error_during_execution) が「ユーザーが止めた結果」であることを
+    // クライアントへ知らせる印。時刻ではなく順序で解釈させるためのマーカー（ログにも残るので
+    // 再生時・他端末でも同じ解釈になる）。これが無いと、本物の実行時エラーまで
+    // 「停止しました」と表示して失敗を隠してしまう。
+    broadcast(sessionId, { type: 'interrupted', timestamp: new Date().toISOString() })
     return true
   }
 

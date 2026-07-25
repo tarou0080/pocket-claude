@@ -3191,7 +3191,10 @@ function handleEvent(sessionId, ev, isLive = true) {
     case 'result': {
       // ユーザーが停止ボタンでターンを中断した場合、CLIはこのsubtypeでresultを返す
       // （プロセス自体は生きている）。自分で止めたのだから赤いエラー扱いにしない。
-      const wasInterrupted = ev.subtype === 'error_during_execution' && ev.is_error
+      // ただし subtype だけで判定すると本物の実行時エラーまで「停止しました」に化けるため、
+      // サーバーが停止成功時に送る interrupted マーカーを直前に見たときだけそう解釈する。
+      const wasInterrupted = !!ts._pendingInterrupt && ev.is_error
+      ts._pendingInterrupt = false
       if (!wasInterrupted && ev.is_error && Array.isArray(ev.errors) && ev.errors.length) {
         ev.errors.forEach(e => addLine(ts, e, 'line-error'))
       }
@@ -3279,6 +3282,12 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'queue_update':
       if (isLive) handleQueueUpdate(sessionId, ev.queue || [])
+      break
+
+    // 停止（ターン中断）が成功した印。直後の result を「エラー」でなく「停止」と解釈するために
+    // 立てるフラグで、次の result が消費する。時刻ではなく順序で効くのでリプレイでも正しい。
+    case 'interrupted':
+      ts._pendingInterrupt = true
       break
 
     case 'raw':
