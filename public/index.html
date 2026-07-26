@@ -1954,6 +1954,36 @@ async function deleteTab(sessionId) {
   }
 }
 
+// ── プロンプト草稿の単一書き込み口 ──
+// draftPrompt を書き換えてよいのはこの関数だけ。メモリ(tabState)とlocalStorage(sessions)を
+// 必ず同時に書き、寿命を一致させる。以前はメモリ更新が入力のたび／localStorage書き出しが
+// タブ切替時だけで、①送信でクリアしてもlocalStorageに古い草稿が残りリロードで送信済みの文が
+// 復活する ②入力中の草稿はlocalStorageに無くAuthelia再認証のリロードで消える、が起きていた。
+// toInput=false は「入力欄の内容を草稿へ写す」向きの呼び出し（入力欄を書き戻す必要がない）。
+// 前面タブでない sessionId に対しては入力欄を触らない＝await中にタブが変わっても他タブを汚さない。
+const DRAFT_SAVE_MS = 300
+const _draftSaveTimers = {}
+function setDraft(sessionId, text, { toInput = true, immediate = false } = {}) {
+  if (!sessionId) return
+  const ts = tabState[sessionId]
+  if (ts) ts.draftPrompt = text
+  if (toInput && sessionId === currentSessionId) {
+    promptEl.value = text
+    promptEl.style.height = 'auto'
+    if (text) promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
+  }
+  clearTimeout(_draftSaveTimers[sessionId])
+  if (immediate) {
+    delete _draftSaveTimers[sessionId]
+    updateSession(sessionId, { draftPrompt: text })
+    return
+  }
+  _draftSaveTimers[sessionId] = setTimeout(() => {
+    delete _draftSaveTimers[sessionId]
+    updateSession(sessionId, { draftPrompt: text })
+  }, DRAFT_SAVE_MS)
+}
+
 // ── タブ固有設定の適用 ──
 function applyTabSettings(sessionId) {
   const ts = tabState[sessionId]
@@ -1978,9 +2008,8 @@ async function switchTab(sessionId) {
   if (currentES) { currentES.close(); currentES = null }
   // 現在タブのプロンプト草稿・モデル・effortを保存
   if (currentSessionId && tabState[currentSessionId]) {
-    tabState[currentSessionId].draftPrompt = promptEl.value
+    setDraft(currentSessionId, promptEl.value, { toInput: false, immediate: true })
     updateSession(currentSessionId, {
-      draftPrompt: promptEl.value,
       model: tabState[currentSessionId].model,
       effort: tabState[currentSessionId].effort,
       thinking: tabState[currentSessionId].thinking,
@@ -3890,9 +3919,9 @@ async function send() {
   _attachedImages = []
   renderImagePreviews()
 
-  promptEl.value = ''
-  promptEl.style.height = 'auto'
-  if (tabState[currentSessionId]) tabState[currentSessionId].draftPrompt = ''
+  // 楽観クリア。失敗したら sendSession の草稿へ必ず戻す（結果はサーバー応答で整合させる）
+  const sendSession = currentSessionId
+  setDraft(sendSession, '', { immediate: true })
   // レート制限パネルをクリア（手動送信で上書き）
   clearRateLimitPanel(currentSessionId)
   fetch(`/api/schedule-resume/${encodeURIComponent(currentSessionId)}`, { method: 'DELETE' }).catch(() => {})
@@ -3900,6 +3929,10 @@ async function send() {
   try {
     const res = await fetch('/api/send', {
       method: 'POST',
+      // Authelia期限切れは 302 → auth.solid.f5.si（別オリジン）。follow だと CORS で
+      // TypeError になり「Connection failed」としか出ず原因が分からない。manual なら
+      // res.type==='opaqueredirect' で認証切れと判別できる。
+      redirect: 'manual',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt,
@@ -3912,15 +3945,13 @@ async function send() {
       })
     })
     if (!res.ok) {
-      promptEl.value = prompt
-      promptEl.style.height = 'auto'
-      promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
-      addLine(ts, `Server error (${res.status})`, 'line-error')
+      setDraft(sendSession, prompt, { immediate: true })
+      addLine(ts, res.type === 'opaqueredirect'
+        ? '認証の期限が切れました。ページを再読み込みしてログインし直してください（入力内容は保持されます）'
+        : `Server error (${res.status})`, 'line-error')
     }
   } catch (e) {
-    promptEl.value = prompt
-    promptEl.style.height = 'auto'
-    promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
+    setDraft(sendSession, prompt, { immediate: true })
     addLine(ts, `Connection failed`, 'line-error')
   }
   updateLayout()
@@ -4004,7 +4035,8 @@ promptEl.addEventListener('keydown', e => {
 })
 promptEl.addEventListener('input', () => {
   const ts = getTS()
-  if (ts && currentSessionId) ts.draftPrompt = promptEl.value
+  // 草稿はメモリ＋localStorageへ（デバウンス）。認証切れリロードでも打ちかけが残る
+  if (ts && currentSessionId) setDraft(currentSessionId, promptEl.value, { toInput: false })
   promptEl.style.height = 'auto'
   promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px'
   updateLayout()
