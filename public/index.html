@@ -3929,7 +3929,7 @@ async function send() {
   try {
     const res = await fetch('/api/send', {
       method: 'POST',
-      // Authelia期限切れは 302 → auth.solid.f5.si（別オリジン）。follow だと CORS で
+      // 認証プロキシ（Authelia等）の期限切れは 302 → 別オリジンの認証画面。follow だと CORS で
       // TypeError になり「Connection failed」としか出ず原因が分からない。manual なら
       // res.type==='opaqueredirect' で認証切れと判別できる。
       redirect: 'manual',

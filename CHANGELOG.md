@@ -4,6 +4,23 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.7.0] - 2026-07-26
+
+### Added
+- **Stop now interrupts the turn instead of killing the session** - The stop button sends the CLI's `control_request`/`interrupt` control message over stdin, so only the running turn is cancelled and the resident `claude` process stays alive. The next prompt continues in the same session without a `--resume` restart (no context reload, no repeated project setup). If the CLI doesn't acknowledge the control message, it falls back to the previous `SIGTERM` behavior.
+- **Model switching uses `set_model`** - Changing the model on an idle session now sends the `set_model` control message instead of killing and re-spawning the process with `--resume`. Falls back to the old restart path if unacknowledged.
+
+### Changed
+- **Stop responds the moment you tap it** - Tapping stop immediately switches the indicator to a `stopping` state (blinking stops, dimmed) instead of waiting for the stream's `done` event, which is easily missed on a flaky mobile connection. Failures are now surfaced explicitly (expired auth proxy session, offline, or "already stopped") and the UI is reconciled against the server instead of being left in a stale "running" state. Stopping also clears any unsent prompts and notifies the client, so the count no longer lingers on screen.
+- **Single prompt delivery path** - Manual sends, rate-limit auto-resume, and scheduled posts now all go through one delivery function that checks the process is alive, injects or starts with `--resume`, and always reports failures to the UI. Previously auto-resume and scheduled posts ignored the injection result, so a failed delivery could be lost silently. The pending list is now labelled "unsent" rather than "queued", which is what it actually holds.
+
+### Fixed
+- **Fresh clones couldn't start a session** - The default `permissionMode` was `ask`, which current Claude Code CLI versions reject, so every session failed to start for anyone without their own `config.json` (only raw stderr was shown). The default is now `acceptEdits`, and an unknown value is logged with a reason and falls back to the default.
+- **Draft prompts both lingering and disappearing** - The prompt draft had two sources of truth (memory, updated on every keystroke; localStorage, written only when switching tabs), which caused opposite-looking symptoms with the same cause: an already-sent prompt could reappear in the input box after a reload, while a half-typed prompt was lost when the page navigated away (for example an expired auth-proxy session). All writes now go through a single `setDraft()` path that updates both together (debounced while typing; immediate on send, on send failure, and on tab switch). Note: attached images are still not restored when a send fails - text only.
+- **Send failure could paste text into the wrong tab** - Restoring a failed send wrote directly to the shared input box, so switching tabs while the request was in flight pushed the previous tab's text into the new tab. Restore now targets the session and only touches the input box when that session is in the foreground.
+- **"Authentication expired" is now named explicitly** - When an authenticating reverse proxy (e.g. Authelia) has expired the session, `POST /api/send` gets a cross-origin 302 that a `follow` fetch turns into an opaque CORS `TypeError`, so the UI could only say "Connection failed". Sends now use `redirect: 'manual'` and show "your session expired - reload the page and sign in again".
+- **Stop status could be reported for turns that weren't stopped** - Detecting "user stopped it" from the result subtype alone made genuine runtime errors show up as "stopped", hiding failures. The server now emits an `interrupted` marker that the following `result` consumes in order, and no marker is emitted when the session is idle (an idle interrupt is a safe no-op, but the leftover marker previously mislabelled the *next* successful turn as stopped).
+
 ## [v2.6.0] - 2026-07-22
 
 ### Documentation

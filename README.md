@@ -233,6 +233,7 @@ All settings are stored in the browser and persist across restarts.
 - **Image attachment** — Attach images by clicking the clip icon (📎), pasting, or dragging into the input area. Text-only or image-only messages both work.
 - **Scheduled posts** — Schedule a prompt to run at a future time. It runs server-side, so no browser needs to stay open.
 - **Rate-limit auto-resume** — When Claude's rate limit resets, a queued prompt is automatically re-sent. A resume card above the input shows the scheduled kick time and counts down; enable "resume by default" in Settings to have it arm itself on every limit.
+- **Stop cancels the turn, not the session** — Tapping the status dot while running interrupts the current turn via the CLI's control protocol. The session's `claude` process stays alive, so your next prompt continues in the same session without a restart. On CLI versions that don't support the control message, pocket-claude falls back to terminating the process (the next prompt then resumes the session).
 
 ## Architecture
 
