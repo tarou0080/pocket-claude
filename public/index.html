@@ -2848,6 +2848,25 @@ async function restoreConvCache(sessionId) {
   } catch {}
 }
 
+// 履歴から再開したタブ専用の一度きりの穴埋め（自分のログが無くキャッシュも空の場合のみ）。
+// resumeConversationのフェーズ2と同じ /api/history/:id/events + handleEvent(isLive=false) を
+// 再利用するだけで、新しい状態源は増やさない。取得後はscheduleConvSaveで既存のIndexedDB
+// キャッシュ経路に乗せ、次回以降のリロードでは再フェッチせず済むようにする。
+async function fillFromHistoryEventsOnce(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts || ts._historyFillAttempted) return
+  ts._historyFillAttempted = true
+  try {
+    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`, { redirect: 'manual' })
+    if (res.type === 'opaqueredirect' || !res.ok) return
+    const events = await res.json()
+    for (const ev of events) {
+      try { handleEvent(sessionId, ev, false) } catch {}
+    }
+    scheduleConvSave(sessionId)
+  } catch {}
+}
+
 // ── SSE接続 ──
 // 設計変更（行番号オフセット同期）: 再接続時もペインをクリアせず続きを追記する。
 // loadHistoryBulk(HTTP全量取得)への依存を廃止し、SSEの event:history で増分取得する。
@@ -2952,13 +2971,21 @@ function connectSSEStream(sessionId) {
   es.addEventListener('history-meta', (e) => {
     try {
       const { maxLine } = JSON.parse(e.data)
+      const ts = tabState[sessionId]
       if (getLastLine(sessionId) > maxLine) {
         // キャッシュがサーバーより先に進んでいる＝stale。破棄して全文取り直し。
-        const ts = tabState[sessionId]
         if (ts) { ts.pane.innerHTML = ''; ts.lastLine = -1 }
         deleteConv(sessionId)
         if (currentES) { currentES.close(); currentES = null }
         connectSSEStream(sessionId)  // fromLine=0で再接続（maxLine>=-1なので無限ループしない）
+      } else if (maxLine === -1 && ts && !ts.pane.firstChild) {
+        // 履歴から再開したタブは自分のログ(logs/<sessionId>.jsonl)を持たない
+        // （履歴イベントはClaude Code側の会話データから取得したもので、pocket-claudeの
+        // 増分同期の対象ではない）。maxLine===-1＝自分のログが空、かつpaneも空
+        // （IndexedDBキャッシュ復元済みでもない）ときだけ、この再接続で一度だけ
+        // /api/history/:id/events を取得して再生し、リロードで空表示になるのを防ぐ。
+        // lastLineは-1のまま変更しない（既存の増分同期の真実源＝own logの行番号を汚さない）。
+        fillFromHistoryEventsOnce(sessionId)
       }
     } catch {}
   })
@@ -3135,10 +3162,14 @@ function handleEvent(sessionId, ev, isLive = true) {
       }
       break
 
-    case 'user':
-      // tool_resultを処理
-      if (ev.message?.content) {
-        ev.message.content.forEach(item => {
+    case 'user': {
+      // tool_resultを処理（content は通常配列だが、CLIの制御系メッセージ
+      // （例: <local-command-stdout>...set_model 等の実行結果</local-command-stdout>）
+      // は content が配列でなく文字列で来ることがある。ガードなしで
+      // forEach を呼ぶと TypeError で再生ループ全体が壊れるため型を見て分岐する。
+      const content = ev.message?.content
+      if (Array.isArray(content)) {
+        content.forEach(item => {
           if (item.type === 'tool_result') {
             const toolId = item.tool_use_id
             const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
@@ -3148,8 +3179,12 @@ function handleEvent(sessionId, ev, isLive = true) {
             }
           }
         })
+      } else if (typeof content === 'string') {
+        const m = content.match(/^<local-command-stdout>([\s\S]*)<\/local-command-stdout>$/)
+        addLine(ts, m ? m[1].trim() : content, 'line-system')
       }
       break
+    }
 
     case 'start':
       finalizeText(ts)
@@ -3160,6 +3195,7 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'stream_event': {
       const inner = ev.event
+      if (!inner || typeof inner !== 'object') break
       switch (inner.type) {
         case 'content_block_start':
           finalizeText(ts)
@@ -3567,7 +3603,15 @@ async function openHistory() {
   historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">Loading...</div>'
 
   try {
-    const sessions = await fetch('/api/history').then(r => r.json())
+    // 認証プロキシ（Authelia等）の期限切れは 302 → 別オリジンの認証画面。follow だと CORS で
+    // TypeError になり原因が分からない。manual なら res.type==='opaqueredirect' で判別できる。
+    const res = await fetch('/api/history', { redirect: 'manual' })
+    if (res.type === 'opaqueredirect') {
+      historyBody.innerHTML = '<div style="padding:20px;color:#EF5350;font-size:13px;">認証の期限が切れました。ページを再読み込みしてログインし直してください</div>'
+      return
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const sessions = await res.json()
     historyBody.innerHTML = ''
     if (sessions.length === 0) {
       historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">No history available</div>'
@@ -3594,7 +3638,13 @@ async function openHistoryDetail(session) {
   historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">Loading...</div>'
 
   try {
-    const msgs = await fetch(`/api/history/${encodeURIComponent(session.sessionId)}`).then(r => r.json())
+    const res = await fetch(`/api/history/${encodeURIComponent(session.sessionId)}`, { redirect: 'manual' })
+    if (res.type === 'opaqueredirect') {
+      historyBody.innerHTML = '<div style="padding:20px;color:#EF5350;font-size:13px;">認証の期限が切れました。ページを再読み込みしてログインし直してください</div>'
+      return
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const msgs = await res.json()
     historyBody.innerHTML = ''
     if (msgs.length === 0) {
       historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">No messages</div>'
@@ -3626,6 +3676,18 @@ async function openHistoryDetail(session) {
 async function resumeConversation(sessionId) {
   const btn = document.getElementById('resume-btn')
   const setProgress = (pct) => { if (btn) btn.textContent = `${pct}%` }
+  const showResumeError = (msg) => {
+    if (btn) { btn.disabled = false; btn.textContent = 'Resume this conversation' }
+    let errEl = historyBody.querySelector('.resume-error')
+    if (!errEl) {
+      errEl = document.createElement('div')
+      errEl.className = 'resume-error'
+      errEl.style.cssText = 'padding:10px 20px;color:#EF5350;font-size:13px;'
+      if (btn && btn.parentNode) btn.parentNode.insertBefore(errEl, btn)
+      else historyBody.appendChild(errEl)
+    }
+    errEl.textContent = msg
+  }
 
   // すでにタブに描画済みなら即切り替え
   const existingTs = tabState[sessionId]
@@ -3636,29 +3698,46 @@ async function resumeConversation(sessionId) {
   }
 
   if (btn) { btn.disabled = true; btn.textContent = '0%' }
+  const startTs = performance.now()
+  let phase = 'download'
+  let downloadedBytes = 0
+  let skipped = 0
+  let eventsCount = 0
+  clientLog('resume:start', { sessionId })
 
   try {
     // ── フェーズ1: ダウンロード（0→50%）──
-    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`)
+    // 認証プロキシ（Authelia等）の期限切れは 302 → 別オリジンの認証画面。follow だと CORS で
+    // TypeError になり原因が分からない。manual なら res.type==='opaqueredirect' で判別できる。
+    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`, { redirect: 'manual' })
+    if (res.type === 'opaqueredirect') {
+      clientLog('resume:error', { sessionId, phase, message: 'auth expired (opaqueredirect)' })
+      showResumeError('認証の期限が切れました。ページを再読み込みしてログインし直してください')
+      return
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
     const contentLength = parseInt(res.headers.get('Content-Length') || '0')
     const reader = res.body.getReader()
-    const chunks = []
-    let received = 0
+    // streaming TextDecoder で逐次文字列化して結合する。巨大 Uint8Array へ
+    // 一旦コピーしてから丸ごとデコードする方式はピークメモリを二重に使うため廃止。
+    const decoder = new TextDecoder()
+    let jsonText = ''
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      chunks.push(value)
-      received += value.length
-      if (contentLength > 0) setProgress(Math.round(received / contentLength * 50))
+      downloadedBytes += value.length
+      jsonText += decoder.decode(value, { stream: true })
+      // Content-Length は gzip 圧縮後のバイト数、reader が返すのは展開後のバイト数
+      // （ブラウザが透過的に展開する）ため比が1を超える。50%で頭打ちにして表示を壊さない。
+      if (contentLength > 0) setProgress(Math.min(50, Math.round(downloadedBytes / contentLength * 50)))
     }
+    jsonText += decoder.decode()
 
-    const allBytes = new Uint8Array(received)
-    let offset = 0
-    for (const chunk of chunks) { allBytes.set(chunk, offset); offset += chunk.length }
-    const events = JSON.parse(new TextDecoder().decode(allBytes))
+    phase = 'parse'
+    const events = JSON.parse(jsonText)
+    eventsCount = events.length
     setProgress(50)
 
     // ── セッション準備（履歴パネルはまだ開いたまま）──
@@ -3696,31 +3775,50 @@ async function resumeConversation(sessionId) {
       ts.autoScroll = false
     }
 
+    phase = 'replay'
     // ── フェーズ2: リプレイ（50→100%、rAFでyieldしながら描画）──
-    await new Promise(resolve => {
+    // 1件の壊れたイベントで全体を止めない: handleEvent を try/catch で包みスキップして進む。
+    // rAFコールバック内の例外は素通しだと外側のtry/catchに届かずPromiseが永久に未解決に
+    // なる（＝再開UIが固まったまま復帰しない）ため、致命的な例外はここでreject して必ず
+    // 外側へ届ける。
+    await new Promise((resolve, reject) => {
       let i = 0
       const tick = () => {
-        const deadline = performance.now() + 16
-        while (i < events.length && performance.now() < deadline) {
-          handleEvent(sessionId, events[i], false)
-          i++
+        try {
+          const deadline = performance.now() + 16
+          while (i < events.length && performance.now() < deadline) {
+            try {
+              handleEvent(sessionId, events[i], false)
+            } catch (e) {
+              skipped++
+            }
+            i++
+          }
+          setProgress(50 + Math.round(i / events.length * 50))
+          if (i < events.length) requestAnimationFrame(tick)
+          else resolve()
+        } catch (e) {
+          reject(e)
         }
-        setProgress(50 + Math.round(i / events.length * 50))
-        if (i < events.length) requestAnimationFrame(tick)
-        else resolve()
       }
       requestAnimationFrame(tick)
     })
 
     if (ts) ts.autoScroll = true
 
+    if (skipped > 0 && ts) {
+      addLine(ts, `[注意] 表示できなかった記録を ${skipped} 件スキップしました`, 'line-system')
+    }
+
     // 描画完了後にタブ切り替えと履歴パネルを閉じる
     switchTab(sessionId)
     closeHistory()
     scrollToBottom(ts)
+
+    clientLog('resume:done', { sessionId, events: eventsCount, skipped, bytes: downloadedBytes, ms: Math.round(performance.now() - startTs) })
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Resume this conversation' }
-    alert(`Resume error: ${e.message}`)
+    clientLog('resume:error', { sessionId, phase, message: e.message })
+    showResumeError(`Resume error: ${e.message}`)
   }
 }
 

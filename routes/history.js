@@ -1,4 +1,5 @@
 const express = require('express')
+const zlib = require('zlib')
 const router = express.Router()
 const { listSessions, getSessionMessages, getSessionEvents } = require('../services/history')
 
@@ -32,11 +33,24 @@ router.get('/:sessionId', (req, res) => {
 })
 
 // 特定セッションの全イベント（履歴再開用）
+// 最大4.6MB程度になりうるJSONのため、クライアントがgzipに対応していれば
+// Node標準のzlibで圧縮して返す（新規依存は追加しない＝expressのみの方針を維持）。
 router.get('/:sessionId/events', (req, res) => {
   const { sessionId } = req.params
   try {
     const events = getSessionEvents(sessionId)
-    res.json(events)
+    const body = JSON.stringify(events)
+    const acceptEncoding = req.headers['accept-encoding'] || ''
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    if (acceptEncoding.includes('gzip')) {
+      const gz = zlib.gzipSync(Buffer.from(body, 'utf8'))
+      res.setHeader('Content-Encoding', 'gzip')
+      res.setHeader('Content-Length', gz.length)
+      res.end(gz)
+    } else {
+      res.setHeader('Content-Length', Buffer.byteLength(body))
+      res.end(body)
+    }
   } catch (err) {
     if (err.message === 'invalid sessionId') {
       return res.status(400).json({ error: err.message })
