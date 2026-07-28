@@ -244,4 +244,68 @@ function getSessionEvents(sessionId) {
   return pocketEvents
 }
 
-module.exports = { listSessions, getSessionMessages, getSessionEvents, UUID_RE, CLAUDE_PROJECTS_DIR }
+// 履歴再生専用にイベント列を整理する純粋関数。
+// クライアントの描画結果（handleEvent の出力）が1バイトも変わらないことが条件。
+// 入力配列・要素を破壊的に書き換えない（getSessionEvents() の返り値をそのまま渡される前提）。
+//
+// 除去規則（4つだけ）:
+//  1. type:'assistant' かつ error!=='rate_limit' → handleEventのcase 'assistant'は
+//     rate_limit以外何もしない（本文はstream_eventのtext_deltaで描画済みの重複）
+//  2. type:'system' かつ subtype!=='init' かつ !text → handleEventはinitかtext有りしか使わない
+//  3. type:'stream_event' かつ event.delta.type が signature_delta/thinking_delta →
+//     content_block_deltaハンドラはtext_delta/input_json_deltaしか見ていない
+//  4. type:'user' の tool_use_result フィールドを除去 → resolveToolContent は
+//     第2引数(toolUseResult)を本体で参照しない未使用引数
+//
+// さらに、直前の出力要素が同じ delta.type（text_delta/input_json_delta）の
+// content_block_delta なら、新規イベントを足さず直前へ連結する（text/partial_jsonを結合）。
+// 他のイベント種別（content_block_start/stopを含む）が来たら合体は打ち切られる。
+function slimEventsForReplay(events) {
+  const out = []
+  for (const e of events) {
+    if (e.type === 'assistant' && e.error !== 'rate_limit') continue
+    if (e.type === 'system' && e.subtype !== 'init' && !e.text) continue
+    if (e.type === 'stream_event') {
+      const deltaType = e.event && e.event.delta && e.event.delta.type
+      if (deltaType === 'signature_delta' || deltaType === 'thinking_delta') continue
+    }
+
+    let ev = e
+    if (e.type === 'user' && Object.prototype.hasOwnProperty.call(e, 'tool_use_result')) {
+      const rest = Object.assign({}, e)
+      delete rest.tool_use_result
+      ev = rest
+    }
+
+    if (ev.type === 'stream_event' && ev.event && ev.event.type === 'content_block_delta') {
+      const deltaType = ev.event.delta && ev.event.delta.type
+      if (deltaType === 'text_delta' || deltaType === 'input_json_delta') {
+        const prev = out[out.length - 1]
+        if (
+          prev &&
+          prev.type === 'stream_event' &&
+          prev.event &&
+          prev.event.type === 'content_block_delta' &&
+          prev.event.delta &&
+          prev.event.delta.type === deltaType
+        ) {
+          const mergedDelta = Object.assign({}, prev.event.delta)
+          if (deltaType === 'text_delta') {
+            mergedDelta.text = (mergedDelta.text || '') + (ev.event.delta.text || '')
+          } else {
+            mergedDelta.partial_json = (mergedDelta.partial_json || '') + (ev.event.delta.partial_json || '')
+          }
+          const mergedEvent = Object.assign({}, prev.event, { delta: mergedDelta })
+          const mergedEv = Object.assign({}, prev, { event: mergedEvent })
+          out[out.length - 1] = mergedEv
+          continue
+        }
+      }
+    }
+
+    out.push(ev)
+  }
+  return out
+}
+
+module.exports = { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay, UUID_RE, CLAUDE_PROJECTS_DIR }

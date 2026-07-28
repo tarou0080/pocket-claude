@@ -1,7 +1,7 @@
 const express = require('express')
 const zlib = require('zlib')
 const router = express.Router()
-const { listSessions, getSessionMessages, getSessionEvents } = require('../services/history')
+const { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay } = require('../services/history')
 
 // セッション一覧
 router.get('/', (_req, res) => {
@@ -38,10 +38,14 @@ router.get('/:sessionId', (req, res) => {
 router.get('/:sessionId/events', (req, res) => {
   const { sessionId } = req.params
   try {
-    const events = getSessionEvents(sessionId)
+    const events = slimEventsForReplay(getSessionEvents(sessionId))
     const body = JSON.stringify(events)
     const acceptEncoding = req.headers['accept-encoding'] || ''
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    // X-Uncompressed-Length: 展開後（実際にクライアントが受信・デコードする）バイト数。
+    // Content-Length は gzip 時は圧縮後バイト数になるため、進捗計算の分母には使えない
+    // （クライアントの reader は展開後バイト数を返すため単位が食い違う）。
+    res.setHeader('X-Uncompressed-Length', Buffer.byteLength(body))
     if (acceptEncoding.includes('gzip')) {
       const gz = zlib.gzipSync(Buffer.from(body, 'utf8'))
       res.setHeader('Content-Encoding', 'gzip')

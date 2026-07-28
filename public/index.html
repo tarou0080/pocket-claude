@@ -3717,7 +3717,10 @@ async function resumeConversation(sessionId) {
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-    const contentLength = parseInt(res.headers.get('Content-Length') || '0')
+    // X-Uncompressed-Length は展開後（reader が返すのと同じ単位）のバイト数。
+    // Content-Length は gzip 時は圧縮後バイト数になり reader の展開後バイト数と
+    // 単位が食い違うため使わない（従来はこれで進捗が約25%地点で50%に張り付いていた）。
+    const uncompressedLength = parseInt(res.headers.get('X-Uncompressed-Length') || '0')
     const reader = res.body.getReader()
     // streaming TextDecoder で逐次文字列化して結合する。巨大 Uint8Array へ
     // 一旦コピーしてから丸ごとデコードする方式はピークメモリを二重に使うため廃止。
@@ -3729,9 +3732,13 @@ async function resumeConversation(sessionId) {
       if (done) break
       downloadedBytes += value.length
       jsonText += decoder.decode(value, { stream: true })
-      // Content-Length は gzip 圧縮後のバイト数、reader が返すのは展開後のバイト数
-      // （ブラウザが透過的に展開する）ため比が1を超える。50%で頭打ちにして表示を壊さない。
-      if (contentLength > 0) setProgress(Math.min(50, Math.round(downloadedBytes / contentLength * 50)))
+      // X-Uncompressed-Length と downloadedBytes はどちらも展開後バイト数で単位が一致するため
+      // 0→50% が実際のダウンロード進捗に比例する。ヘッダが取れない場合は率を出さず受信量表示。
+      if (uncompressedLength > 0) {
+        setProgress(Math.min(50, Math.round(downloadedBytes / uncompressedLength * 50)))
+      } else if (btn) {
+        btn.textContent = `受信中 ${(downloadedBytes / 1024 / 1024).toFixed(1)}MB`
+      }
     }
     jsonText += decoder.decode()
 
