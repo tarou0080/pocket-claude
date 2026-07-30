@@ -2,9 +2,10 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const router = express.Router()
-const { stopClaude, stopPending, removePending, updatePending, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
+const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
+const { saveClaudeSessionId, saveSessionSettings } = require('../services/sessions')
 const config = require('../config/index')
 
 const sessionsDir = path.join(__dirname, '..', 'sessions')
@@ -19,7 +20,7 @@ router.get('/status', (req, res) => {
   const sessionId = req.query.session
   if (!sessionId) return res.status(400).json({ error: 'session required' })
   const s = getState(sessionId)
-  const resp = { running: s.turning, queue: (s.pendingQueue || []).map(q => ({ prompt: q.prompt })) }
+  const resp = { running: s.turning }
   // CLI側キュー(still_queued)は control_request(interrupt) の応答でのみ取得できる限定的な情報。
   // 常時ポーリングしてまで取りに行くコストには見合わないため、直近のinterrupt時点のスナップショットを
   // 参考情報として添えるだけに留める（サーバー真実源の照合対象を広げすぎない）。
@@ -53,7 +54,6 @@ router.post('/send', async (req, res) => {
       console.log(`[send] set_model succeeded sessionId=${actualSessionId}`)
     } else {
       console.warn(`[send] set_model failed/no-ack sessionId=${actualSessionId} response=${JSON.stringify(response)} -> fallback to kill+resume restart`)
-      s.pendingQueue = []
       const oldProc = s.process
       // spawnerのcloseハンドラ(=s.process=null/doneブロードキャスト)を外す。
       // タイムアウト先行時に遅れて発火し、再起動後の新プロセスを誤って無効化するレースを防ぐ。
@@ -66,6 +66,16 @@ router.post('/send', async (req, res) => {
       if (s.process === oldProc) s.process = null // 未起動扱いに戻し、startClaude(--resume) へ進ませる
     }
   }
+
+  // project/model/effort/thinking をセッションの属性として保存する。
+  // 予約投稿・自動再開（レート制限）など、後からこれらの値を渡せない/渡し忘れうる
+  // 呼び出し元がこのセッションへ配送する際に最後の設定へフォールバックできるようにする。
+  saveSessionSettings(actualSessionId, {
+    project: actualProject,
+    model: model || null,
+    effort: effort || null,
+    thinking: thinking !== undefined ? thinking : null,
+  })
 
   // git pull（プロセスが死んでいて新規起動する場合のみ。生存プロセスへの注入時は従来どおり行わない）
   if (!s.process) {
@@ -88,8 +98,6 @@ router.post('/send', async (req, res) => {
     sessionId: actualSessionId,
     injected: result.status === 'injected',
     started: result.status === 'started',
-    queued: result.status === 'queued' || result.status === 'failed',
-    queueLength: s.pendingQueue ? s.pendingQueue.length : 0,
   })
 })
 
@@ -102,38 +110,14 @@ router.post('/stop', async (req, res) => {
   res.json({ ok: true })
 })
 
-// キュー全クリア
-router.post('/stop-pending', (req, res) => {
-  const sessionId = req.body.session
-  if (!sessionId) return res.status(400).json({ error: 'session required' })
-  stopPending(sessionId)
-  res.json({ ok: true })
-})
-
-// キュー個別削除
-router.delete('/pending/:sessionId/:index', (req, res) => {
-  const { sessionId, index } = req.params
-  removePending(sessionId, parseInt(index, 10))
-  res.json({ ok: true })
-})
-
-// キュー個別更新
-router.patch('/pending/:sessionId/:index', (req, res) => {
-  const { sessionId, index } = req.params
-  const { prompt } = req.body
-  if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'prompt required' })
-  const ok = updatePending(sessionId, parseInt(index, 10), prompt.trim())
-  if (!ok) return res.status(404).json({ error: 'not found' })
-  res.json({ ok: true })
-})
-
 // セッション登録（履歴再開用）
 router.post('/register-session', (req, res) => {
   const { pocketSessionId, claudeSessionId } = req.body
   if (!pocketSessionId || !claudeSessionId) return res.status(400).json({ error: 'pocketSessionId and claudeSessionId required' })
   try {
-    fs.mkdirSync(sessionsDir, { recursive: true })
-    fs.writeFileSync(path.join(sessionsDir, `${pocketSessionId}.json`), JSON.stringify({ claudeSessionId }))
+    // saveClaudeSessionId は既存フィールド(project等)とマージする＝ここでの直接writeFileSync
+    // をやめないと、先に保存済みの project が上書きで消える
+    saveClaudeSessionId(pocketSessionId, claudeSessionId)
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ error: e.message })

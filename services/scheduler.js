@@ -45,25 +45,46 @@ function saveSchedules() {
 async function doResume(sessionId) {
   const s = schedules.get(sessionId)
   if (!s) return
-  schedules.delete(sessionId)
-  saveSchedules()
   console.log(`[resume] sessionId=${sessionId} prompt="${s.prompt}"`);
 
   const { broadcast } = require('./stream')
   const { deliverPrompt, gitPull } = require('./spawner')
+  const { getSessionSettings } = require('./sessions')
   const config = require('../config/index')
 
-  const projectDir = config.projects[s.project]
+  // レコードの値 → セッション保存値 → 既定 の順で解決する。
+  // この登録エントリが古いバグの副作用でmodel/effort/thinking無しのまま保存されていても、
+  // そのタブが最後に使っていた設定へフォールバックできるようにする（予約投稿と同じ考え方）。
+  const settings = getSessionSettings(sessionId)
+  const project = s.project || settings.project
+  const model = s.model || settings.model
+  const effort = s.effort || settings.effort
+  const thinking = s.thinking != null ? s.thinking : settings.thinking
+
+  const projectDir = config.projects[project]
   if (projectDir) {
     const pulled = await gitPull(projectDir)
     if (pulled) broadcast(sessionId, { type: 'system', text: `git pull: ${pulled}` })
   }
 
-  broadcast(sessionId, { type: 'system', text: '⏱ レート制限リセット後、自動再開しました' })
-
-  // 生存確認→注入/--resume起動、失敗時のpendingQueue退避とbroadcastは deliverPrompt が一括で担う
-  const result = deliverPrompt(sessionId, s.prompt, { project: s.project, model: s.model, effort: s.effort, thinking: s.thinking })
+  // 生存確認→注入/--resume起動。失敗時の system イベント broadcast は deliverPrompt が担う。
+  const result = deliverPrompt(sessionId, s.prompt, { project, model, effort, thinking })
   console.log(`[resume] deliverPrompt result=${result.status} sessionId=${sessionId}`)
+
+  if (result.status === 'injected' || result.status === 'started') {
+    // 配送成功を確認してから消す・成功を知らせる（配送前の無条件表示は嘘表示になる）
+    schedules.delete(sessionId)
+    saveSchedules()
+    broadcast(sessionId, { type: 'system', text: '⏱ レート制限リセット後、自動再開しました' })
+  } else {
+    // 配送失敗。エントリを残しても再発火はしない（このタイマーは使い切り）ため、
+    // 予約投稿のような再送UIが無い現状ではここに留め置いても救済されない。
+    // 黙って消さず、失敗を必ずチャットへ出す（カード自体は既存仕様どおりエントリ消滅で消える）。
+    const reason = result.reason || '配送に失敗しました'
+    schedules.delete(sessionId)
+    saveSchedules()
+    broadcast(sessionId, { type: 'system', text: `⚠ 自動再開できませんでした: ${reason}` })
+  }
 }
 
 function scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking) {

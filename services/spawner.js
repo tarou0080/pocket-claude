@@ -99,7 +99,6 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   s.process = proc
-  s.pendingQueue = s.pendingQueue || []
   proc.stdin.on('error', () => {})
 
   // 最初のメッセージ送信
@@ -140,23 +139,21 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
             if (cfg.resumeDefaultOn) {
               // resumeDefaultON=true: prompt付きで登録 → doResumeタイマーが入る
               // 既存にprompt有りのON登録があればscheduler側ガードで何もしない（二重登録しない）
+              // model/effort/thinking も渡す（このプロセスが現在実際に走っている設定＝最も正確な値）。
+              // 渡し忘れると切断中に制限へ当たった場合、doResume再起動時にCLI既定モデルへ
+              // 無言で落ちる（予約投稿のproject欠落と同型の不具合）。
               const resumePrompt = '続けてください'
-              scheduleResume(sessionId, resetAt.toISOString(), resumePrompt, project)
+              scheduleResume(sessionId, resetAt.toISOString(), resumePrompt, project, model, effort, thinking)
               console.log(`[rate-limit] auto-resume default-on registered sessionId=${sessionId} resetAt=${resetAt.toISOString()}`)
             } else {
               // resumeDefaultOn=false: 状態記録のみ（タイマーなし）
-              scheduleResume(sessionId, resetAt.toISOString(), null, project)
+              scheduleResume(sessionId, resetAt.toISOString(), null, project, model, effort, thinking)
               console.log(`[rate-limit] saved resetAt=${resetAt.toISOString()}`)
             }
           }
         }
 
         broadcast(sessionId, parsed)
-
-        // result イベント = 1ターン完了 → キューを処理
-        if (parsed.type === 'result') {
-          _processQueue(sessionId, project)
-        }
       } catch {
         broadcast(sessionId, { type: 'raw', text: line })
       }
@@ -217,18 +214,6 @@ function _sendMessage(proc, prompt, imageData) {
   } catch {}
 }
 
-// キューから次のメッセージを処理
-function _processQueue(sessionId, project) {
-  const s = getState(sessionId)
-  if (!s.pendingQueue || s.pendingQueue.length === 0) return
-  if (!s.process) return
-
-  const next = s.pendingQueue.shift()
-  broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
-  broadcast(sessionId, { type: 'user_input', text: next.prompt })
-  _sendMessage(s.process, next.prompt, next.imageData || null)
-}
-
 // プロセス停止。
 // 既定(force未指定): まず control_request(interrupt) でターンだけを中断する。ACKが来れば
 // プロセスは生かしたまま返す（次のメッセージを即座に受け付けられる）。ACKが来ない/失敗した
@@ -239,11 +224,6 @@ async function stopClaude(sessionId, opts = {}) {
   const s = getState(sessionId)
   if (!s.process) return false
   const proc = s.process
-
-  const hadQueue = (s.pendingQueue || []).length > 0
-  s.pendingQueue = []
-  // 破棄を通知しないと画面に「未送信N件」が残り続ける（次の照合まで消えない）
-  if (hadQueue) broadcast(sessionId, { type: 'queue_update', queue: [] })
 
   if (opts.force) {
     proc.kill('SIGTERM')
@@ -288,9 +268,11 @@ function injectPrompt(sessionId, prompt, imageData) {
 // プロンプト配送口の一本化。呼び出し元(手動送信/自動再開/予約投稿/将来の経路)はすべて
 // これ経由でセッションへプロンプトを届ける。責務:
 //   1. プロセス生存確認 → 生きていれば注入 / 死んでいれば --resume で起動
-//   2. 注入・起動に失敗したら pendingQueue へ退避し、queue_update と system イベントを
-//      broadcastして必ず画面に出す（握りつぶし禁止）
-//   3. 呼び出し元へ結果(injected/started/queued/failed)を返す
+//   2. project が未指定でも失敗させない。既定プロジェクトへのフォールバックは
+//      startClaude 側（projects[project] || projects[先頭キー]）に委ねる。
+//      config.projects が空（フォールバック先すら無い）の時だけ明示的に失敗させる。
+//   3. 注入・起動に失敗したら system イベントを broadcast して必ず画面に出す（握りつぶし禁止）
+//   4. 呼び出し元へ結果(injected/started/failed)を返す
 // git pull は本関数の責務に含めない（既存の各呼び出し元の配置・条件をそのまま踏襲する）。
 function deliverPrompt(sessionId, prompt, opts = {}) {
   const { imageData = null, project = null, model = null, effort = null, thinking = null, silent = false } = opts
@@ -299,14 +281,14 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
   if (s.process) {
     const injected = injectPrompt(sessionId, prompt, imageData)
     if (injected) return { status: 'injected' }
-    _queueAndNotify(sessionId, { prompt, model, effort, thinking, imageData })
-    return { status: 'queued' }
+    _notifyFailure(sessionId, prompt, '実行中プロセスへの送信に失敗しました')
+    return { status: 'failed', reason: '実行中プロセスへの送信に失敗しました' }
   }
 
-  if (!project) {
-    console.error(`[deliverPrompt] no project specified, cannot start sessionId=${sessionId}`)
-    _queueAndNotify(sessionId, { prompt, model, effort, thinking, imageData })
-    return { status: 'failed' }
+  if (Object.keys(config.projects).length === 0) {
+    console.error(`[deliverPrompt] config.projects is empty, cannot start sessionId=${sessionId}`)
+    _notifyFailure(sessionId, prompt, 'プロジェクトが設定されていません')
+    return { status: 'failed', reason: 'プロジェクトが設定されていません' }
   }
 
   const claudeSessionId = getClaudeSessionId(sessionId)
@@ -316,44 +298,16 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
     return { status: 'started' }
   } catch (e) {
     console.error(`[deliverPrompt] startClaude threw sessionId=${sessionId} ${e.message}`)
-    _queueAndNotify(sessionId, { prompt, model, effort, thinking, imageData })
-    return { status: 'failed' }
+    _notifyFailure(sessionId, prompt, e.message)
+    return { status: 'failed', reason: e.message }
   }
 }
 
-// 配送失敗を pendingQueue へ退避し、画面へ必ず知らせる。
-// 自動再開・予約投稿のように「ユーザーが見ていない経路」でも気づけるよう system イベントを出す。
-function _queueAndNotify(sessionId, item) {
-  const s = getState(sessionId)
-  if (!s.pendingQueue) s.pendingQueue = []
-  s.pendingQueue.push(item)
-  broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
-  const preview = item.prompt ? (item.prompt.length > 40 ? item.prompt.slice(0, 40) + '…' : item.prompt) : '(画像)'
-  broadcast(sessionId, { type: 'system', text: `⚠ 送信できませんでした。未送信として保存しました: ${preview}` })
+// 配送失敗を画面へ必ず知らせる。自動再開・予約投稿のように「ユーザーが見ていない経路」
+// でも気づけるよう system イベントを出す（握りつぶし禁止）。
+function _notifyFailure(sessionId, prompt, reason) {
+  const preview = prompt ? (prompt.length > 40 ? prompt.slice(0, 40) + '…' : prompt) : '(画像)'
+  broadcast(sessionId, { type: 'system', text: `⚠ 送信できませんでした: ${reason} — ${preview}` })
 }
 
-// キュー個別削除
-function removePending(sessionId, index) {
-  const s = getState(sessionId)
-  if (!s.pendingQueue) return
-  s.pendingQueue.splice(index, 1)
-  broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
-}
-
-// キュー全クリア
-function stopPending(sessionId) {
-  const s = getState(sessionId)
-  s.pendingQueue = []
-  broadcast(sessionId, { type: 'queue_update', queue: [] })
-}
-
-// キュー個別更新
-function updatePending(sessionId, index, prompt) {
-  const s = getState(sessionId)
-  if (!s.pendingQueue || !s.pendingQueue[index]) return false
-  s.pendingQueue[index].prompt = prompt
-  broadcast(sessionId, { type: 'queue_update', queue: s.pendingQueue.map(q => ({ prompt: q.prompt })) })
-  return true
-}
-
-module.exports = { startClaude, stopClaude, stopPending, removePending, updatePending, injectPrompt, deliverPrompt, sendControlMessage, gitPull }
+module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull }
