@@ -93,6 +93,14 @@ router.post('/send', async (req, res) => {
     effort: effort || null,
     thinking: thinking !== undefined ? thinking : null,
   })
+  if (result.status === 'failed') {
+    return res.status(502).json({
+      ok: false,
+      status: 'failed',
+      reason: result.reason,
+      sessionId: actualSessionId,
+    })
+  }
   res.json({
     ok: true,
     sessionId: actualSessionId,

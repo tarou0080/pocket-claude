@@ -1743,6 +1743,24 @@ function getCurrentSession() {
   return loadSessions().find(s => s.sessionId === currentSessionId)
 }
 
+// ── 送信中本文の永続化（pendingSend） ──
+// setDraftの草稿とは別に、セッションごと最新1件を「配送が確定するまで」保持する。
+// send()の楽観クリア（setDraft('')）はブラウザが生きて応答を受け取れた場合にしか
+// 復元できない（ページごと閉じられた・応答自体届かない、では効かない）。削除は
+// 配送確定（成功応答／自分のuser_inputのリプレイ一致）のときだけ行う。
+function loadPendingSends() {
+  try { return JSON.parse(localStorage.getItem('pc-pending-send') || '{}') } catch { return {} }
+}
+function getPendingSend(sessionId) {
+  return loadPendingSends()[sessionId] || null
+}
+function setPendingSend(sessionId, text) {
+  const all = loadPendingSends()
+  if (text) all[sessionId] = text
+  else delete all[sessionId]
+  localStorage.setItem('pc-pending-send', JSON.stringify(all))
+}
+
 function updateSession(sessionId, updates) {
   const sessions = loadSessions()
   const idx = sessions.findIndex(s => s.sessionId === sessionId)
@@ -2436,6 +2454,15 @@ async function init() {
 
   sessions.forEach(s => { ensureTabState(s); createTabEl(s) })
 
+  // 配送が確定しないままページが閉じられた本文をpendingSendから草稿へ戻す（送信欄からの
+  // 消失を防ぐ）。前面タブになるセッションはこの後のswitchTab→applyTabSettingsで
+  // draftPromptが入力欄へ反映される。確定済み（成功応答／user_inputリプレイ一致）の
+  // 分はpendingSendが既に消えているためここでは何もしない。
+  sessions.forEach(s => {
+    const pending = getPendingSend(s.sessionId)
+    if (pending) setDraft(s.sessionId, pending, { immediate: true })
+  })
+
   // 前回のセッションを復元
   const lastSessionId = localStorage.getItem('currentSessionId')
   const startSession = sessions.find(s => s.sessionId === lastSessionId) || sessions[0]
@@ -3090,6 +3117,7 @@ function handleEvent(sessionId, ev, isLive = true) {
     case 'user_input':
       if (isLive) clearRateLimitPanel(sessionId)
       ts._pendingInterrupt = false  // 消費されなかった停止マーカーを次ターンへ持ち越さない
+      ts._doneShown = false  // 新しいターンにつき次のdoneは描画対象に戻す
       if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
         addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
@@ -3106,6 +3134,14 @@ function handleEvent(sessionId, ev, isLive = true) {
             if (nameEl) nameEl.textContent = newTitle
           }
         }
+      }
+      // 配送確定(2): 自分のuser_inputがサーバーから返ってきた＝Claudeのコンテキストに
+      // 実際に届いた。isLiveに関わらず有効にする（アプリを閉じている間に届いていた
+      // 場合、次に開いたときの履歴再生(isLive=false)で確定させる必要があるため）。
+      // 上のisLiveガード群（a15bb89）はライブ専用の状態変更が対象で、これは別物。
+      if (ev.text && getPendingSend(sessionId) === ev.text) {
+        setPendingSend(sessionId, null)
+        if (ts.draftPrompt === ev.text) setDraft(sessionId, '', { immediate: true })
       }
       finalizeText(ts)
       break
@@ -3159,6 +3195,7 @@ function handleEvent(sessionId, ev, isLive = true) {
     case 'start':
       finalizeText(ts)
       if (isLive) ts.isRunning = true
+      ts._doneShown = false  // 新規spawnにつき次のdoneは描画対象に戻す
       addLine(ts, `── ${ev.project} (${ev.model}) ──`, 'line-system')
       if (isActive) updateUI()
       break
@@ -3234,18 +3271,29 @@ function handleEvent(sessionId, ev, isLive = true) {
       if (!wasInterrupted && ev.is_error && Array.isArray(ev.errors) && ev.errors.length) {
         ev.errors.forEach(e => addLine(ts, e, 'line-error'))
       }
-      // contextWindow をモデルごとに取得（モデル切り替え・将来の1Mモデル対応）
-      if (ev.modelUsage) {
-        const windows = Object.values(ev.modelUsage).map(m => m.contextWindow).filter(Boolean)
-        if (windows.length) ts._ctxMax = Math.max(...windows)
-      }
-      // result.usage.iterations[-1] が存在する場合、最終APIコールの正確なトークン数で上書き。
-      // stream_eventの積算値は稀にorphan message_deltaでズレるため、ここで補正する。
-      // result.usage（ターン全体の累積）は使わない（ツール多用時に膨張するため）
-      if (ev.usage?.iterations?.length) {
-        const last = ev.usage.iterations[ev.usage.iterations.length - 1]
-        const auth = (last.input_tokens||0) + (last.cache_creation_input_tokens||0) + (last.cache_read_input_tokens||0) + (last.output_tokens||0)
-        if (auth > 0) ts._ctxTokens = auth
+      // 実体のない空ターン対策: `--resume`直後にCLIがnum_turns:0・modelUsage:{}・
+      // usage.iterations無し（＝トークン情報が皆無）のresultを1回吐くことがある。
+      // これを通常ターンと同様に扱うと、コンテキスト窓が既定200Kへフォールバックし
+      // ✓0%という嘘の行が出た上、直前の正しい%まで0へ潰れる（⚡compacted?誤検知の原因にも
+      // なる）。トークン情報が皆無なターンでは_ctxTokens/_ctxMax/_prevCtxTokensを一切
+      // 上書きせず、✓行も描かない。
+      const hasModelUsage = ev.modelUsage && Object.keys(ev.modelUsage).length > 0
+      const hasIterUsage = !!ev.usage?.iterations?.length
+      const isEmptyTurn = (ev.num_turns === 0) && !hasModelUsage && !hasIterUsage
+      if (!isEmptyTurn) {
+        // contextWindow をモデルごとに取得（モデル切り替え・将来の1Mモデル対応）
+        if (hasModelUsage) {
+          const windows = Object.values(ev.modelUsage).map(m => m.contextWindow).filter(Boolean)
+          if (windows.length) ts._ctxMax = Math.max(...windows)
+        }
+        // result.usage.iterations[-1] が存在する場合、最終APIコールの正確なトークン数で上書き。
+        // stream_eventの積算値は稀にorphan message_deltaでズレるため、ここで補正する。
+        // result.usage（ターン全体の累積）は使わない（ツール多用時に膨張するため）
+        if (hasIterUsage) {
+          const last = ev.usage.iterations[ev.usage.iterations.length - 1]
+          const auth = (last.input_tokens||0) + (last.cache_creation_input_tokens||0) + (last.cache_read_input_tokens||0) + (last.output_tokens||0)
+          if (auth > 0) ts._ctxTokens = auth
+        }
       }
       if (isLive) {
         ts.isRunning = false
@@ -3253,16 +3301,16 @@ function handleEvent(sessionId, ev, isLive = true) {
         if (isActive) updateUI()
       }
       finalizeText(ts)
-      const ctxMax = ts._ctxMax || CTX_MAX
-      const fmtK = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
-      if (ts._prevCtxTokens > 0 && ts._ctxTokens < ts._prevCtxTokens * 0.6) {
-        addLine(ts, `⚡ compacted? (${fmtK(ts._prevCtxTokens)}→${fmtK(ts._ctxTokens)})`, 'line-compact')
-      }
-      ts._prevCtxTokens = ts._ctxTokens
-      const pct = Math.round(ts._ctxTokens / ctxMax * 100)
       if (wasInterrupted) {
         addLine(ts, `■ 停止しました`, 'line-system')
-      } else {
+      } else if (!isEmptyTurn) {
+        const ctxMax = ts._ctxMax || CTX_MAX
+        const fmtK = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
+        if (ts._prevCtxTokens > 0 && ts._ctxTokens < ts._prevCtxTokens * 0.6) {
+          addLine(ts, `⚡ compacted? (${fmtK(ts._prevCtxTokens)}→${fmtK(ts._ctxTokens)})`, 'line-compact')
+        }
+        ts._prevCtxTokens = ts._ctxTokens
+        const pct = Math.round(ts._ctxTokens / ctxMax * 100)
         const resultEl = addLine(ts, `✓ ${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})`, 'line-done')
         if (pct >= 50) resultEl.classList.add('warn')
       }
@@ -3272,14 +3320,23 @@ function handleEvent(sessionId, ev, isLive = true) {
     case 'done': {
       finalizeText(ts)
       if (isLive) { ts.isRunning = false; ts.isStopping = false }
+      // 再起動時、server.jsはgraceful shutdownで実プロセスを畳む前に予告の
+      // done{exitCode:-1, reason:'server_shutdown'}を配信し、約0.4秒後に実際の
+      // プロセス終了でdone{exitCode:143}を配信する（2イベント）。既存の
+      // 'server_restart'（起動時ログ修復の別経路）と合わせて両方とも
+      // 「⚠ Interrupted (server restarted)」として扱い、かつ後続の重複描画を
+      // _doneShownで抑止する（次のstart/user_inputで解除）。
+      const isRestartReason = ev.reason === 'server_restart' || ev.reason === 'server_shutdown'
+      if (ts._doneShown) { if (isActive) updateUI(); break }
+      ts._doneShown = true
       const ctxMaxD = ts._ctxMax || CTX_MAX
       const fmtKD = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
       const pct = Math.round(ts._ctxTokens / ctxMaxD * 100)
-      const doneMsg = ev.reason === 'server_restart'
+      const doneMsg = isRestartReason
         ? `⚠ Interrupted (server restarted)`
         : `✓ Done (exit ${ev.exitCode}) — ${pct}% (${fmtKD(ts._ctxTokens)} / ${fmtKD(ctxMaxD)})`
       const doneEl = addLine(ts, doneMsg, 'line-done')
-      if (ev.reason === 'server_restart' || ev.exitCode !== 0 || pct >= 50) doneEl.classList.add('warn')
+      if (isRestartReason || ev.exitCode !== 0 || pct >= 50) doneEl.classList.add('warn')
       if (isActive) updateUI()
       break
     }
@@ -3418,6 +3475,7 @@ function addImageLine(ts, images) {
   })
   ts.pane.appendChild(div)
   scrollToBottom(ts)
+  return div
 }
 
 function addToolLine(ts, toolName, toolId) {
@@ -3883,19 +3941,35 @@ async function send() {
     ? _attachedImages.map(i => ({ mediaType: i.mediaType, data: i.data }))
     : null
 
-  // チャット欄に画像を即時表示（SSEより先に見せる）
-  if (_attachedImages.length > 0) addImageLine(ts, _attachedImages)
+  // 配送失敗時に添付ごと復元できるよう、送信前の配列を退避しておく
+  // （_attachedImagesはこの直後に空へ戻すため、参照ではなく退避が必要）。
+  const imagesForRestore = _attachedImages
+
+  // チャット欄に画像を即時表示（SSEより先に見せる）。楽観表示のため、配送失敗時は
+  // このDOM要素を撤回する（Claudeのコンテキストに届いていないものを画面に残さない）。
+  let optimisticImageLine = null
+  if (_attachedImages.length > 0) optimisticImageLine = addImageLine(ts, _attachedImages)
 
   _attachedImages = []
   renderImagePreviews()
 
-  // 楽観クリア。失敗したら sendSession の草稿へ必ず戻す（結果はサーバー応答で整合させる）
+  // 楽観クリア。失敗したら sendSession の草稿へ必ず戻す（結果はサーバー応答で整合させる）。
+  // ただし本文自体はpendingSendへ退避し、配送が確定するまで消さない（クライアントの
+  // 生存に依存しない復元性のため。応答を受け取れないままページが閉じられても、次に
+  // 開いたときにinit()がpendingSendを草稿へ戻す）。
   const sendSession = currentSessionId
+  setPendingSend(sendSession, prompt)
   setDraft(sendSession, '', { immediate: true })
   // レート制限パネルをクリア（手動送信で上書き）
   clearRateLimitPanel(currentSessionId)
   fetch(`/api/schedule-resume/${encodeURIComponent(currentSessionId)}`, { method: 'DELETE' }).catch(() => {})
   // テキストはuser_inputイベントで表示されるため、ここでは表示しない
+  // 失敗判定はHTTPステータスとレスポンスボディの両方を見る（サーバーが配送失敗を502＋
+  // {ok:false, reason}で返す経路と、将来200でok:falseを返す経路の両方に対応するため）。
+  let failMessage = null
+  // 「配送されなかったと確定できる」応答（502/opaqueredirect等）だけがtrue。fetch自体の
+  // 例外（catch節）は送信できたかどうか不明なためpendingSendを消さない（下記参照）。
+  let deliveryConfirmedFailed = false
   try {
     const res = await fetch('/api/send', {
       method: 'POST',
@@ -3914,15 +3988,38 @@ async function send() {
         images: imagesToSend,
       })
     })
-    if (!res.ok) {
-      setDraft(sendSession, prompt, { immediate: true })
-      addLine(ts, res.type === 'opaqueredirect'
-        ? '認証の期限が切れました。ページを再読み込みしてログインし直してください（入力内容は保持されます）'
-        : `Server error (${res.status})`, 'line-error')
+    if (res.type === 'opaqueredirect') {
+      failMessage = '認証の期限が切れました。ページを再読み込みしてログインし直してください（入力内容は保持されます）'
+      deliveryConfirmedFailed = true
+    } else {
+      let body = null
+      try { body = await res.json() } catch {}
+      if (!res.ok || (body && body.ok === false)) {
+        failMessage = (body && body.reason) || `Server error (${res.status})`
+        deliveryConfirmedFailed = true
+      }
     }
   } catch (e) {
+    failMessage = 'Connection failed'
+  }
+
+  if (failMessage) {
     setDraft(sendSession, prompt, { immediate: true })
-    addLine(ts, `Connection failed`, 'line-error')
+    // 確定的な配送失敗（サーバーが「届かなかった」と応答した）だけpendingSendを消す。
+    // 草稿へ既に復元済みなので二重に残らない。fetch例外（deliveryConfirmedFailed===false）は
+    // 実際には配送済みの可能性が残るため、pendingSendはここでは消さずuser_inputの
+    // リプレイ一致（handleEvent）に確定を委ねる。
+    if (deliveryConfirmedFailed) setPendingSend(sendSession, null)
+    addLine(ts, failMessage, 'line-error')
+    // 添付画像を復元（送信欄のプレビュー＋楽観表示した画像行の撤回）
+    if (imagesForRestore.length > 0) {
+      _attachedImages = imagesForRestore
+      renderImagePreviews()
+    }
+    if (optimisticImageLine) optimisticImageLine.remove()
+  } else {
+    // 確定(1): サーバーが成功応答を返した＝配送済み
+    setPendingSend(sendSession, null)
   }
   updateLayout()
 }

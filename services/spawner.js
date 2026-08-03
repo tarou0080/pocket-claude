@@ -178,9 +178,10 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   })
 }
 
-// stdin に user メッセージを JSON で送信
+// stdin に user メッセージを JSON で送信。書き込みの成否をbooleanで返す
+// （呼び出し元が「送信できたか」を見て broadcast/ログの要否を判断するため）。
 function _sendMessage(proc, prompt, imageData) {
-  if (!proc || !proc.stdin || proc.stdin.destroyed) return
+  if (!proc || !proc.stdin || proc.stdin.destroyed) return false
 
   const content = []
 
@@ -211,7 +212,10 @@ function _sendMessage(proc, prompt, imageData) {
 
   try {
     proc.stdin.write(JSON.stringify(msg) + '\n')
-  } catch {}
+    return true
+  } catch {
+    return false
+  }
 }
 
 // プロセス停止。
@@ -251,18 +255,17 @@ async function stopClaude(sessionId, opts = {}) {
   return true
 }
 
-// 実行中プロセスへのプロンプト注入（割り込み送信）
+// 実行中プロセスへのプロンプト注入（割り込み送信）。
+// user_input の broadcast は _sendMessage() が実際に書き込めたことを確認してから行う
+// （書き込み前に出すと、失敗時も画面にはユーザー発言があるのにClaudeのコンテキストには
+// 届いていない、という食い違いが生じるため）。
 function injectPrompt(sessionId, prompt, imageData) {
   const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
-  try {
-    s.lastStillQueued = null
-    broadcast(sessionId, { type: 'user_input', text: prompt })
-    _sendMessage(s.process, prompt, imageData)
-    return true
-  } catch {
-    return false
-  }
+  s.lastStillQueued = null
+  const sent = _sendMessage(s.process, prompt, imageData)
+  if (sent) broadcast(sessionId, { type: 'user_input', text: prompt })
+  return sent
 }
 
 // プロンプト配送口の一本化。呼び出し元(手動送信/自動再開/予約投稿/将来の経路)はすべて
@@ -281,6 +284,9 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
   if (s.process) {
     const injected = injectPrompt(sessionId, prompt, imageData)
     if (injected) return { status: 'injected' }
+    // stdin不在・destroyed・書き込み例外のいずれでもここに来る。事後にジャーナルで
+    // 追えるよう、画面通知(_notifyFailure)とは別にサーバーログへも残す。
+    console.error(`[deliverPrompt] inject failed sessionId=${sessionId} reason=stdin unavailable or write failed`)
     _notifyFailure(sessionId, prompt, '実行中プロセスへの送信に失敗しました')
     return { status: 'failed', reason: '実行中プロセスへの送信に失敗しました' }
   }
@@ -292,9 +298,11 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
   }
 
   const claudeSessionId = getClaudeSessionId(sessionId)
-  if (!silent) broadcast(sessionId, { type: 'user_input', text: prompt })
   try {
     startClaude(sessionId, prompt, model, project, claudeSessionId, effort, thinking, imageData)
+    // user_input の broadcast は startClaude() が例外を投げずに起動できたことを確認してから行う
+    // （失敗時に画面だけユーザー発言が残りClaudeのコンテキストには無い、という食い違いを避ける）。
+    if (!silent) broadcast(sessionId, { type: 'user_input', text: prompt })
     return { status: 'started' }
   } catch (e) {
     console.error(`[deliverPrompt] startClaude threw sessionId=${sessionId} ${e.message}`)
