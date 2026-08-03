@@ -10,3 +10,4 @@ schedules.json
 scheduled-posts.json
 autonomous-progress.json
 autonomy-rules.json
+ops/claude-keepalive/keepalive.log
