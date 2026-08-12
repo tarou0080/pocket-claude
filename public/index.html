@@ -7,6 +7,23 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script>
+  // 本文中のリンクは新規タブで開く（同一タブ遷移でアプリ画面が失われるのを防ぐ）
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A' && node.hasAttribute('href')) {
+      node.setAttribute('target', '_blank')
+      node.setAttribute('rel', 'noopener noreferrer')
+    }
+  })
+  // 本フック導入前にIndexedDBへ焼き込まれた会話HTMLには target が無い。
+  // 復元時に同じ補正をかけて、過去メッセージのリンクも新規タブで開くようにする。
+  function markLinksExternal(root) {
+    root.querySelectorAll('a[href]').forEach(a => {
+      a.setAttribute('target', '_blank')
+      a.setAttribute('rel', 'noopener noreferrer')
+    })
+  }
+</script>
 <script src="themes.js"></script>
 <style>
   :root {
@@ -2842,6 +2859,7 @@ async function restoreConvCache(sessionId) {
       // 旧バージョンが焼き込んだ死んだ再開カードを除去（既存キャッシュ救済）。
       // 生きたカードは直後の restoreRateLimitPanel が再生成する。
       ts.pane.querySelectorAll('.rl-panel').forEach(el => el.remove())
+      markLinksExternal(ts.pane)
       ts.lastLine = (typeof rec.lastLine === 'number' ? rec.lastLine : -1)
     }
   } catch {}
