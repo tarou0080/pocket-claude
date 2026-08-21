@@ -1,9 +1,9 @@
 #!/bin/bash
 # Claude Code CLI 自動アップデートスクリプト
-# cron: 毎日 3:00 に実行（johnadmin crontab。2026-07-25 週次→日次）
+# cron: 毎日 3:00 に実行（サービス実行ユーザーのcrontab）
 #
-# 2026-07-22 修正: グローバル(/usr/local/lib)はroot所有のため johnadmin の
-#   `npm install -g` は EACCES で失敗していた → sudo を付与。
+# 注: グローバル(/usr/local/lib)はroot所有のため一般ユーザーの
+#   `npm install -g` は EACCES で失敗する → sudo を付与している。
 #   さらに旧版はバージョン変化の有無だけで判定し、失敗を「Already up-to-date」と
 #   誤報告していた → npm 終了コードと npm view の最新版を突き合わせて失敗を検知する。
 # 2026-07-25 修正:
@@ -20,7 +20,7 @@ NODE_BIN=/usr/local/bin/node
 NPM_BIN=/usr/local/bin/npm
 PKG_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code
 
-LOG_DIR="/home/johnadmin/logs"
+LOG_DIR="${HOME}/logs"
 LOG_FILE="$LOG_DIR/claude-cli-update.log"
 
 mkdir -p "$LOG_DIR"

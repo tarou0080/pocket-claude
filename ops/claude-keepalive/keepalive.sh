@@ -3,7 +3,7 @@
 # 毎週金曜 5:05 JST に実行し、リセット直後に使用実績を作る
 # 「.」だけだとカウントされない可能性があるため、ある程度のやり取りを発生させる
 
-LOG_DIR="/srv/shell/claude-keepalive"
+LOG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG="${LOG_DIR}/keepalive.log"
 
 # ログローテーション（100行超えたら古い分を削除）
