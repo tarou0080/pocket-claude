@@ -40,6 +40,13 @@ router.post('/send', async (req, res) => {
   if (sessionId && !UUID_RE.test(sessionId)) {
     return res.status(400).json({ error: 'invalid sessionId' })
   }
+  // model は --model へそのまま渡る値。config.models を設定している利用者は、
+  // そこに無い値をUIのキュレーションを迂回して送られても弾けるようにする。
+  // config.models が未設定・空の場合は従来どおり素通し（設定していない利用者を壊さない）。
+  if (model && Array.isArray(config.models) && config.models.length > 0) {
+    const allowed = config.models.some(m => m.value === model)
+    if (!allowed) return res.status(400).json({ error: 'invalid model' })
+  }
 
   const { randomUUID } = require('crypto')
   const actualSessionId = sessionId || randomUUID()
@@ -186,7 +193,15 @@ router.get('/schedule-resume/:sessionId', (req, res) => {
 })
 
 // フロントエンドからのデバッグログ受信
+// このルート専用の上限（config.maxBodySizeMbとは別枠・小さめ固定値）。
+// 全体のボディ上限は既定で無制限(maxBodySizeMb:0)になりうるため、
+// journaldへ無制限に書き込めてしまわないようここだけ明示的に制限する。
+const CLIENT_LOG_MAX_BYTES = 64 * 1024
 router.post('/client-log', (req, res) => {
+  const bodyStr = JSON.stringify(req.body || {})
+  if (Buffer.byteLength(bodyStr, 'utf8') > CLIENT_LOG_MAX_BYTES) {
+    return res.status(400).json({ error: 'payload too large' })
+  }
   const { event, data } = req.body || {}
   if (event) console.log(`[client] ${event} ${data ? JSON.stringify(data) : ''}`)
   res.json({ ok: true })

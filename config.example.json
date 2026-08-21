@@ -5,5 +5,14 @@
   "sessionDir": "./sessions",
   "logsDir": "./logs",
   "uiLang": "en",
-  "maxBodySizeMb": 0
+  "maxBodySizeMb": 0,
+  "models": [
+    { "value": "my-proxy-model", "label": "My Proxy Model" }
+  ],
+  "proxyModels": {
+    "my-proxy-model": {
+      "ANTHROPIC_BASE_URL": "http://localhost:3456",
+      "ANTHROPIC_API_KEY": "your-proxy-key"
+    }
+  }
 }
