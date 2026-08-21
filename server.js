@@ -118,7 +118,14 @@ server.on('error', (err) => {
 })
 
 // Graceful shutdown: SIGTERM/SIGINT時に実行中のプロセスを適切に終了
+// unhandledRejection/uncaughtExceptionからも同じ経路で呼ぶため、二重発火を防ぐガードを持たせる
+let shuttingDownReason = null
 function gracefulShutdown(signal) {
+  if (shuttingDownReason) {
+    console.log(`[shutdown] Already shutting down (reason: ${shuttingDownReason}), ignoring ${signal}`)
+    return
+  }
+  shuttingDownReason = signal
   console.log(`\n[${signal}] Graceful shutdown initiated...`)
 
   // 1. 新規リクエストを拒否
@@ -173,3 +180,16 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'))
+
+// 未捕捉の例外・rejectionでプロセスが不定状態のまま生き続けるのを防ぐ。
+// Restart=always（systemd）が復旧を担うので、ここでの責務は「理由とスタックを必ず残してから
+// 落とす」ことに絞る。実行中セッションへの通知はgracefulShutdownの既存経路を再利用する。
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] Unhandled promise rejection:', reason && reason.stack ? reason.stack : reason)
+  gracefulShutdown('unhandledRejection')
+})
+
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] Uncaught exception:', err && err.stack ? err.stack : err)
+  gracefulShutdown('uncaughtException')
+})
