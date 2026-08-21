@@ -172,4 +172,14 @@ function loadSchedules() {
   } catch {}
 }
 
-module.exports = { scheduleResume, cancelResume, getSchedule, loadSchedules }
+module.exports = {
+  scheduleResume,
+  cancelResume,
+  getSchedule,
+  loadSchedules,
+  // テスト専用に追加公開（発火時刻計算のロジックはそのまま・挙動変更なし）
+  computeFireAt,
+  schedules,
+  RESUME_BUFFER_MS,
+  STAGGER_MS,
+}
