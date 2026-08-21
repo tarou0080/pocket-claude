@@ -4,6 +4,22 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.9.0] - 2026-08-21
+
+### Added
+- **Crash-safe exit handling** - `unhandledRejection` and `uncaughtException` are now caught: the reason and stack trace are always logged before the process shuts down through the existing graceful-shutdown path (running sessions get a proper `done` notice instead of the process just vanishing). Recovery still relies on the process manager's restart policy.
+- **A minimal test suite** - `npm test` (`node --test`, no new dependency) now covers the three areas that caused real regressions in past releases: the scheduler's fire-time collision avoidance, the session settings fallback chain (record -> saved session -> default) that a delivery path silently broke last cycle, and the history replay event reducer (verified to leave rendered output unchanged).
+- **marked and DOMPurify are vendored** - Both libraries are fetched at a pinned version into `public/vendor/` and loaded from there instead of a floating-major CDN URL with no integrity check. The app now renders and sanitizes messages without any external network dependency.
+
+### Changed
+- **All JSON persistence is now atomic** - Every place that writes a JSON file (sessions, scheduler, scheduled posts, server config, projects) now writes to a temp file and renames it into place, instead of writing in place. A write that's interrupted (crash, OOM kill) can no longer leave a half-written, corrupt file. Failures are logged instead of being silently swallowed, and a scheduled post whose save fails now says so on screen - previously a disk write failure could make a scheduled post vanish on the next restart without any warning.
+- **sessionId is validated on every write path** - The UUID format check that already guarded history reads is now applied to `POST /api/send`, `GET /api/stream`, `POST /api/register-session`, `POST /api/stop` and `POST /api/reset` as well; a malformed value is rejected with 400 instead of being used to build a file path.
+- **The `model` parameter is checked against the configured list** - If `models` is set in `config.json`, a value outside that list is rejected with 400 instead of being passed straight to `--model`. Installations that don't configure `models` are unaffected.
+- **`POST /api/client-log` now has its own body-size cap** (64 KB) - independent of `maxBodySizeMb`, which defaults to unlimited - so a runaway client can no longer write unbounded data into the server's logs.
+
+### Removed
+- **The `/api/tabs` endpoint and the tab-settings subsystem behind it** - Tab configuration moved to per-session files (`sessions/<id>.json`) back in v2.7.0-era changes; nothing in the UI called `/api/tabs` anymore, and `tabs.json` was dead weight. The route, `services/tabs.js`, and the unused `getSessionId`/`saveSessionId` helpers are gone. If you have a leftover `tabs.json` on disk, it's simply ignored now - delete it whenever convenient.
+
 ## [v2.8.0] - 2026-08-21
 
 ### Added
