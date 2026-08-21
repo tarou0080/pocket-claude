@@ -62,6 +62,5 @@ module.exports = {
   ...config,
   projects: loadProjects(),
   SESSIONS_DIR: path.join(__dirname, '..', config.sessionDir || 'sessions'),
-  LOGS_DIR: path.join(__dirname, '..', config.logsDir || 'logs'),
-  TABS_FILE: path.join(__dirname, '..', 'tabs.json')
+  LOGS_DIR: path.join(__dirname, '..', config.logsDir || 'logs')
 }

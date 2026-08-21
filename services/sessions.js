@@ -1,6 +1,5 @@
 const fs = require('fs')
 const path = require('path')
-const { loadTabs, saveTabs } = require('./tabs')
 
 const sessionsDir = path.join(__dirname, '..', 'sessions')
 
@@ -67,28 +66,9 @@ function saveSessionSettings(sessionId, { project, model, effort, thinking } = {
   if (Object.keys(updates).length) saveSessionMeta(sessionId, updates)
 }
 
-// セッションID取得
-function getSessionId(tabId) {
-  const tabs = loadTabs()
-  const tab = tabs.find(t => t.id === tabId)
-  return tab?.sessionId || null
-}
-
-// セッションID保存
-function saveSessionId(tabId, sessionId) {
-  const tabs = loadTabs()
-  const tab = tabs.find(t => t.id === tabId)
-  if (tab) {
-    tab.sessionId = sessionId
-    saveTabs(tabs)
-  }
-}
-
 module.exports = {
   getClaudeSessionId,
   saveClaudeSessionId,
-  getSessionId,
-  saveSessionId,
   getSessionProject,
   saveSessionProject,
   getSessionSettings,

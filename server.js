@@ -2,8 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const config = require('./config/index')
-const { initDirectories, ensureDefaultTabs } = require('./services/tabs')
-const tabsRouter = require('./routes/tabs')
+const { initDirectories } = require('./services/directories')
 const claudeRouter = require('./routes/claude')
 const streamRouter = require('./routes/stream')
 const historyRouter = require('./routes/history')
@@ -23,7 +22,6 @@ const HOST = process.env.HOST || config.host || '0.0.0.0'
 
 // ディレクトリ初期化
 initDirectories()
-ensureDefaultTabs()
 
 // 起動時: 未完了ログを修復（start あり・done なし → 強制 done を追記）
 // サーバーが実行中に再起動した場合、UIが「生成中」で詰まるのを防ぐ
@@ -98,7 +96,6 @@ app.get('/api/models', (req, res) => {
 })
 
 // API routes
-app.use('/api/tabs', tabsRouter)
 app.use('/api', claudeRouter)
 app.use('/api/stream', streamRouter)
 app.use('/api/history', historyRouter)
