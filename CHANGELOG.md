@@ -4,6 +4,30 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.8.0] - 2026-08-21
+
+### Added
+- **`ops/` - operational scripts that ship with the repo** - The two cron scripts that keep a pocket-claude host healthy are now version-controlled instead of living only on the machine: `update-claude-cli.sh` (daily Claude Code CLI update that verifies the *actual* binary reached the latest version, then restarts the service) and `claude-keepalive/keepalive.sh`. They are not deployed automatically - see `ops/README.md` for where each one goes.
+- **Scheduled posts have a lifecycle** - Each scheduled post now carries a state (pending / running / failed). A post that fails to be delivered is no longer deleted: it stays in the list with the reason, and offers retry / edit / delete. Deleting one returns its text to the input box as a draft. A post whose time passed while the server was down is marked failed instead of firing late, and the success message is now shown *after* delivery succeeds (it used to be shown unconditionally, before delivery).
+
+### Changed
+- **Resuming a long conversation is much faster** - Time to resume was dominated by bytes on the wire, not by event count: a 4.40 MB conversation rendered only 135 KB of visible text, the rest being live-streaming envelopes, duplicates and events that never reach the screen. History replay now sends a slimmed event stream (duplicate `assistant` turns, text-less `system` events, thinking/signature deltas and unused tool results removed; consecutive deltas coalesced), producing identical rendered output: 4.40 MB / 5291 events -> 2.08 MB / 1157 events, 1152 KB -> 640 KB gzipped.
+- **History responses are gzip-compressed** - The events payload is compressed with zlib (4.62 MB -> 1.18 MB measured, no new dependency) and decoded incrementally on the client.
+- **Links in messages open in a new tab** - Tapping a link used to navigate the app away, losing the view of a running session. Links are now given `target="_blank"` with `rel="noopener noreferrer"`, including links in conversations restored from the local cache.
+
+### Removed
+- **The "unsent" prompt list is gone** - The queue was a leftover from before prompt delivery was unified: with injection into the resident process working, nothing accumulated there, and it could only mislead. Delivery failures are now always reported on screen as a system message instead.
+
+### Fixed
+- **Resuming from history could hang silently** - An exception inside the replay loop's `requestAnimationFrame` callback was swallowed, leaving the promise forever unresolved: the progress percentage simply froze with no error and no recovery. Replay now skips a bad event individually and surfaces fatal errors. Related: a `set_model` switch leaves a `<local-command-stdout>` entry whose `content` is a string, which threw a `TypeError` and stopped replay at that point every time; it is now rendered as a system line.
+- **Resume progress stuck at 50%** - Progress used `Content-Length` (post-gzip) as the denominator while counting decompressed bytes, so it pinned at 50% about a quarter of the way through. It now uses the uncompressed length reported by the server.
+- **Scheduled posts silently failed to deliver** - A regression from the v2.7.0 delivery unification: the new `if (!project)` guard did not carry over the old fallback to the default project, so every scheduled post to a tab whose `claude` process was not alive failed. The root cause was deeper - a tab's project/model/effort/thinking lived only in the browser's `localStorage`, so any path that fires without a browser (scheduled posts, rate-limit auto-resume) had to guess. Those settings are now persisted server-side per session and resolved as record -> saved session -> default. Auto-resume therefore also keeps the tab's model instead of silently dropping to the default.
+- **A failed send could lose what you had typed** - The in-flight prompt is now persisted as `pendingSend` and cleared only once delivery is confirmed (success response, or a matching `user_input` replay). Previously the optimistic clear could only restore text if the response came back, so closing the page - or never receiving a response - lost it. Attached images and previews are restored too, and the optimistically-rendered image row is withdrawn.
+- **A prompt could appear on screen without reaching Claude** - `POST /api/send` now returns 502 with a reason when delivery fails, and the `user_input` broadcast only happens after the write to the child process actually succeeded. Injection failures are logged on the server.
+- **Context percentage collapsed to 0% after a resume** - A resume makes the CLI emit an empty turn (`num_turns: 0`, empty `modelUsage`) that was rendered unconditionally, flattening a correct context reading. Turns with no token information are now ignored for both display and internal state.
+- **Restarts drew two "interrupted" lines** - The graceful-shutdown notice and the actual process exit both rendered. They now collapse into a single `Interrupted (server restarted)` line.
+- **A tab resumed from history went blank on a hard reload** - Such a tab owns no log of its own, so a cache-less reload showed nothing; it is now backfilled once.
+
 ## [v2.7.0] - 2026-07-26
 
 ### Added
