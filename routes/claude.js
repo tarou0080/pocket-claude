@@ -6,6 +6,7 @@ const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../s
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
 const { saveClaudeSessionId, saveSessionSettings } = require('../services/sessions')
+const { UUID_RE } = require('../services/history')
 const config = require('../config/index')
 
 const sessionsDir = path.join(__dirname, '..', 'sessions')
@@ -34,6 +35,11 @@ router.post('/send', async (req, res) => {
   // images: [{ mediaType, data }] の配列（base64）
   const imageData = (Array.isArray(images) && images.length > 0) ? images : null
   if (!imageData && (!prompt || !prompt.trim())) return res.status(400).json({ error: 'prompt required' })
+  // sessionId は未指定なら下で randomUUID() を採番する（既存挙動を維持）。
+  // 指定がある場合のみ形式を検証する（history.js の読み出し経路と同じ規則を書き込み側にも適用）。
+  if (sessionId && !UUID_RE.test(sessionId)) {
+    return res.status(400).json({ error: 'invalid sessionId' })
+  }
 
   const { randomUUID } = require('crypto')
   const actualSessionId = sessionId || randomUUID()
@@ -113,6 +119,7 @@ router.post('/send', async (req, res) => {
 router.post('/stop', async (req, res) => {
   const sessionId = req.body.session
   if (!sessionId) return res.status(400).json({ error: 'session required' })
+  if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
   const stopped = await stopClaude(sessionId)
   if (!stopped) return res.status(409).json({ error: 'not running' })
   res.json({ ok: true })
@@ -122,6 +129,12 @@ router.post('/stop', async (req, res) => {
 router.post('/register-session', (req, res) => {
   const { pocketSessionId, claudeSessionId } = req.body
   if (!pocketSessionId || !claudeSessionId) return res.status(400).json({ error: 'pocketSessionId and claudeSessionId required' })
+  // pocketSessionId は saveSessionMeta 経由でファイル名(パス)に使われ、claudeSessionId は
+  // 保存後に services/history.js が再びファイル名(パス)として使う（getSessionEvents）。
+  // どちらも書き込み/読み出しパスの材料になるため両方を検証する。
+  if (!UUID_RE.test(pocketSessionId) || !UUID_RE.test(claudeSessionId)) {
+    return res.status(400).json({ error: 'invalid sessionId' })
+  }
   try {
     // saveClaudeSessionId は既存フィールド(project等)とマージする＝ここでの直接writeFileSync
     // をやめないと、先に保存済みの project が上書きで消える
@@ -136,6 +149,7 @@ router.post('/register-session', (req, res) => {
 router.post('/reset', (req, res) => {
   const sessionId = req.body.session
   if (!sessionId) return res.status(400).json({ error: 'session required' })
+  if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
   const s = getState(sessionId)
   if (s.process) return res.status(409).json({ error: 'Claude is running.' })
   s.buffer = []

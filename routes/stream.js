@@ -1,12 +1,17 @@
 const express = require('express')
 const router = express.Router()
 const { getState, loadLogFile, registerSSEClient, unregisterSSEClient } = require('../services/stream')
+const { UUID_RE } = require('../services/history')
 
 // SSEエンドポイント
 router.get('/', (req, res) => {
   const sessionId = req.query.session
   if (!sessionId) {
     res.status(400).end()
+    return
+  }
+  if (!UUID_RE.test(sessionId)) {
+    res.status(400).json({ error: 'invalid sessionId' })
     return
   }
 
