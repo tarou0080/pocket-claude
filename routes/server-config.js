@@ -2,6 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const router = express.Router()
+const { writeJsonAtomic } = require('../services/persist')
 
 const CONFIG_FILE = path.join(__dirname, '..', 'config.json')
 
@@ -40,16 +41,15 @@ router.patch('/', (req, res) => {
   if (maxBodySizeMb !== undefined) cfg.maxBodySizeMb = maxBodySizeMb
   if (resumeDefaultOn !== undefined) cfg.resumeDefaultOn = resumeDefaultOn
 
-  try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2))
-    // メモリ上のconfigも更新（再起動不要）
-    const config = require('../config/index')
-    if (maxBodySizeMb !== undefined) config.maxBodySizeMb = maxBodySizeMb
-    if (resumeDefaultOn !== undefined) config.resumeDefaultOn = resumeDefaultOn
-    res.json({ ok: true, maxBodySizeMb: cfg.maxBodySizeMb, resumeDefaultOn: cfg.resumeDefaultOn ?? false })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
+  const ok = writeJsonAtomic(CONFIG_FILE, cfg, { pretty: true })
+  if (!ok) {
+    return res.status(500).json({ error: 'failed to save config' })
   }
+  // メモリ上のconfigも更新（再起動不要）
+  const config = require('../config/index')
+  if (maxBodySizeMb !== undefined) config.maxBodySizeMb = maxBodySizeMb
+  if (resumeDefaultOn !== undefined) config.resumeDefaultOn = resumeDefaultOn
+  res.json({ ok: true, maxBodySizeMb: cfg.maxBodySizeMb, resumeDefaultOn: cfg.resumeDefaultOn ?? false })
 })
 
 module.exports = router

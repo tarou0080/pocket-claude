@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const { writeJsonAtomic } = require('./persist')
 
 const SCHEDULES_FILE = path.join(__dirname, '..', 'schedules.json')
 
@@ -39,7 +40,7 @@ function saveSchedules() {
       thinking: s.thinking
     }
   })
-  try { fs.writeFileSync(SCHEDULES_FILE, JSON.stringify(data)) } catch {}
+  return writeJsonAtomic(SCHEDULES_FILE, data)
 }
 
 async function doResume(sessionId) {

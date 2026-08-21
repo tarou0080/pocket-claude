@@ -2,6 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const router = express.Router()
+const { writeJsonAtomic } = require('../services/persist')
 
 const PROJECTS_FILE = path.join(__dirname, '..', 'projects.json')
 
@@ -49,7 +50,9 @@ router.post('/add', (req, res) => {
 
     // 追加して保存
     projects[name] = realPath
-    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2))
+    if (!writeJsonAtomic(PROJECTS_FILE, projects, { pretty: true })) {
+      return res.status(500).json({ error: 'failed to save projects' })
+    }
 
     // メモリ上の config.projects も更新
     const config = require('../config/index')
@@ -88,7 +91,9 @@ router.post('/remove', (req, res) => {
     }
 
     delete projects[name]
-    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2))
+    if (!writeJsonAtomic(PROJECTS_FILE, projects, { pretty: true })) {
+      return res.status(500).json({ error: 'failed to save projects' })
+    }
 
     // メモリ上の config.projects も更新
     const config = require('../config/index')

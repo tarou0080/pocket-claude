@@ -3,6 +3,7 @@ const path = require('path')
 const { randomUUID } = require('crypto')
 const config = require('../config/index')
 const { getSessionProject } = require('./sessions')
+const { writeJsonAtomic } = require('./persist')
 
 const POSTS_FILE = path.join(__dirname, '..', 'scheduled-posts.json')
 
@@ -37,7 +38,18 @@ function savePosts() {
       executedAt: p.executedAt || null,
     }
   })
-  try { fs.writeFileSync(POSTS_FILE, JSON.stringify(data, null, 2)) } catch {}
+  return writeJsonAtomic(POSTS_FILE, data, { pretty: true })
+}
+
+// ディスクへの永続化が失敗したことを、既存の system イベント broadcast と同じ形で画面へ出す。
+// 「予約は失敗しても消えない」という要件に対し、ディスク書き込みだけが失敗すると
+// メモリ上は生きていても次回起動で消える窓があるため、黙らせない。
+function warnSaveFailed(sessionId) {
+  if (!sessionId) return
+  try {
+    const { broadcast } = require('./stream')
+    broadcast(sessionId, { type: 'system', text: '⚠ 予約の保存に失敗しました（ディスク書き込みエラー）。再起動すると内容が失われるおそれがあります' })
+  } catch {}
 }
 
 async function executePost(id) {
@@ -51,7 +63,7 @@ async function executePost(id) {
   const resolvedProject = resolveProject(p.project, p.sessionId)
   p.project = resolvedProject
   p.status = 'running'
-  savePosts()
+  if (!savePosts()) warnSaveFailed(p.sessionId)
 
   const projectDir = config.projects[resolvedProject]
   if (projectDir) {
@@ -66,13 +78,13 @@ async function executePost(id) {
   if (result.status === 'injected' || result.status === 'started') {
     broadcast(p.sessionId, { type: 'system', text: '🕐 予約投稿を実行しました' })
     posts.delete(id)
-    savePosts()
+    if (!savePosts()) warnSaveFailed(p.sessionId)
   } else {
     const reason = result.reason || '配送に失敗しました'
     p.status = 'failed'
     p.failedReason = reason
     p.executedAt = new Date().toISOString()
-    savePosts()
+    if (!savePosts()) warnSaveFailed(p.sessionId)
     broadcast(p.sessionId, { type: 'system', text: `⚠ 予約投稿を送信できませんでした: ${reason}` })
   }
 }
@@ -98,7 +110,7 @@ function createPost({ scheduledAt, prompt, sessionId, project, model, effort, th
     executedAt: null,
     timerId
   })
-  savePosts()
+  if (!savePosts()) warnSaveFailed(sessionId)
   return id
 }
 
@@ -119,7 +131,7 @@ function updatePost(id, { scheduledAt, prompt }) {
   p.failedReason = null
   p.executedAt = null
 
-  savePosts()
+  if (!savePosts()) warnSaveFailed(p.sessionId)
   return true
 }
 
@@ -128,7 +140,7 @@ function deletePost(id) {
   if (!p) return false
   clearTimeout(p.timerId)
   posts.delete(id)
-  savePosts()
+  if (!savePosts()) warnSaveFailed(p.sessionId)
   return true
 }
 

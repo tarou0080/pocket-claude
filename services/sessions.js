@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const { writeJsonAtomic } = require('./persist')
 
 const sessionsDir = path.join(__dirname, '..', 'sessions')
 
@@ -27,9 +28,12 @@ function loadSessionMeta(sessionId) {
 function saveSessionMeta(sessionId, updates) {
   try {
     fs.mkdirSync(sessionsDir, { recursive: true })
-    const current = loadSessionMeta(sessionId)
-    fs.writeFileSync(path.join(sessionsDir, `${sessionId}.json`), JSON.stringify({ ...current, ...updates }))
-  } catch {}
+  } catch (err) {
+    console.error('[persist] Failed to create sessions dir:', err.message)
+    return false
+  }
+  const current = loadSessionMeta(sessionId)
+  return writeJsonAtomic(path.join(sessionsDir, `${sessionId}.json`), { ...current, ...updates })
 }
 
 // セッションに紐づくプロジェクト名を取得
