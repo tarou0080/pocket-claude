@@ -11,3 +11,6 @@ scheduled-posts.json
 autonomous-progress.json
 autonomy-rules.json
 ops/claude-keepalive/keepalive.log
+
+# writeJsonAtomic() の一時ファイル（クラッシュ時に残りうる）
+.*.tmp
