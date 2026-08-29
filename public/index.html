@@ -3268,10 +3268,16 @@ function handleEvent(sessionId, ev, isLive = true) {
           }
           break
         case 'message_delta':
-          if (inner.usage && inner.usage.output_tokens) {
-            ts._ctxTokens += inner.usage.output_tokens
-            if (isActive) {
-              const pct = Math.round(ts._ctxTokens / CTX_MAX * 100)
+          // message_deltaのusageは本来「そのAPIコール1回分の全量」（input/cache/output）を
+          // 積み直したものなので積算ではなく置き換える。Anthropic直・Ollama経由（usage-merge
+          // shim適用後）どちらもこの規則で同じ挙動になり、resultのiterationsによる事後補正と
+          // 同じ値へ収束する。入力側が全て0の実装/経路のみ、従来の積算にフォールバックする。
+          if (inner.usage) {
+            const inSum = (inner.usage.input_tokens || 0) + (inner.usage.cache_creation_input_tokens || 0) + (inner.usage.cache_read_input_tokens || 0)
+            if (inSum > 0) {
+              ts._ctxTokens = inSum + (inner.usage.output_tokens || 0)
+            } else if (inner.usage.output_tokens) {
+              ts._ctxTokens += inner.usage.output_tokens
             }
           }
           break
