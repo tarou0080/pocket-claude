@@ -60,6 +60,23 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   // 非選択時は process.env そのまま＝プロキシが落ちていても他モデルは完全に無影響。
   const proxyEnv = (config.proxyModels && config.proxyModels[model]) || null
 
+  // プロキシ経由モデル(ローカルOllama等)は Anthropic のプロンプトキャッシュが効かず、ツール定義を
+  // 毎ターン丸ごと再送・再処理する。ツール定義28個だけで入力の約7割(72,337文字/全100,160文字)を
+  // 占めるため、小型モデルが実際には使えない周辺ツールを落として入力を約1/4(約7,100トークン)へ圧縮
+  // する。狙いはコストでなく速度とコンテキスト寿命＝初回応答が約40秒→約13秒、会話に使える余裕が
+  // 約5万→約7万トークンになる。Claude 側はキャッシュが効くので絞らない(この分岐に入らない)。
+  const PROXY_DISALLOWED_DEFAULT = [
+    'Agent', 'CronCreate', 'CronDelete', 'CronList', 'DesignSync',
+    'EnterWorktree', 'ExitWorktree', 'ListAgents', 'Monitor', 'NotebookEdit',
+    'PushNotification', 'ReportFindings', 'ScheduleWakeup', 'SendMessage',
+    'Skill', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop',
+    'TaskUpdate', 'WebSearch', 'Workflow',
+  ]
+  const disallowedTools = ['AskUserQuestion']
+  if (proxyEnv) {
+    disallowedTools.push(...(config.proxyDisallowedTools || PROXY_DISALLOWED_DEFAULT))
+  }
+
   const settings = {}
   // effort/alwaysThinkingEnabled は Claude 固有設定。プロキシ経由(GLM等)では送らない。
   if (!proxyEnv) {
@@ -79,7 +96,7 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
     // ヘッドレス(stream-json)モードでは AskUserQuestion を対話的に解決できず、CLIが
     // 即座に is_error の tool_result を自己注入してターンを閉じる（モデルは「未回答＝スキップ」と認識）。
     // 選択肢ツールを無効化し、モデルには素のテキストで質問させる。回答は通常の /api/send で返す。
-    '--disallowed-tools', 'AskUserQuestion',
+    '--disallowed-tools', disallowedTools.join(','),
     ...(model ? ['--model', model] : []),
     ...(Object.keys(settings).length ? ['--settings', JSON.stringify(settings)] : []),
   ]
