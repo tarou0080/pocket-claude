@@ -4,6 +4,17 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.10.0] - 2026-08-31
+
+### Added
+- **Proxied models now run with a trimmed tool set** - Endpoints reached through `proxyModels` (a local Ollama model, a translation proxy, a corporate gateway) do not benefit from prompt caching, so the full set of ~28 tool definitions was re-sent and re-processed on every single turn - about 70% of the whole input. Sessions on a proxied model now keep only `Bash`, `Edit`, `Read`, `Write` and `WebFetch`, taking a request from ~100,000 to ~18,500 characters. In practice the first response arrives in about 13 seconds instead of about 40, and roughly 70K tokens of context remain usable instead of 50K. The list is configurable via `proxyDisallowedTools`; models that talk to Anthropic directly are unaffected, because caching already covers them.
+- **A resumed conversation keeps its own model, effort and thinking settings** - Reopening a conversation from history used to fall back to the device defaults. The last settings actually used in that session are now read back from the server (`GET /api/session-settings/:sessionId`) and applied to the restored tab.
+
+### Fixed
+- **Switching away from a proxied model kept using the old proxy** - Switching, say, a local model to a Claude model succeeded via `set_model`, but a process's environment (`ANTHROPIC_BASE_URL` and friends) is fixed at spawn time: the CLI reported the new model while every request still went to the old proxy. When the two models belong to different proxy routes, pocket-claude now skips `set_model` and restarts the process with `--resume` so it comes back with the correct environment.
+- **The per-tab model dropdown no longer overwrites the device default model** - Changing the model for one tab silently rewrote the saved default for every new tab. The default is now changed only from the radio buttons in the settings modal.
+- **Context usage was stuck at 0% on models without cache reporting** - The `message_delta` usage is the full accounting for one API call, so it is now applied as a replacement rather than accumulated on top of previous deltas (falling back to the old accumulate behaviour only on paths that report no input tokens at all). Local Ollama models now show a real context percentage.
+
 ## [v2.9.0] - 2026-08-21
 
 ### Added

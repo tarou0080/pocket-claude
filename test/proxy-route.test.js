@@ -9,15 +9,15 @@ const { getProxyEnv, proxyRouteChanged } = require('../services/proxy-route')
 
 const fakeConfig = {
   proxyModels: {
-    'ollama,qwen3.5-9b-q4-nothink': { ANTHROPIC_BASE_URL: 'http://10.88.88.1:3456', ANTHROPIC_API_KEY: 'local-ccr-key' },
-    '@cf/nvidia/nemotron-3-120b-a12b': { ANTHROPIC_BASE_URL: 'http://10.88.88.1:3456', ANTHROPIC_API_KEY: 'local-ccr-key' },
+    'ollama,qwen3.5-9b-q4-nothink': { ANTHROPIC_BASE_URL: 'http://127.0.0.1:3456', ANTHROPIC_API_KEY: 'local-ccr-key' },
+    '@cf/nvidia/nemotron-3-120b-a12b': { ANTHROPIC_BASE_URL: 'http://127.0.0.1:3456', ANTHROPIC_API_KEY: 'local-ccr-key' },
   },
 }
 
 test('プロキシモデルのenvを取得できる', () => {
   assert.deepEqual(
     getProxyEnv(fakeConfig, 'ollama,qwen3.5-9b-q4-nothink'),
-    { ANTHROPIC_BASE_URL: 'http://10.88.88.1:3456', ANTHROPIC_API_KEY: 'local-ccr-key' }
+    { ANTHROPIC_BASE_URL: 'http://127.0.0.1:3456', ANTHROPIC_API_KEY: 'local-ccr-key' }
   )
 })
 
