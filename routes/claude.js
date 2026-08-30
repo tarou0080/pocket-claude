@@ -5,8 +5,9 @@ const router = express.Router()
 const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
-const { saveClaudeSessionId, saveSessionSettings } = require('../services/sessions')
+const { saveClaudeSessionId, saveSessionSettings, getSessionSettings } = require('../services/sessions')
 const { UUID_RE } = require('../services/history')
+const { proxyRouteChanged } = require('../services/proxy-route')
 const config = require('../config/index')
 
 const sessionsDir = path.join(__dirname, '..', 'sessions')
@@ -58,15 +59,34 @@ router.post('/send', async (req, res) => {
   // 常駐プロセスへ直接モデルを切り替える（会話文脈・プロセスとも継続、再起動なし）。
   // ACKが来ない/失敗した場合のみ、従来どおりプロセスを止めて --resume で新モデル再起動する。
   // ターン中は表示側でモデル選択をロックしているため、ここに来る変更は基本アイドル時のみ。
+  //
+  // ただし set_model はプロセスのenv（ANTHROPIC_BASE_URL等）を変えない。切替前後のモデルが
+  // 異なるプロキシ経路（config.proxyModels、spawner.jsのstartClaudeが参照するのと同じ引き方）
+  // に属する場合、set_modelが成功してもCLI内部のモデル名だけが変わりenvは古い経路を向いたまま
+  // 残ってしまう（例: qwen→opus切替でANTHROPIC_BASE_URLがccrを向いたまま残り、CLIが"opus"と
+  // 報告してもccrのRouter.defaultで実際はqwenへルーティングされ続ける）。
+  // このケースはset_modelを試さず、最初からkill+--resume再起動へ進む（新プロセスは
+  // startClaudeが正しいenvで起動し直す）。
   if (s.process && !s.turning && (model || null) !== (s.model || null)) {
-    const targetModel = model || 'default'
-    console.log(`[send] model switch ${s.model || 'default'} → ${targetModel} sessionId=${actualSessionId} : trying set_model`)
-    const response = await sendControlMessage(s.process, 'set_model', { model: targetModel })
-    if (response && response.subtype === 'success') {
-      s.model = model || null
-      console.log(`[send] set_model succeeded sessionId=${actualSessionId}`)
+    const proxyRouteChanges = proxyRouteChanged(config, s.model, model)
+
+    let switched = false
+    if (!proxyRouteChanges) {
+      const targetModel = model || 'default'
+      console.log(`[send] model switch ${s.model || 'default'} → ${targetModel} sessionId=${actualSessionId} : trying set_model`)
+      const response = await sendControlMessage(s.process, 'set_model', { model: targetModel })
+      if (response && response.subtype === 'success') {
+        s.model = model || null
+        switched = true
+        console.log(`[send] set_model succeeded sessionId=${actualSessionId}`)
+      } else {
+        console.warn(`[send] set_model failed/no-ack sessionId=${actualSessionId} response=${JSON.stringify(response)} -> fallback to kill+resume restart`)
+      }
     } else {
-      console.warn(`[send] set_model failed/no-ack sessionId=${actualSessionId} response=${JSON.stringify(response)} -> fallback to kill+resume restart`)
+      console.log(`[send] model switch ${s.model || 'default'} → ${model || 'default'} sessionId=${actualSessionId} : proxy route changes, skipping set_model -> kill+resume restart`)
+    }
+
+    if (!switched) {
       const oldProc = s.process
       // spawnerのcloseハンドラ(=s.process=null/doneブロードキャスト)を外す。
       // タイムアウト先行時に遅れて発火し、再起動後の新プロセスを誤って無効化するレースを防ぐ。
@@ -150,6 +170,14 @@ router.post('/register-session', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
+})
+
+// セッションの最終使用設定を取得（履歴からの復帰時、端末の既定値ではなく
+// そのセッションで最後に使われていたmodel/effort/thinkingを引き継ぐための読み取り専用エンドポイント）
+router.get('/session-settings/:sessionId', (req, res) => {
+  const { sessionId } = req.params
+  if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
+  res.json(getSessionSettings(sessionId))
 })
 
 // セッションリセット

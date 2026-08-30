@@ -5,6 +5,7 @@ const { broadcast, getState } = require('./stream')
 const { gitPull } = require('./git')
 const { saveClaudeSessionId, getClaudeSessionId } = require('./sessions')
 const { parseResetTime } = require('./reset-time')
+const { getProxyEnv } = require('./proxy-route')
 
 // stdin へ送る control_request の応答を待つ標準タイムアウト。
 // 実測(interrupt/set_model とも成功時は数ms〜十数msでACKが返る)に対して十分な余裕を持たせつつ、
@@ -58,7 +59,7 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
 
   // プロキシ経由モデル(GLM等): 該当時のみ翻訳プロキシへ向ける環境変数を子プロセスに注入する。
   // 非選択時は process.env そのまま＝プロキシが落ちていても他モデルは完全に無影響。
-  const proxyEnv = (config.proxyModels && config.proxyModels[model]) || null
+  const proxyEnv = getProxyEnv(config, model)
 
   // プロキシ経由モデル(ローカルOllama等)は Anthropic のプロンプトキャッシュが効かず、ツール定義を
   // 毎ターン丸ごと再送・再処理する。ツール定義28個だけで入力の約7割(72,337文字/全100,160文字)を

@@ -1683,8 +1683,6 @@ modelSel.addEventListener('change', () => {
   if (currentSessionId && tabState[currentSessionId]) {
     tabState[currentSessionId].model = modelSel.value
     updateSession(currentSessionId, { model: modelSel.value })
-    appSettings.defaultModel = modelSel.value
-    saveSettings(appSettings)
   }
   updateEffortIndicator()
   // 設定モーダルが開いていれば再描画
@@ -3804,6 +3802,17 @@ async function resumeConversation(sessionId) {
       const title = firstUserInput?.text?.substring(0, 30) || 'Resumed conversation'
       const currentProj = getCurrentSession()?.project || Object.keys(_projectsCache)[0]
       targetSession = { sessionId, name: title, project: currentProj, lastUsed: Date.now() }
+      // サーバーに最終使用設定(model/effort/thinking)が残っていれば引き継ぐ。
+      // 無ければ従来どおり端末の既定値へフォールバック（ensureTabStateの既定処理に任せる）。
+      try {
+        const settingsRes = await fetch(`/api/session-settings/${sessionId}`)
+        if (settingsRes.ok) {
+          const saved = await settingsRes.json()
+          if (saved.model != null) targetSession.model = saved.model
+          if (saved.effort != null) targetSession.effort = saved.effort
+          if (saved.thinking != null) targetSession.thinking = saved.thinking
+        }
+      } catch (e) { /* 取得失敗時は既定値フォールバックのまま */ }
       sessions.push(targetSession)
       saveSessions(sessions)
       ensureTabState(targetSession)
