@@ -5,7 +5,8 @@ const { broadcast, getState } = require('./stream')
 const { gitPull } = require('./git')
 const { saveClaudeSessionId, getClaudeSessionId } = require('./sessions')
 const { parseResetTime } = require('./reset-time')
-const { getProxyEnv, getDisallowedTools } = require('./proxy-route')
+const { getProxyEnv, getToolFlags } = require('./proxy-route')
+const { saveToolsCatalog } = require('./tools-catalog')
 
 // stdin へ送る control_request の応答を待つ標準タイムアウト。
 // 実測(interrupt/set_model とも成功時は数ms〜十数msでACKが返る)に対して十分な余裕を持たせつつ、
@@ -63,12 +64,10 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
 
   // プロキシ経由モデル(ローカルOllama等)は Anthropic のプロンプトキャッシュが効かず、ツール定義を
   // 毎ターン丸ごと再送・再処理する。ツール定義28個だけで入力の約7割(72,337文字/全100,160文字)を
-  // 占めるため、config.proxyDisallowedTools を設定した場合に限り周辺ツールを落として入力を圧縮
-  // できる(オプトイン。既定は落とさない＝AskUserQuestionのみ)。狙いはコストでなく速度とコンテキスト
-  // 寿命。ただしプロキシ経由でも社内ゲートウェイ等でキャッシュが効く「本物のClaude」を使う利用者も
-  // いるため、何も設定していなければ何も削らない。判定ロジックは services/proxy-route.js に集約
-  // (推奨23ツールのリストも同ファイルの PROXY_DISALLOWED_DEFAULT にある)。
-  const disallowedTools = getDisallowedTools(config, proxyEnv)
+  // 占めるため、config.toolsDirect/config.toolsProxy(allowlist)を設定した場合に限り
+  // 使うツールを絞って入力を圧縮できる。狙いはコストでなく速度とコンテキスト寿命。
+  // どちらも未設定なら絞らない(全ツール)。判定ロジックは services/proxy-route.js に集約。
+  const { tools, disallowedTools } = getToolFlags(config, proxyEnv)
 
   const settings = {}
   // effort/alwaysThinkingEnabled は Claude 固有設定。プロキシ経由(GLM等)では送らない。
@@ -90,6 +89,9 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
     // 即座に is_error の tool_result を自己注入してターンを閉じる（モデルは「未回答＝スキップ」と認識）。
     // 選択肢ツールを無効化し、モデルには素のテキストで質問させる。回答は通常の /api/send で返す。
     '--disallowed-tools', disallowedTools.join(','),
+    // tools===null(既定・未設定)は絞らない=--toolsを渡さない(全ツール)。空配列は利用者の
+    // 明示的な意思(全ツール無効)として尊重し、CLIの仕様どおり --tools "" を渡す。
+    ...(tools !== null ? ['--tools', tools.join(',')] : []),
     ...(model ? ['--model', model] : []),
     ...(Object.keys(settings).length ? ['--settings', JSON.stringify(settings)] : []),
   ]
@@ -134,6 +136,14 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
         // session_id の初回取得
         if (parsed.type === 'system' && parsed.subtype === 'init' && !claudeSessionId) {
           saveClaudeSessionId(sessionId, parsed.session_id)
+        }
+
+        // init イベントの tools はそのプロセスが実際に持つツール名一覧(正)。設定モーダルの
+        // チェックボックス一覧描画に使うカタログとして保存する。ハードコードした固定リストは
+        // CLIのバージョンアップで陳腐化するため、起動のたびに学習し直す。失敗してもセッションは
+        // 継続する(saveToolsCatalog側で例外は握る副作用専用の呼び出し)。
+        if (parsed.type === 'system' && parsed.subtype === 'init' && Array.isArray(parsed.tools)) {
+          try { saveToolsCatalog(parsed.tools) } catch (err) { console.warn('[tools-catalog] init handling failed:', err.message) }
         }
 
         if (parsed.type === 'assistant' && parsed.error === 'rate_limit') {

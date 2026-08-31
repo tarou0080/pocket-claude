@@ -1021,6 +1021,31 @@
           <div id="project-error"></div>
         </div>
       </div>
+      <!-- Tools (advanced, collapsible) -->
+      <div>
+        <details id="tools-advanced-details">
+          <summary class="settings-section-title" id="stitle-tools-advanced" style="cursor:pointer;"></summary>
+          <div id="tools-advanced-body" style="margin-top:10px;">
+            <div id="tools-advanced-note" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;"></div>
+            <div id="tools-empty-note" style="font-size:12px;color:var(--text-muted);display:none;"></div>
+            <div id="tools-group-direct" style="margin-bottom:16px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <div class="settings-section-title" id="stitle-tools-direct" style="margin-bottom:0;"></div>
+                <button id="tools-reset-direct" style="background:var(--surface3);color:var(--text-muted);border:1px solid var(--border-input);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;"></button>
+              </div>
+              <div id="tools-list-direct"></div>
+            </div>
+            <div id="tools-group-proxy">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <div class="settings-section-title" id="stitle-tools-proxy" style="margin-bottom:0;"></div>
+                <button id="tools-reset-proxy" style="background:var(--surface3);color:var(--text-muted);border:1px solid var(--border-input);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;"></button>
+              </div>
+              <div id="tools-list-proxy"></div>
+            </div>
+            <div id="tools-save-status" style="font-size:12px;color:var(--text-muted);margin-top:8px;"></div>
+          </div>
+        </details>
+      </div>
     </div>
   </div>
 </div>
@@ -1136,6 +1161,15 @@ const STRINGS = {
     projectRemoveConfirm: name => `プロジェクト「${name}」を削除しますか？`,
     projectErrorRequired: '名前とパスを入力してください',
     projectStarTitle:     '新しいセッションのデフォルトに設定',
+    toolsAdvancedLabel:   '上級者向け: ツール構成',
+    toolsAdvancedNote:    '変更は次に起動するセッションから反映されます（実行中の会話はそのまま）。',
+    toolsDirectLabel:     'Claude直',
+    toolsProxyLabel:      'プロキシ経由',
+    toolsResetBtn:        '全部に戻す',
+    toolsEmptyNote:       '一度会話を開始するとツール一覧が取得されます。',
+    toolsDisableAllConfirm: 'このグループのツールをすべて無効にします。よろしいですか？',
+    toolsSaved:           '保存しました',
+    toolsSaveError:       '保存に失敗しました',
   },
   en: {
     settingsTitle:        'Settings',
@@ -1168,6 +1202,15 @@ const STRINGS = {
     projectRemoveConfirm: name => `Remove project "${name}"?`,
     projectErrorRequired: 'Name and path are required',
     projectStarTitle:     'Set as default for new sessions',
+    toolsAdvancedLabel:   'Advanced: Tool Configuration',
+    toolsAdvancedNote:    'Changes take effect starting with the next session you start (running conversations are unaffected).',
+    toolsDirectLabel:     'Claude direct',
+    toolsProxyLabel:      'Proxy-routed',
+    toolsResetBtn:        'Reset to all',
+    toolsEmptyNote:       'The tool list will be fetched once you start a conversation.',
+    toolsDisableAllConfirm: 'This will disable all tools in this group. Continue?',
+    toolsSaved:           'Saved',
+    toolsSaveError:       'Failed to save',
   },
 }
 function t(key) { return STRINGS[appSettings?.lang || 'ja'][key] }
@@ -1322,8 +1365,106 @@ async function loadBodyLimit() {
       const chk = document.getElementById('resume-default-on-chk')
       if (chk) chk.checked = data.resumeDefaultOn
     }
+    toolsState.toolsDirect = Array.isArray(data.toolsDirect) ? data.toolsDirect : null
+    toolsState.toolsProxy = Array.isArray(data.toolsProxy) ? data.toolsProxy : null
+    toolsState.toolCatalog = Array.isArray(data.toolCatalog) ? data.toolCatalog : []
+    toolsState.hasProxyModels = !!data.hasProxyModels
+    toolsState.loaded = true
+    renderToolsSection()
   } catch {}
 }
+
+// ── ツール構成（上級者向け） ──
+// サーバーの現在値をキャッシュしておき、言語切替等でrenderSettingsModal()が再実行されても
+// 再フェッチせずにチェックボックス一覧を再描画できるようにする。
+let toolsState = { toolsDirect: null, toolsProxy: null, toolCatalog: [], hasProxyModels: false, loaded: false }
+
+async function saveToolsSetting(key, value) {
+  const status = document.getElementById('tools-save-status')
+  try {
+    const res = await fetch('/api/server-config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [key]: value }),
+    })
+    if (!res.ok) throw new Error()
+    toolsState[key] = value
+    if (status) {
+      status.textContent = t('toolsSaved')
+      setTimeout(() => { status.textContent = '' }, 2000)
+    }
+    return true
+  } catch {
+    if (status) status.textContent = t('toolsSaveError')
+    return false
+  }
+}
+
+// key: 'toolsDirect' | 'toolsProxy', containerId: そのグループのチェックボックス一覧の親要素
+function renderToolsGroup(key, containerId) {
+  const container = document.getElementById(containerId)
+  if (!container) return
+  container.innerHTML = ''
+  const saved = toolsState[key]  // null=絞らない(全チェック) / array=そのツールのみ有効
+  toolsState.toolCatalog.forEach(toolName => {
+    const row = document.createElement('div')
+    row.className = 'model-row'
+
+    const chk = document.createElement('input')
+    chk.type = 'checkbox'
+    chk.checked = saved === null ? true : saved.includes(toolName)
+    chk.addEventListener('change', async () => {
+      // 現在のチェック状態からallowlistを組み立てる(順序はtoolCatalog順)
+      const rows = Array.from(container.querySelectorAll('.model-row'))
+      const newArray = rows
+        .map((r, i) => ({ checked: r.querySelector('input[type="checkbox"]').checked, name: toolsState.toolCatalog[i] }))
+        .filter(x => x.checked)
+        .map(x => x.name)
+      if (newArray.length === 0) {
+        if (!confirm(t('toolsDisableAllConfirm'))) {
+          chk.checked = true
+          return
+        }
+      }
+      await saveToolsSetting(key, newArray)
+    })
+
+    const name = document.createElement('span')
+    name.className = 'model-row-name'
+    name.textContent = toolName
+
+    row.appendChild(chk)
+    row.appendChild(name)
+    container.appendChild(row)
+  })
+}
+
+function renderToolsSection() {
+  if (!toolsState.loaded) return
+  const proxyGroup = document.getElementById('tools-group-proxy')
+  if (proxyGroup) proxyGroup.style.display = toolsState.hasProxyModels ? '' : 'none'
+
+  const emptyNote = document.getElementById('tools-empty-note')
+  const directGroup = document.getElementById('tools-group-direct')
+  const hasCatalog = toolsState.toolCatalog.length > 0
+  if (emptyNote) emptyNote.style.display = hasCatalog ? 'none' : ''
+  if (directGroup) directGroup.style.display = hasCatalog ? '' : 'none'
+  if (proxyGroup && !hasCatalog) proxyGroup.style.display = 'none'
+
+  if (hasCatalog) {
+    renderToolsGroup('toolsDirect', 'tools-list-direct')
+    if (toolsState.hasProxyModels) renderToolsGroup('toolsProxy', 'tools-list-proxy')
+  }
+}
+
+document.getElementById('tools-reset-direct').addEventListener('click', async () => {
+  await saveToolsSetting('toolsDirect', null)
+  renderToolsSection()
+})
+document.getElementById('tools-reset-proxy').addEventListener('click', async () => {
+  await saveToolsSetting('toolsProxy', null)
+  renderToolsSection()
+})
 
 function openSettings() {
   settingsModal.classList.add('open')
@@ -1436,6 +1577,13 @@ function renderSettingsModal() {
   document.getElementById('body-limit-desc').textContent    = t('bodyLimitDesc')
   document.getElementById('body-limit-unit').textContent    = t('bodyLimitUnit')
   document.getElementById('stitle-project').textContent     = t('projectLabel')
+  document.getElementById('stitle-tools-advanced').textContent = t('toolsAdvancedLabel')
+  document.getElementById('tools-advanced-note').textContent   = t('toolsAdvancedNote')
+  document.getElementById('stitle-tools-direct').textContent   = t('toolsDirectLabel')
+  document.getElementById('stitle-tools-proxy').textContent    = t('toolsProxyLabel')
+  document.getElementById('tools-reset-direct').textContent    = t('toolsResetBtn')
+  document.getElementById('tools-reset-proxy').textContent     = t('toolsResetBtn')
+  document.getElementById('tools-empty-note').textContent      = t('toolsEmptyNote')
   document.getElementById('flabel-prompt').textContent   = t('fontPrompt')
   document.getElementById('flabel-output').textContent   = t('fontOutput')
   document.getElementById('flabel-code').textContent     = t('fontCode')
@@ -1626,6 +1774,8 @@ function renderSettingsModal() {
       themeList.appendChild(row)
     })
   }
+
+  renderToolsSection()
 }
 
 settingsBtn.addEventListener('click', () => {

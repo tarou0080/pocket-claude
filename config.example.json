@@ -15,11 +15,5 @@
       "ANTHROPIC_API_KEY": "your-proxy-key"
     }
   },
-  "proxyDisallowedTools": [
-    "Agent", "CronCreate", "CronDelete", "CronList", "DesignSync",
-    "EnterWorktree", "ExitWorktree", "ListAgents", "Monitor", "NotebookEdit",
-    "PushNotification", "ReportFindings", "ScheduleWakeup", "SendMessage",
-    "Skill", "TaskCreate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
-    "TaskUpdate", "WebSearch", "Workflow"
-  ]
+  "toolsProxy": ["Bash", "Edit", "Read", "Write", "WebFetch"]
 }
