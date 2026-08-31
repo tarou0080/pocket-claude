@@ -1404,6 +1404,18 @@ let toolsState = {
 // ボディサイズ上限の保存値(サーバーを正とする)。draft側は#body-limit-inputの現在値そのもの。
 let bodyLimitState = { server: 0 }
 
+// チェック状態がカタログ全体と一致する場合はnull(=絞らない/制限なし)に正規化する。
+// これにより「全部チェック」は「全部に戻す」ボタンと同じ結果(null)になり、将来ツールが
+// 増えても新ツールがオフのまま取り残される紛らわしい状態を避けられる。
+// 全部オフ(空配列)はそのまま空配列として扱う(既存の確認ダイアログの対象)。
+function normalizeToolsDraft(arr) {
+  const catalog = toolsState.toolCatalog
+  if (catalog.length > 0 && arr.length === catalog.length && catalog.every(name => arr.includes(name))) {
+    return null
+  }
+  return arr
+}
+
 // draft がサーバー値から変更されているか
 function toolsIsDirty() {
   return JSON.stringify(toolsState.draft.toolsDirect) !== JSON.stringify(toolsState.toolsDirect) ||
@@ -1460,7 +1472,7 @@ function renderToolsGroup(key, containerId) {
         .map((r, i) => ({ checked: r.querySelector('input[type="checkbox"]').checked, name: toolsState.toolCatalog[i] }))
         .filter(x => x.checked)
         .map(x => x.name)
-      toolsState.draft[key] = newArray
+      toolsState.draft[key] = normalizeToolsDraft(newArray)
       updateSettingsHeaderState()
     })
 
