@@ -5,7 +5,7 @@ const { broadcast, getState } = require('./stream')
 const { gitPull } = require('./git')
 const { saveClaudeSessionId, getClaudeSessionId } = require('./sessions')
 const { parseResetTime } = require('./reset-time')
-const { getProxyEnv } = require('./proxy-route')
+const { getProxyEnv, getDisallowedTools } = require('./proxy-route')
 
 // stdin へ送る control_request の応答を待つ標準タイムアウト。
 // 実測(interrupt/set_model とも成功時は数ms〜十数msでACKが返る)に対して十分な余裕を持たせつつ、
@@ -63,20 +63,12 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
 
   // プロキシ経由モデル(ローカルOllama等)は Anthropic のプロンプトキャッシュが効かず、ツール定義を
   // 毎ターン丸ごと再送・再処理する。ツール定義28個だけで入力の約7割(72,337文字/全100,160文字)を
-  // 占めるため、小型モデルが実際には使えない周辺ツールを落として入力を約1/4(約7,100トークン)へ圧縮
-  // する。狙いはコストでなく速度とコンテキスト寿命＝初回応答が約40秒→約13秒、会話に使える余裕が
-  // 約5万→約7万トークンになる。Claude 側はキャッシュが効くので絞らない(この分岐に入らない)。
-  const PROXY_DISALLOWED_DEFAULT = [
-    'Agent', 'CronCreate', 'CronDelete', 'CronList', 'DesignSync',
-    'EnterWorktree', 'ExitWorktree', 'ListAgents', 'Monitor', 'NotebookEdit',
-    'PushNotification', 'ReportFindings', 'ScheduleWakeup', 'SendMessage',
-    'Skill', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop',
-    'TaskUpdate', 'WebSearch', 'Workflow',
-  ]
-  const disallowedTools = ['AskUserQuestion']
-  if (proxyEnv) {
-    disallowedTools.push(...(config.proxyDisallowedTools || PROXY_DISALLOWED_DEFAULT))
-  }
+  // 占めるため、config.proxyDisallowedTools を設定した場合に限り周辺ツールを落として入力を圧縮
+  // できる(オプトイン。既定は落とさない＝AskUserQuestionのみ)。狙いはコストでなく速度とコンテキスト
+  // 寿命。ただしプロキシ経由でも社内ゲートウェイ等でキャッシュが効く「本物のClaude」を使う利用者も
+  // いるため、何も設定していなければ何も削らない。判定ロジックは services/proxy-route.js に集約
+  // (推奨23ツールのリストも同ファイルの PROXY_DISALLOWED_DEFAULT にある)。
+  const disallowedTools = getDisallowedTools(config, proxyEnv)
 
   const settings = {}
   // effort/alwaysThinkingEnabled は Claude 固有設定。プロキシ経由(GLM等)では送らない。

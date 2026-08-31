@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { getProxyEnv, proxyRouteChanged } = require('../services/proxy-route')
+const { getProxyEnv, proxyRouteChanged, getDisallowedTools } = require('../services/proxy-route')
 
 // バグの実体: qwen(proxyModels経由)→opus(直Claude)の切替でset_modelが成功してしまい、
 // ANTHROPIC_BASE_URL等のenvがプロキシを向いたまま残った（プロセスenvは起動時固定のため）。
@@ -48,4 +48,23 @@ test('同じプロキシモデル同士(envが同一)はプロキシ経路が変
 
 test('null(既定)からモデル名なし(既定)への変化なしはプロキシ経路も変わらない', () => {
   assert.equal(proxyRouteChanged(fakeConfig, null, null), false)
+})
+
+// ツール削減はオプトイン(config.proxyDisallowedTools を設定した場合のみ)。
+// 公開利用者の中にはプロキシ経由でもキャッシュが効く本物のClaude(社内ゲートウェイ等)を使う
+// ケースがあり、何も設定していなければ黙ってツールを削らない。
+
+test('proxyEnvがnull(直Claude)のときはAskUserQuestionのみ', () => {
+  assert.deepEqual(getDisallowedTools(fakeConfig, null), ['AskUserQuestion'])
+})
+
+test('proxyEnvがあってもproxyDisallowedTools未設定ならAskUserQuestionのみ(オプトイン)', () => {
+  const proxyEnv = getProxyEnv(fakeConfig, 'ollama,qwen3.5-9b-q4-nothink')
+  assert.deepEqual(getDisallowedTools(fakeConfig, proxyEnv), ['AskUserQuestion'])
+})
+
+test('proxyEnvがありproxyDisallowedToolsを設定したときは指定分が加わる', () => {
+  const configWithDisallow = { ...fakeConfig, proxyDisallowedTools: ['Agent', 'WebSearch'] }
+  const proxyEnv = getProxyEnv(configWithDisallow, 'ollama,qwen3.5-9b-q4-nothink')
+  assert.deepEqual(getDisallowedTools(configWithDisallow, proxyEnv), ['AskUserQuestion', 'Agent', 'WebSearch'])
 })
