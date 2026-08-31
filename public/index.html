@@ -937,7 +937,7 @@
   <div id="settings-content">
     <div id="settings-header">
       <button id="settings-cancel"></button>
-      <h3>Settings</h3>
+      <h3 id="settings-title"></h3>
       <button id="settings-close">✕</button>
     </div>
     <div id="settings-body">
@@ -1015,10 +1015,9 @@
         <div class="settings-section-title" id="stitle-body-limit"></div>
         <div id="body-limit-desc" style="font-size:12px;color:var(--text-muted);margin-bottom:6px;"></div>
         <div style="display:flex;align-items:center;gap:8px;">
-          <input type="number" id="body-limit-input" min="0" step="1" style="width:80px;background:var(--surface3);color:var(--text);border:1px solid var(--border-input);border-radius:6px;padding:6px 8px;font-size:13px;outline:none;text-align:center;">
+          <input type="number" id="body-limit-input" min="0" step="1" value="0" style="width:80px;background:var(--surface3);color:var(--text);border:1px solid var(--border-input);border-radius:6px;padding:6px 8px;font-size:13px;outline:none;text-align:center;">
           <span id="body-limit-unit" style="font-size:13px;color:var(--text-muted);"></span>
-          <button id="body-limit-save" style="margin-left:auto;background:var(--primary);color:#fff;border:none;border-radius:6px;padding:5px 14px;font-size:13px;cursor:pointer;">Save</button>
-          <span id="body-limit-status" style="font-size:12px;color:var(--text-muted);"></span>
+          <span id="body-limit-status" style="font-size:12px;color:var(--text-muted);margin-left:auto;"></span>
         </div>
       </div>
       <!-- Projects -->
@@ -1162,7 +1161,6 @@ const STRINGS = {
     bodyLimitLabel:       'リクエストボディサイズ制限',
     bodyLimitDesc:        '',
     bodyLimitUnit:        'MB（0で無制限）',
-    bodyLimitSaved:       '保存しました',
     bodyLimitError:       '保存に失敗しました',
     projectNoteLocked:    '⚠ セッション開始済みのため変更できません。新しいタブで開始してください。★ は新規セッションのデフォルトを設定します。',
     projectNoteUnlocked:  '最初のメッセージを送る前のみ変更できます',
@@ -1204,7 +1202,6 @@ const STRINGS = {
     bodyLimitLabel:       'Request Body Size Limit',
     bodyLimitDesc:        '',
     bodyLimitUnit:        'MB (0 = unlimited)',
-    bodyLimitSaved:       'Saved',
     bodyLimitError:       'Failed to save',
     projectLabel:         'Projects',
     projectNoteLocked:    'Session already started. ★ changes the default for new sessions.',
@@ -1373,7 +1370,8 @@ async function loadBodyLimit() {
     const res = await fetch('/api/server-config')
     const data = await res.json()
     const input = document.getElementById('body-limit-input')
-    if (input) input.value = typeof data.maxBodySizeMb === 'number' ? data.maxBodySizeMb : 0
+    bodyLimitState.server = typeof data.maxBodySizeMb === 'number' ? data.maxBodySizeMb : 0
+    if (input) input.value = bodyLimitState.server
     // サーバーの resumeDefaultOn をローカル設定に反映（サーバーを正とする）
     if (typeof data.resumeDefaultOn === 'boolean') {
       appSettings.resumeDefaultOn = data.resumeDefaultOn
@@ -1403,17 +1401,32 @@ let toolsState = {
   toolCatalog: [], hasProxyModels: false, loaded: false,
 }
 
+// ボディサイズ上限の保存値(サーバーを正とする)。draft側は#body-limit-inputの現在値そのもの。
+let bodyLimitState = { server: 0 }
+
 // draft がサーバー値から変更されているか
 function toolsIsDirty() {
   return JSON.stringify(toolsState.draft.toolsDirect) !== JSON.stringify(toolsState.toolsDirect) ||
          JSON.stringify(toolsState.draft.toolsProxy) !== JSON.stringify(toolsState.toolsProxy)
 }
 
+// #body-limit-input の現在値がサーバー保存値と異なるか(不正値も含め文字列比較=変更ありとして扱う)
+function bodyLimitIsDirty() {
+  const input = document.getElementById('body-limit-input')
+  if (!input) return false
+  return String(input.value).trim() !== String(bodyLimitState.server)
+}
+
+// 設定モーダル全体で未保存の変更があるか(ツール構成 + ボディサイズ上限)
+function settingsIsDirty() {
+  return toolsIsDirty() || bodyLimitIsDirty()
+}
+
 // 未保存の変更有無に応じて設定モーダルのヘッダーを切り替える。
 // 変更なし: ✕のみ(今までどおり閉じるだけ)。変更あり: ✕が「保存 ✕」(保存して閉じる)に変わり、
 // 左に赤い「キャンセル」(破棄して閉じる)が出る。どちらを押しても閉じる=第三の道は作らない。
 function updateSettingsHeaderState() {
-  const dirty = toolsIsDirty()
+  const dirty = settingsIsDirty()
   const cancelBtn = document.getElementById('settings-cancel')
   if (dirty) {
     settingsClose.textContent = t('saveLabel') + ' ✕'
@@ -1490,13 +1503,26 @@ document.getElementById('tools-reset-proxy').addEventListener('click', () => {
   updateSettingsHeaderState()
 })
 
-// 未保存のツール構成の変更(toolsDirect/toolsProxyのうち変わった方だけ)を1回のPATCHでまとめて保存する。
-// 空配列(=全部オフ)になったグループがあれば、保存時にだけ確認ダイアログを出す。
-// 失敗時はモーダルを閉じずステータス表示にエラーを出す。
-async function saveToolsDraftAndClose() {
+// 未保存の変更(ツール構成のtoolsDirect/toolsProxyのうち変わった方 + ボディサイズ上限)を
+// 1回のPATCHでまとめて保存する。空配列(=全部オフ)になったツールグループがあれば、保存時にだけ
+// 確認ダイアログを出す。ボディサイズ上限が不正な値(数値でない・負数)なら保存せず、
+// #body-limit-status にエラーを出してモーダルは閉じない。それ以外の失敗時も同様にモーダルを閉じない。
+async function saveSettingsDraftAndClose() {
   const status = document.getElementById('tools-save-status')
+  const bodyLimitInput = document.getElementById('body-limit-input')
+  const bodyLimitStatus = document.getElementById('body-limit-status')
   const dirtyDirect = JSON.stringify(toolsState.draft.toolsDirect) !== JSON.stringify(toolsState.toolsDirect)
   const dirtyProxy = JSON.stringify(toolsState.draft.toolsProxy) !== JSON.stringify(toolsState.toolsProxy)
+  const dirtyBodyLimit = bodyLimitIsDirty()
+
+  let bodyLimitVal = null
+  if (dirtyBodyLimit) {
+    bodyLimitVal = parseInt(bodyLimitInput.value, 10)
+    if (isNaN(bodyLimitVal) || bodyLimitVal < 0) {
+      if (bodyLimitStatus) bodyLimitStatus.textContent = t('bodyLimitError')
+      return
+    }
+  }
 
   if (dirtyDirect && Array.isArray(toolsState.draft.toolsDirect) && toolsState.draft.toolsDirect.length === 0) {
     if (!confirm(t('toolsDisableAllConfirm'))) return
@@ -1508,6 +1534,7 @@ async function saveToolsDraftAndClose() {
   const patch = {}
   if (dirtyDirect) patch.toolsDirect = toolsState.draft.toolsDirect
   if (dirtyProxy) patch.toolsProxy = toolsState.draft.toolsProxy
+  if (dirtyBodyLimit) patch.maxBodySizeMb = bodyLimitVal
 
   if (Object.keys(patch).length === 0) { closeSettings(); return }
 
@@ -1520,16 +1547,22 @@ async function saveToolsDraftAndClose() {
     if (!res.ok) throw new Error()
     if (dirtyDirect) toolsState.toolsDirect = toolsState.draft.toolsDirect
     if (dirtyProxy) toolsState.toolsProxy = toolsState.draft.toolsProxy
+    if (dirtyBodyLimit) bodyLimitState.server = bodyLimitVal
     closeSettings()
   } catch {
     if (status) status.textContent = t('toolsSaveError')
+    if (dirtyBodyLimit && bodyLimitStatus) bodyLimitStatus.textContent = t('bodyLimitError')
   }
 }
 
 // キャンセル: draftをサーバー値へ戻して(=破棄して)閉じる
-function cancelToolsDraftAndClose() {
+function cancelSettingsDraftAndClose() {
   toolsState.draft.toolsDirect = toolsState.toolsDirect
   toolsState.draft.toolsProxy = toolsState.toolsProxy
+  const bodyLimitInput = document.getElementById('body-limit-input')
+  if (bodyLimitInput) bodyLimitInput.value = bodyLimitState.server
+  const bodyLimitStatus = document.getElementById('body-limit-status')
+  if (bodyLimitStatus) bodyLimitStatus.textContent = ''
   closeSettings()
 }
 
@@ -1633,6 +1666,7 @@ async function saveScheduledPost() {
 
 function renderSettingsModal() {
   // Section titles & labels
+  document.getElementById('settings-title').textContent  = t('settingsTitle')
   document.getElementById('stitle-lang').textContent     = t('langLabel')
   document.getElementById('stitle-font').textContent     = t('fontSizeLabel')
   document.getElementById('stitle-model').textContent    = t('modelLabel')
@@ -1848,35 +1882,22 @@ function renderSettingsModal() {
 }
 
 settingsBtn.addEventListener('click', () => {
-  if (settingsModal.classList.contains('open')) closeSettings()
-  else openSettings()
-})
-settingsClose.addEventListener('click', () => {
-  if (toolsIsDirty()) saveToolsDraftAndClose()
-  else closeSettings()
-})
-document.getElementById('settings-cancel').addEventListener('click', cancelToolsDraftAndClose)
-
-document.getElementById('body-limit-save').addEventListener('click', async () => {
-  const input = document.getElementById('body-limit-input')
-  const status = document.getElementById('body-limit-status')
-  const val = parseInt(input.value, 10)
-  if (isNaN(val) || val < 0) { status.textContent = t('bodyLimitError'); return }
-  try {
-    const res = await fetch('/api/server-config', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ maxBodySizeMb: val }),
-    })
-    if (!res.ok) throw new Error()
-    status.textContent = t('bodyLimitSaved')
-    setTimeout(() => { status.textContent = '' }, 2000)
-  } catch {
-    status.textContent = t('bodyLimitError')
+  if (settingsModal.classList.contains('open')) {
+    // 未保存の変更がある間はここでは閉じない。「保存 ✕」かキャンセルで選ばせる。
+    if (!settingsIsDirty()) closeSettings()
+  } else {
+    openSettings()
   }
 })
+settingsClose.addEventListener('click', () => {
+  if (settingsIsDirty()) saveSettingsDraftAndClose()
+  else closeSettings()
+})
+document.getElementById('settings-cancel').addEventListener('click', cancelSettingsDraftAndClose)
+document.getElementById('body-limit-input').addEventListener('input', updateSettingsHeaderState)
 settingsModal.addEventListener('click', e => {
-  if (e.target === settingsModal) closeSettings()
+  // 未保存の変更がある間は背景クリックでも閉じない(同上)。
+  if (e.target === settingsModal && !settingsIsDirty()) closeSettings()
 })
 
 scheduleBtn.addEventListener('click', () => {
