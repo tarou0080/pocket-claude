@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [Unreleased]
+
+### Added
+- **API retries are now visible instead of silent** - When Anthropic returns 529 Overloaded, the CLI retries up to 10 times with exponential backoff (~0.5s to ~38s, about 3 minutes in total). The `system/api_retry` events it emits carry no `text` field, so the frontend dropped them and the screen stayed completely blank for those three minutes - indistinguishable from a dead tab, which led to pressing stop and resending, hitting the congestion again. A single orange line now reports `⏳ API is congested - retrying (n/10), next attempt in ~Xs`, rewritten in place for each attempt. Once the API responds again the line collapses to `⚠ Retried n times due to API congestion` if there were 3 or more attempts, and disappears silently for shorter blips. The indicator is live-only; history replay never shows it.
+
 ## [v2.10.0] - 2026-08-31
 
 ### Added

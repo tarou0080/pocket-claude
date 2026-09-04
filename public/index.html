@@ -783,6 +783,7 @@
   .line-done    { color: var(--green); border-top: 1px solid var(--surface3); margin-top: 6px; padding-top: 6px; }
   .line-done.warn { color: var(--orange); }
   .line-error   { color: var(--red); }
+  .line-retry   { color: var(--orange); }
   .line-thinking { color: var(--purple); font-style: italic; }
 
   /* ── レート制限パネル ── */
@@ -3385,6 +3386,10 @@ function handleEvent(sessionId, ev, isLive = true) {
   if (!ts) return
   const isActive = sessionId === currentSessionId
 
+  // 再試行中の表示は「次に何か届いた時点」で役目を終える。api_retry 以外のライブイベントが
+  // 来たら畳む（＝APIが応答を再開した合図。tool_result等の中間イベントでも構わない）。
+  if (isLive && !(ev.type === 'system' && ev.subtype === 'api_retry')) clearRetryLine(ts)
+
   switch (ev.type) {
     case 'user_input':
       if (isLive) clearRateLimitPanel(sessionId)
@@ -3639,6 +3644,11 @@ function handleEvent(sessionId, ev, isLive = true) {
             rebuildModelSelect()
           }
         }
+      } else if (ev.subtype === 'api_retry') {
+        // Anthropic側が529等を返すとCLIが最大10回・指数バックオフで黙って再試行する。
+        // このイベントは text を持たないため従来は捨てられ、画面が最大3分無反応になっていた
+        // （＝「死んだ」と誤解して停止→再送→さらに混雑、という2026-09-03の実害）。
+        if (isLive) showRetryLine(ts, ev)
       } else if (ev.text) {
         addLine(ts, ev.text, 'line-system')
       }
@@ -3732,6 +3742,39 @@ function finalizeText(ts) {
     scrollToBottom(ts)
   }
   ts.currentTextEl = null
+}
+
+// ── API再試行の可視化 ──
+// 1ターンにつき1行を使い回して書き換える（試行ごとに行が増えると混雑時に画面が埋まるため）。
+function showRetryLine(ts, ev) {
+  const attempt = ev.attempt || 0
+  const max = ev.max_retries || 10
+  const wait = ev.retry_delay_ms ? Math.round(ev.retry_delay_ms / 1000) : 0
+  const why = ev.error === 'overloaded' ? 'APIが混雑しています' : `API接続エラー (${ev.error || ev.error_status || 'unknown'})`
+  const text = `⏳ ${why} — 再試行中 (${attempt}/${max})${wait ? `・約${wait}秒後` : ''}`
+  ts._retryAttempts = attempt
+  if (ts._retryEl && ts._retryEl.isConnected) {
+    ts._retryEl.textContent = text
+    scrollToBottom(ts)
+  } else {
+    ts._retryEl = addLine(ts, text, 'line-retry')
+  }
+}
+
+// 再試行が短時間で収まったなら痕跡を残さない。長く待たされた場合だけ
+// 「無反応だったのは混雑のせい」と後から読める1行に畳む。
+function clearRetryLine(ts) {
+  if (!ts._retryEl) return
+  const el = ts._retryEl
+  const attempts = ts._retryAttempts || 0
+  ts._retryEl = null
+  ts._retryAttempts = 0
+  if (!el.isConnected) return
+  if (attempts >= 3) {
+    el.textContent = `⚠ API混雑のため${attempts}回再試行しました`
+  } else {
+    el.remove()
+  }
 }
 
 function addLine(ts, text, cls) {
