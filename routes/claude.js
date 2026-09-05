@@ -3,9 +3,9 @@ const fs = require('fs')
 const path = require('path')
 const router = express.Router()
 const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
-const { getState, broadcast, logFile } = require('../services/stream')
+const { getState, peekState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
-const { saveClaudeSessionId, saveSessionSettings, getSessionSettings } = require('../services/sessions')
+const { saveClaudeSessionId, saveSessionSettings, getSessionSettings, findPocketSessionIds, forgetSession } = require('../services/sessions')
 const { UUID_RE } = require('../services/history')
 const { proxyRouteChanged } = require('../services/proxy-route')
 const config = require('../config/index')
@@ -172,6 +172,27 @@ router.post('/register-session', (req, res) => {
   }
 })
 
+// 履歴一覧のID（Claude session ID）から、その会話が紐づく pocket session ID を引く。
+// 履歴から実行中の会話を開くときに、別IDの新しいタブ（＝ライブ配信も実行中フラグも届かない
+// 影のタブ）を作らず、走っている本体のセッションへ合流させるための逆引き。
+router.get('/resolve-session/:claudeSessionId', (req, res) => {
+  const { claudeSessionId } = req.params
+  if (!UUID_RE.test(claudeSessionId)) return res.status(400).json({ error: 'invalid sessionId' })
+  const candidates = findPocketSessionIds(claudeSessionId)
+  // 生きているものを最優先。無ければ最終更新が新しいもの（findPocketSessionIds が新しい順）。
+  const live = candidates.find(id => {
+    const s = peekState(id)
+    return !!(s && s.process)
+  })
+  const pocketSessionId = live || candidates[0] || null
+  const s = pocketSessionId ? peekState(pocketSessionId) : null
+  res.json({
+    pocketSessionId,
+    running: !!(s && s.turning),
+    alive: !!(s && s.process),
+  })
+})
+
 // セッションの最終使用設定を取得（履歴からの復帰時、端末の既定値ではなく
 // そのセッションで最後に使われていたmodel/effort/thinkingを引き継ぐための読み取り専用エンドポイント）
 router.get('/session-settings/:sessionId', (req, res) => {
@@ -190,6 +211,7 @@ router.post('/reset', (req, res) => {
   s.buffer = []
   fs.unlink(logFile(sessionId), () => {})
   fs.unlink(path.join(sessionsDir, `${sessionId}.json`), () => {})
+  forgetSession(sessionId)
   res.json({ ok: true, sessionId })
 })
 

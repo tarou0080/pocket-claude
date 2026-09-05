@@ -25,6 +25,13 @@ function nextLineId(sessionId) {
   return id
 }
 
+// 状態の覗き見（getState と違い、無ければ作らない）。
+// 「このセッションは今動いているか」を候補分だけ問い合わせる用途で、
+// 存在しないIDのぶんまで state を生やさないために分けている。
+function peekState(sessionId) {
+  return state[sessionId] || null
+}
+
 // 状態取得
 function getState(sessionId) {
   if (!state[sessionId]) {
@@ -96,6 +103,7 @@ function deleteState(sessionId) {
 
 module.exports = {
   getState,
+  peekState,
   broadcast,
   loadLogFile,
   registerSSEClient,

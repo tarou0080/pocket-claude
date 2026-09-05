@@ -4006,7 +4006,7 @@ async function openHistoryDetail(session) {
     const resumeBtn = document.createElement('button')
     resumeBtn.id = 'resume-btn'
     resumeBtn.textContent = 'Resume this conversation'
-    resumeBtn.addEventListener('click', () => resumeConversation(session.sessionId))
+    resumeBtn.addEventListener('click', () => resumeConversation(session.sessionId, session.title))
     historyBody.appendChild(resumeBtn)
 
     // 最下部にスクロール
@@ -4018,7 +4018,45 @@ async function openHistoryDetail(session) {
   }
 }
 
-async function resumeConversation(sessionId) {
+// 実行中の会話へ「合流」する。履歴一覧のIDは Claude session ID だが、走っているプロセス・
+// ライブ配信・実行中フラグはすべて pocket session ID で管理されているため、Claude IDで新しい
+// タブを作ると本体とは別物の“影のタブ”になり、ライブが一切流れず（logs/<Claude ID>.jsonl が
+// 存在しない）実行中フラグも常にfalse＝ドットが緑のままになる。逆引きした本体のIDでタブを
+// 開けば、通常タブとまったく同じ増分同期経路（SSE fromLine）に乗る。
+async function attachLiveSession(livePocketId, title) {
+  if (!tabState[livePocketId]) {
+    const sessions = loadSessions()
+    let session = sessions.find(s => s.sessionId === livePocketId)
+    if (!session) {
+      // model/effort/thinking/project はサーバーがそのセッションの最終使用値を持っている。
+      // 端末の既定値へ落とすと、合流した瞬間に別モデルで送信してしまう。
+      let saved = {}
+      try {
+        const r = await fetch(`/api/session-settings/${livePocketId}`)
+        if (r.ok) saved = await r.json()
+      } catch (e) { /* 取得失敗時は既定値フォールバック */ }
+      session = {
+        sessionId: livePocketId,
+        name: (title || 'Resumed conversation').substring(0, 30),
+        project: saved.project || getCurrentSession()?.project || Object.keys(_projectsCache)[0],
+        lastUsed: Date.now(),
+      }
+      if (saved.model != null) session.model = saved.model
+      if (saved.effort != null) session.effort = saved.effort
+      if (saved.thinking != null) session.thinking = saved.thinking
+      sessions.push(session)
+      saveSessions(sessions)
+    }
+    ensureTabState(session)
+    createTabEl(session)
+  }
+  // 会話の中身は switchTab → connectSSE が fromLine=0 で取得する（新規タブは lastLine=-1）。
+  // 以降は同じSSEでライブが続くため、生ログのリプレイと二重描画にならない。
+  await switchTab(livePocketId)
+  closeHistory()
+}
+
+async function resumeConversation(sessionId, title) {
   const btn = document.getElementById('resume-btn')
   const setProgress = (pct) => { if (btn) btn.textContent = `${pct}%` }
   const showResumeError = (msg) => {
@@ -4033,6 +4071,20 @@ async function resumeConversation(sessionId) {
     }
     errEl.textContent = msg
   }
+
+  // その会話が今も実行中なら、走っている本体（pocket session）へ合流する。
+  // 実行中でない場合は従来どおり Claude の生ログをリプレイする（過去会話は生ログの方が完全なため）。
+  try {
+    const res = await fetch(`/api/resolve-session/${encodeURIComponent(sessionId)}`, { redirect: 'manual' })
+    if (res.ok) {
+      const info = await res.json()
+      if (info.running && info.pocketSessionId) {
+        if (btn) { btn.disabled = true; btn.textContent = '接続中…' }
+        await attachLiveSession(info.pocketSessionId, title)
+        return
+      }
+    }
+  } catch (e) { /* 逆引きに失敗しても以降の従来経路で開ける */ }
 
   // すでにタブに描画済みなら即切り替え
   const existingTs = tabState[sessionId]

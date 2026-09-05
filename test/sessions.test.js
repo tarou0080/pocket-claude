@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
-const { getSessionSettings, saveSessionSettings } = require('../services/sessions')
+const { getSessionSettings, saveSessionSettings, saveClaudeSessionId, findPocketSessionIds, forgetSession } = require('../services/sessions')
 
 // services/sessions.js の sessionsDir は実行ディレクトリ固定（../sessions）で、
 // テストのために本体を書き換えないため、実ディレクトリへ実際に書き込んで検証する。
@@ -53,4 +53,32 @@ test('未指定フィールドは保存されず既定(null)のまま', (t) => {
   const settings = getSessionSettings(sessionId)
   assert.equal(settings.effort, null)
   assert.equal(settings.thinking, null)
+})
+
+// ── Claude session ID → pocket session ID の逆引き ──
+// 履歴一覧のIDは Claude session ID だが、走っているプロセス・ライブ配信・実行中フラグは
+// pocket session ID で管理されている。この逆引きが無かったため、実行中の会話を履歴から
+// 開くと本体と繋がらない別タブができていた（描写が止まる・ドットが緑のまま）。
+
+test('Claude session ID から pocket session ID を逆引きできる', (t) => {
+  const pocketId = randomUUID()
+  const claudeId = randomUUID()
+  t.after(() => { cleanup(pocketId); forgetSession(pocketId) })
+
+  saveClaudeSessionId(pocketId, claudeId)
+  assert.deepEqual(findPocketSessionIds(claudeId), [pocketId])
+})
+
+test('紐づくセッションが無ければ空配列（存在しないIDをliveとして返さない）', () => {
+  assert.deepEqual(findPocketSessionIds(randomUUID()), [])
+})
+
+test('forgetSession 後は逆引きに出ない（reset済みセッションを掴み続けない）', (t) => {
+  const pocketId = randomUUID()
+  const claudeId = randomUUID()
+  t.after(() => cleanup(pocketId))
+
+  saveClaudeSessionId(pocketId, claudeId)
+  forgetSession(pocketId)
+  assert.deepEqual(findPocketSessionIds(claudeId), [])
 })
