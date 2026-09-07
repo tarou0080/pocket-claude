@@ -1,6 +1,6 @@
 {
   "name": "pocket-claude",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "description": "Lightweight, mobile-first Web UI for Claude Code CLI - optimized for iOS Safari",
   "main": "server.js",
   "scripts": {
@@ -29,5 +29,8 @@
   "homepage": "https://github.com/tarou0080/pocket-claude#readme",
   "dependencies": {
     "express": "^4.18.0"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }

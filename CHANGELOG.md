@@ -4,10 +4,14 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
-## [Unreleased]
+## [v2.11.0] - 2026-09-07
 
 ### Added
 - **API retries are now visible instead of silent** - When Anthropic returns 529 Overloaded, the CLI retries up to 10 times with exponential backoff (~0.5s to ~38s, about 3 minutes in total). The `system/api_retry` events it emits carry no `text` field, so the frontend dropped them and the screen stayed completely blank for those three minutes - indistinguishable from a dead tab, which led to pressing stop and resending, hitting the congestion again. A single orange line now reports `⏳ API is congested - retrying (n/10), next attempt in ~Xs`, rewritten in place for each attempt. Once the API responds again the line collapses to `⚠ Retried n times due to API congestion` if there were 3 or more attempts, and disappears silently for shorter blips. The indicator is live-only; history replay never shows it.
+- **Opening a running conversation from history now joins the live session instead of creating a disconnected tab** - History lists conversations by their Claude session ID, but the live process, streaming output and "running" flag are all tracked by a separate pocket session ID. Tapping a running conversation from history used to open a "shadow" tab with no connection to the real one: output never grew, the status dot stayed green, and a reload was the only way to see progress. Doing so also risked spawning a second `claude --resume` process for the same conversation if you sent a message from the shadow tab. Now, opening a running conversation resolves it to the live pocket session and joins the same incremental sync used by regular tabs: the transcript keeps growing without a reload, and the status correctly shows running, returning to connected when the turn finishes. Known limitation: a joined tab only shows what happened since that pocket session itself started - if that session was itself resumed from history earlier, whatever came before that point still isn't shown (by design; live streaming and log replay use different event granularities that can't be safely stitched together).
+
+### Security
+- **Dependency: forced `qs` to 6.16.0** - `npm audit` reported three moderate advisories in `qs` (array-limit bypass via bracket-key comma parsing, and a denial of service via attacker-controlled `isBuffer`), reached transitively through `express` -> `body-parser`. Plain `npm audit fix` could not resolve them because `body-parser` pins `qs` with a tilde range that excludes the fixed release, and clearing them otherwise would have meant jumping to Express 5. An `overrides` entry in `package.json` pulls in the patched `qs` while leaving `express` and `body-parser` untouched. Vulnerability count is back to zero.
 
 ## [v2.10.0] - 2026-08-31
 
