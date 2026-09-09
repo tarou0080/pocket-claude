@@ -3,7 +3,7 @@ const { randomUUID } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
-const { broadcast, getState } = require('./stream')
+const { broadcast, getState, discardPocketLog } = require('./stream')
 const { gitPull } = require('./git')
 const { loadSessionMeta, markStarted } = require('./sessions')
 const { CLAUDE_PROJECTS_DIR } = require('./history')
@@ -15,6 +15,12 @@ const { saveToolsCatalog } = require('./tools-catalog')
 // 実測(interrupt/set_model とも成功時は数ms〜十数msでACKが返る)に対して十分な余裕を持たせつつ、
 // ACKが来ない場合のフォールバック(SIGTERM/kill+resume)への切替を遅らせすぎない値。
 const CONTROL_TIMEOUT_MS = 1800
+
+// server.js の gracefulShutdown が立てる。シャットダウン中は proc の close で
+// pocketログを破棄しない（全実行中セッションを一斉に消して再起動直後の再取得を
+// 誘発しないため。破棄は次の起動時GCと通常のターン完了に任せる）。
+let serverShuttingDown = false
+function markServerShuttingDown() { serverShuttingDown = true }
 
 // claude CLI (stream-json) の stdin へ制御メッセージ(control_request)を送り、対応する
 // control_response を待って解決する。タイムアウト/送信失敗時は null を返す＝呼び出し元は
@@ -222,6 +228,14 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
       return
     }
     broadcast(sessionId, { type: 'done', exitCode: code, timestamp: new Date().toISOString() })
+    // ターン完了（常駐プロセス終了）。会話は本体jsonlに揃っているので pocketライブログを
+    // 破棄する（v2.12.0 有限化）。次に開くと getSessionEvents が本体jsonlを変換して復元する。
+    // シャットダウン中は一斉破棄を避けて起動時GC/次ターンに委ねる。
+    if (!serverShuttingDown) {
+      try {
+        if (fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`))) discardPocketLog(sessionId)
+      } catch {}
+    }
   })
 
   proc.on('error', err => {
@@ -371,4 +385,4 @@ function _notifyFailure(sessionId, prompt, reason) {
   broadcast(sessionId, { type: 'system', text: `⚠ 送信できませんでした: ${reason} — ${preview}` })
 }
 
-module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull }
+module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull, markServerShuttingDown }

@@ -23,6 +23,16 @@ const HOST = process.env.HOST || config.host || '0.0.0.0'
 // ディレクトリ初期化
 initDirectories()
 
+// 起動時マイグレーション（v2.12.0・schema version 1）: pocket ID と Claude session ID の
+// 二重身分を廃止する。冪等（sessions/.schema.json）・変換前に tar.gz 退避・全件を起動ログへ出力。
+// 子プロセスが誰もファイルを掴んでいない起動フェーズでのみ実行する（配信開始前）。
+const { runStartupMigration } = require('./services/migrate')
+if (process.argv.includes('--migrate-dry-run')) {
+  console.log(JSON.stringify(runStartupMigration({ dryRun: true }), null, 2))
+  process.exit(0)
+}
+runStartupMigration()
+
 // 起動時: 未完了ログを修復（start あり・done なし → 強制 done を追記）
 // サーバーが実行中に再起動した場合、UIが「生成中」で詰まるのを防ぐ
 function repairIncompleteLogs() {
@@ -135,7 +145,8 @@ function gracefulShutdown(signal) {
 
   // 2. 実行中のすべてのセッションに done イベントを送信
   const { getState, broadcast } = require('./services/stream')
-  const { stopClaude } = require('./services/spawner')
+  const { stopClaude, markServerShuttingDown } = require('./services/spawner')
+  markServerShuttingDown()  // シャットダウン中は proc close での pocketログ一斉破棄を抑止
 
   // state オブジェクトから全セッションIDを取得（stream.jsのstateは外部公開されていないため、
   // 実行中プロセスを持つセッションのみ処理）

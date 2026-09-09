@@ -101,6 +101,14 @@ function deleteState(sessionId) {
   delete state[sessionId]
 }
 
+// pocketライブログを破棄する（v2.12.0 有限化）。会話の正典は本体jsonl側にあり、
+// 再生時は getSessionEvents が本体jsonlを変換して復元するため、ターン完了後の
+// ライブログは冗長になる。行番号カウンタもリセットして次の broadcast が行0から積み直す。
+function discardPocketLog(sessionId) {
+  try { fs.unlinkSync(logFile(sessionId)) } catch {}
+  delete lineCounts[sessionId]
+}
+
 module.exports = {
   getState,
   peekState,
@@ -109,5 +117,6 @@ module.exports = {
   registerSSEClient,
   unregisterSSEClient,
   deleteState,
+  discardPocketLog,
   logFile,
 }
