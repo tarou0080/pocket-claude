@@ -31,7 +31,13 @@ if (process.argv.includes('--migrate-dry-run')) {
   console.log(JSON.stringify(runStartupMigration({ dryRun: true }), null, 2))
   process.exit(0)
 }
-runStartupMigration()
+// PC_SKIP_STARTUP_MIGRATION=1 で起動時マイグレーションを見送る（検証・トラブル時の逃げ道）。
+// 通常運用では設定しない＝schema未達なら初回起動で1回だけ走り、以後は冪等にskipされる。
+if (process.env.PC_SKIP_STARTUP_MIGRATION === '1') {
+  console.log('[migrate] skipped (PC_SKIP_STARTUP_MIGRATION=1)')
+} else {
+  runStartupMigration()
+}
 
 // 起動時: 未完了ログを修復（start あり・done なし → 強制 done を追記）
 // サーバーが実行中に再起動した場合、UIが「生成中」で詰まるのを防ぐ
