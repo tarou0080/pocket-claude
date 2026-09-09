@@ -4,6 +4,16 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.12.0] - 2026-09-09
+
+### Changed
+- **A conversation now has one ID instead of two** - Every conversation used to carry two identities: a "pocket session ID" that pocket-claude invented, and the Claude session ID the CLI created for the same conversation. History lists conversations by the Claude ID, while settings, the running process, auto-resume and scheduled posts were all keyed by the pocket ID. Three separate pieces of code tried to translate between them and the places that had no translation simply broke - most visibly, a conversation started on Sonnet came back as something else when reopened from history, because the settings lookup missed and fell back to the device default. pocket-claude now tells the CLI which ID to use (`--session-id`), so both sides agree from the start and all three translation layers are gone. If the ID the CLI reports back ever disagrees with the one requested, a warning is logged instead of silently splitting again.
+- **History replay now shows tool calls, tool results and thinking** - Replaying a finished conversation from history previously rendered only text blocks, so tool activity and extended thinking were missing. The converter that turns the CLI's own transcript into screen events now normalizes them into the same event vocabulary live streaming uses, with the same collapsible tool results - no separate rendering path for history.
+- **Live logs are no longer kept forever** - pocket-claude used to keep its own copy of every conversation indefinitely, including conversations the CLI itself had already deleted (its default retention is 30 days), which meant a large amount of disk was held by transcripts that could no longer be shown anywhere. The CLI's transcript is the source of truth for finished conversations, so redundant and unreachable copies are now removed. There is deliberately no retention setting to configure.
+
+### Migration
+- **The first start of v2.12.0 converts existing data, after taking a backup** - Records under `sessions/` whose filename disagrees with the conversation's Claude session ID are merged into a single record under the canonical ID, keys in `schedules.json` and `scheduled-posts.json` are repointed, and the old ID is left behind as a one-line forwarding stub so tabs already open on other devices still resolve. Where both records held a value for the same field, the value from the original (pocket-side) record wins and every such collision is printed to the startup log. **Before touching anything, a `migration-backup-<timestamp>.tar.gz` is written to the install directory** containing `sessions/`, `logs/`, `schedules.json` and `scheduled-posts.json`; it is the only way back. Delete it once you are satisfied, and restore by extracting it over the install directory. The conversion is idempotent (recorded in `sessions/.schema.json`) and runs only once - later versions do not take this backup. Set `PC_SKIP_STARTUP_MIGRATION=1` to start without it if anything goes wrong.
+
 ## [v2.11.0] - 2026-09-07
 
 ### Added
