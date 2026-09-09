@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const { claudeEntriesToEvents } = require('./history-convert')
 
 const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
 const homeDirNormalized = homeDir.replace(/\//g, '-')
@@ -176,66 +177,14 @@ function getSessionEvents(sessionId) {
   // ~/.claude/projects/ の全エントリをイベント変換して返す
   if (pocketEvents.length === 0 && claudeSessionId === sessionId) {
     const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${claudeSessionId}.jsonl`)
-    const claudeLines = readLogFile(jsonlPath)
-    const events = []
-    for (const entry of claudeLines) {
-      if (entry.type === 'user') {
-        const content = entry.message?.content
-        if (!content) continue
-        const textBlock = Array.isArray(content)
-          ? content.find(c => c.type === 'text')
-          : (typeof content === 'string' ? { text: content } : null)
-        if (!textBlock?.text?.trim()) continue
-        events.push({ type: 'user_input', text: textBlock.text, timestamp: entry.timestamp })
-      } else if (entry.type === 'assistant') {
-        const content = entry.message?.content
-        if (!Array.isArray(content)) continue
-        const texts = content.filter(c => c.type === 'text').map(c => c.text)
-        if (!texts.length) continue
-        const fullText = texts.join('')
-        events.push({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } })
-        events.push({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: fullText } } })
-        events.push({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } })
-        events.push({ type: 'done', exitCode: 0, timestamp: entry.timestamp })
-      }
-    }
-    return events
+    return claudeEntriesToEvents(readLogFile(jsonlPath))
   }
 
   // pocket-claudeログ以降にVS Code等で追加された会話を~/.claude/projects/から補完
   // lastDoneTsがない場合はpocket-claudeで一度も送信していないセッションなので補完しない
   if (lastDoneTs) {
     const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${claudeSessionId}.jsonl`)
-    const claudeLines = readLogFile(jsonlPath)
-
-    // lastDoneTs以降のuser/assistantエントリをpocket-claudeイベント形式に変換
-    const extraEvents = []
-    for (const entry of claudeLines) {
-      if (!entry.timestamp || entry.timestamp <= lastDoneTs) continue
-
-      if (entry.type === 'user') {
-        const content = entry.message?.content
-        if (!content) continue
-        const textBlock = Array.isArray(content)
-          ? content.find(c => c.type === 'text')
-          : (typeof content === 'string' ? { text: content } : null)
-        if (!textBlock?.text?.trim()) continue
-        extraEvents.push({ type: 'user_input', text: textBlock.text, timestamp: entry.timestamp })
-
-      } else if (entry.type === 'assistant') {
-        const content = entry.message?.content
-        if (!Array.isArray(content)) continue
-        const texts = content.filter(c => c.type === 'text').map(c => c.text)
-        if (!texts.length) continue
-        const fullText = texts.join('')
-        // stream_eventチェーンに展開してhandleEventが処理できる形式に変換
-        extraEvents.push({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } })
-        extraEvents.push({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: fullText } } })
-        extraEvents.push({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } })
-        extraEvents.push({ type: 'done', exitCode: 0, timestamp: entry.timestamp })
-      }
-    }
-
+    const extraEvents = claudeEntriesToEvents(readLogFile(jsonlPath), { since: lastDoneTs })
     if (extraEvents.length > 0) {
       return [...pocketEvents, ...extraEvents]
     }
