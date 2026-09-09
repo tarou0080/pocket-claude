@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const { claudeEntriesToEvents } = require('./history-convert')
+const { resolveCanonicalId } = require('./sessions')
 
 const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
 const homeDirNormalized = homeDir.replace(/\//g, '-')
@@ -62,6 +63,8 @@ function getSessionMessages(sessionId) {
   if (!UUID_RE.test(sessionId)) {
     throw new Error('invalid sessionId')
   }
+  // 旧pocket IDのタブから開かれても正規ID（Claude session ID）の会話を返す
+  sessionId = resolveCanonicalId(sessionId)
 
   // セキュリティ: CLAUDE_PROJECTS_DIRの存在確認
   if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
@@ -111,15 +114,18 @@ function getSessionMessages(sessionId) {
   return messages
 }
 
-// 特定セッションの全イベント取得（履歴再開用）
+// 特定セッションの全イベント取得（履歴再開用）。
+//
+// v2.12.0 でID統一済み: pocket session ID === Claude session ID。逆引き（claudeSessionId
+// フィールド・sessions/全走査）は撤去した。旧pocket IDから開かれた場合は resolveCanonicalId が
+// 転送スタブを1段辿って正規IDへ寄せる。
 function getSessionEvents(sessionId) {
   if (!UUID_RE.test(sessionId)) {
     throw new Error('invalid sessionId')
   }
+  sessionId = resolveCanonicalId(sessionId)
 
-  const path = require('path')
   const config = require('../config/index')
-  const sessionsDir = path.join(__dirname, '..', 'sessions')
 
   function readLogFile(logPath) {
     try {
@@ -131,33 +137,17 @@ function getSessionEvents(sessionId) {
     }
   }
 
-  // sessions/ を逆引き: claudeSessionId === sessionId となる pocketSessionId を探す
-  // self-mapping（pocketSessionId === sessionId）は除外し、オリジナルのログを探す
-  let originalPocketId = null
-  try {
-    const files = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.json'))
-    for (const file of files) {
-      const pocketId = file.replace('.json', '')
-      if (pocketId === sessionId) continue  // self-mapping除外
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(sessionsDir, file), 'utf8'))
-        if (data.claudeSessionId === sessionId) {
-          originalPocketId = pocketId
-          break
-        }
-      } catch {}
-    }
-  } catch {}
+  const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
+  const pocketEvents = readLogFile(path.join(config.LOGS_DIR, `${sessionId}.jsonl`))
 
-  // オリジナルのログ（履歴復帰前）＋直接ログ（履歴復帰後の新会話）をマージ
-  const originalEvents = originalPocketId
-    ? readLogFile(path.join(config.LOGS_DIR, `${originalPocketId}.jsonl`))
-    : []
-  const directEvents = readLogFile(path.join(config.LOGS_DIR, `${sessionId}.jsonl`))
+  // pocketライブログが無い（idleセッション。マイグレーション後・ログGC後の既定状態）→
+  // 本体jsonlを変換して丸ごと再生する。
+  if (pocketEvents.length === 0) {
+    return claudeEntriesToEvents(readLogFile(jsonlPath))
+  }
 
-  const pocketEvents = [...originalEvents, ...directEvents]
-
-  // pocket-claudeログの最後のdoneイベントのtimestampを取得
+  // pocketライブログがある（このプロセス生存中に走った／done後GC前）→
+  // 最後のdone以降に本体jsonlへ追記された分だけ変換して継ぎ足す。
   let lastDoneTs = null
   for (let i = pocketEvents.length - 1; i >= 0; i--) {
     if (pocketEvents[i].type === 'done' && pocketEvents[i].timestamp) {
@@ -165,25 +155,7 @@ function getSessionEvents(sessionId) {
       break
     }
   }
-
-  // sessions/<sessionId>.json から claudeSessionId を取得
-  let claudeSessionId = sessionId
-  try {
-    const data = JSON.parse(fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf8'))
-    claudeSessionId = data.claudeSessionId || sessionId
-  } catch {}
-
-  // self-mappingかつpocket-claudeログが空の場合（historyからresumeした未送信セッション）：
-  // ~/.claude/projects/ の全エントリをイベント変換して返す
-  if (pocketEvents.length === 0 && claudeSessionId === sessionId) {
-    const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${claudeSessionId}.jsonl`)
-    return claudeEntriesToEvents(readLogFile(jsonlPath))
-  }
-
-  // pocket-claudeログ以降にVS Code等で追加された会話を~/.claude/projects/から補完
-  // lastDoneTsがない場合はpocket-claudeで一度も送信していないセッションなので補完しない
   if (lastDoneTs) {
-    const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${claudeSessionId}.jsonl`)
     const extraEvents = claudeEntriesToEvents(readLogFile(jsonlPath), { since: lastDoneTs })
     if (extraEvents.length > 0) {
       return [...pocketEvents, ...extraEvents]

@@ -2134,6 +2134,39 @@ function createTabEl(session) {
 }
 
 // ── タブ削除 ──
+// v2.12.0: 起動時マイグレーションで pocket ID → Claude session ID へ正規化された会話を
+// 開いている旧タブ（localStorageのキーが旧pocket ID）を、サーバーが返した正規IDへ貼り替える。
+// サーバー側は全経路で転送スタブを解決するので旧IDでも動くが、貼り替えないと履歴一覧から
+// 開いたとき正規IDで別タブができ重複する。逆引きAPIは使わない（サーバーの canonicalId を信じる）。
+function rekeyTabToCanonical(oldId, newId) {
+  if (!oldId || !newId || oldId === newId) return
+  // 正規IDのタブが既にある → 旧タブは重複。旧を畳んで正規タブへ移る。
+  if (tabState[newId]) {
+    const wasActive = currentSessionId === oldId
+    deleteTab(oldId)
+    if (wasActive) switchTab(newId)
+    return
+  }
+  const sessions = loadSessions()
+  const s = sessions.find(x => x.sessionId === oldId)
+  if (s) { s.sessionId = newId; saveSessions(sessions) }
+  const ts = tabState[oldId]
+  if (ts) {
+    tabState[newId] = ts
+    delete tabState[oldId]
+    if (ts.pane) ts.pane.dataset.sessionId = newId
+  }
+  const tabEl = tabBar.querySelector(`[data-session-id="${oldId}"]`)
+  if (tabEl) tabEl.dataset.sessionId = newId
+  try { deleteConv(oldId) } catch {}
+  if (currentSessionId === oldId) {
+    currentSessionId = newId
+    if (currentES) { currentES.close(); currentES = null }
+  }
+  // 正規IDで張り直す（lastLine は tabState と一緒に移動済み。ズレていれば history-meta が是正）
+  if (currentSessionId === newId) connectSSEStream(newId)
+}
+
 async function deleteTab(sessionId) {
   clearRateLimitPanel(sessionId)
   deleteConv(sessionId)  // IndexedDBキャッシュも削除
@@ -3191,6 +3224,13 @@ function connectSSEStream(sessionId) {
       fetch(`/api/status?session=${encodeURIComponent(sessionId)}`)
         .then(r => r.json())
         .then(data => {
+          // v2.12.0: サーバーがこのセッションの正規ID（Claude session ID）を返す。
+          // 自分の持つIDと違う＝旧pocket IDのタブ＝マイグレーション済み会話。
+          // 逆引きは呼ばず、サーバーが返した canonicalId を信じてタブを貼り替える。
+          if (data.canonicalId && data.canonicalId !== sessionId) {
+            rekeyTabToCanonical(sessionId, data.canonicalId)
+            return
+          }
           const ts = tabState[sessionId]
           if (ts) ts.isRunning = !!data.running
           updateUI()
@@ -4072,19 +4112,22 @@ async function resumeConversation(sessionId, title) {
     errEl.textContent = msg
   }
 
-  // その会話が今も実行中なら、走っている本体（pocket session）へ合流する。
+  // その会話が今も実行中なら、走っているセッションへ合流する。
+  // v2.12.0 で pocket ID === Claude session ID に統一したため、履歴一覧のID（=このsessionId）が
+  // そのまま実行中プロセス・ライブ配信・実行中フラグのキー。逆引き（/api/resolve-session）は
+  // 廃止し、/api/status を見るだけにした。canonicalId は旧pocket IDのタブ救済用。
   // 実行中でない場合は従来どおり Claude の生ログをリプレイする（過去会話は生ログの方が完全なため）。
   try {
-    const res = await fetch(`/api/resolve-session/${encodeURIComponent(sessionId)}`, { redirect: 'manual' })
+    const res = await fetch(`/api/status?session=${encodeURIComponent(sessionId)}`, { redirect: 'manual' })
     if (res.ok) {
       const info = await res.json()
-      if (info.running && info.pocketSessionId) {
+      if (info.running) {
         if (btn) { btn.disabled = true; btn.textContent = '接続中…' }
-        await attachLiveSession(info.pocketSessionId, title)
+        await attachLiveSession(info.canonicalId || sessionId, title)
         return
       }
     }
-  } catch (e) { /* 逆引きに失敗しても以降の従来経路で開ける */ }
+  } catch (e) { /* 状態取得に失敗しても以降の従来経路で開ける */ }
 
   // すでにタブに描画済みなら即切り替え
   const existingTs = tabState[sessionId]
@@ -4168,11 +4211,8 @@ async function resumeConversation(sessionId, title) {
       saveSessions(sessions)
       ensureTabState(targetSession)
       createTabEl(targetSession)
-      fetch('/api/register-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pocketSessionId: sessionId, claudeSessionId: sessionId })
-      }).catch(() => {})
+      // v2.12.0: pocket ID === Claude session ID に統一したため、
+      // マッピング登録（/api/register-session）は不要になった（撤去）。
     }
 
     const ts = tabState[sessionId]

@@ -2,18 +2,22 @@ const express = require('express')
 const router = express.Router()
 const { getState, loadLogFile, registerSSEClient, unregisterSSEClient } = require('../services/stream')
 const { UUID_RE } = require('../services/history')
+const { resolveCanonicalId } = require('../services/sessions')
 
 // SSEエンドポイント
 router.get('/', (req, res) => {
-  const sessionId = req.query.session
-  if (!sessionId) {
+  const raw = req.query.session
+  if (!raw) {
     res.status(400).end()
     return
   }
-  if (!UUID_RE.test(sessionId)) {
+  if (!UUID_RE.test(raw)) {
     res.status(400).json({ error: 'invalid sessionId' })
     return
   }
+  // 旧pocket IDのタブが張った EventSource でも、正規ID（Claude session ID）の
+  // ライブログ／状態へ寄せる。逆引きは呼ばない（転送スタブ1件のO(1)読み）。
+  const sessionId = resolveCanonicalId(raw)
 
   getState(sessionId)
 
