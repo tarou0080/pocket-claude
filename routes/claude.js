@@ -3,9 +3,9 @@ const fs = require('fs')
 const path = require('path')
 const router = express.Router()
 const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
-const { getState, peekState, broadcast, logFile } = require('../services/stream')
+const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
-const { saveClaudeSessionId, saveSessionSettings, getSessionSettings, findPocketSessionIds, forgetSession } = require('../services/sessions')
+const { saveSessionSettings, getSessionSettings, resolveCanonicalId } = require('../services/sessions')
 const { UUID_RE } = require('../services/history')
 const { proxyRouteChanged } = require('../services/proxy-route')
 const config = require('../config/index')
@@ -19,10 +19,15 @@ router.get('/projects', (_req, res) => {
 
 // 状態確認
 router.get('/status', (req, res) => {
-  const sessionId = req.query.session
-  if (!sessionId) return res.status(400).json({ error: 'session required' })
+  const raw = req.query.session
+  if (!raw) return res.status(400).json({ error: 'session required' })
+  if (!UUID_RE.test(raw)) return res.status(400).json({ error: 'invalid sessionId' })
+  // 旧pocket IDで問い合わせられたら正規ID（Claude session ID）へ寄せ、応答にも返す。
+  // フロントはこの canonicalId が自分の持つIDと違えばlocalStorageのタブを貼り替える
+  // （逆引きは呼ばない＝サーバーが返す値を信じるだけ）。
+  const sessionId = resolveCanonicalId(raw)
   const s = getState(sessionId)
-  const resp = { running: s.turning }
+  const resp = { running: s.turning, canonicalId: sessionId }
   // CLI側キュー(still_queued)は control_request(interrupt) の応答でのみ取得できる限定的な情報。
   // 常時ポーリングしてまで取りに行くコストには見合わないため、直近のinterrupt時点のスナップショットを
   // 参考情報として添えるだけに留める（サーバー真実源の照合対象を広げすぎない）。
@@ -41,6 +46,8 @@ router.post('/send', async (req, res) => {
   if (sessionId && !UUID_RE.test(sessionId)) {
     return res.status(400).json({ error: 'invalid sessionId' })
   }
+  // 旧pocket IDで送信されても正規ID（Claude session ID）の会話へ届ける
+  const canonicalSessionId = sessionId ? resolveCanonicalId(sessionId) : null
   // model は --model へそのまま渡る値。config.models を設定している利用者は、
   // そこに無い値をUIのキュレーションを迂回して送られても弾けるようにする。
   // config.models が未設定・空の場合は従来どおり素通し（設定していない利用者を壊さない）。
@@ -50,7 +57,7 @@ router.post('/send', async (req, res) => {
   }
 
   const { randomUUID } = require('crypto')
-  const actualSessionId = sessionId || randomUUID()
+  const actualSessionId = canonicalSessionId || randomUUID()
   const actualProject = project || Object.keys(config.projects)[0]
 
   const s = getState(actualSessionId)
@@ -144,53 +151,13 @@ router.post('/send', async (req, res) => {
 
 // 停止
 router.post('/stop', async (req, res) => {
-  const sessionId = req.body.session
-  if (!sessionId) return res.status(400).json({ error: 'session required' })
-  if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
+  const raw = req.body.session
+  if (!raw) return res.status(400).json({ error: 'session required' })
+  if (!UUID_RE.test(raw)) return res.status(400).json({ error: 'invalid sessionId' })
+  const sessionId = resolveCanonicalId(raw)
   const stopped = await stopClaude(sessionId)
   if (!stopped) return res.status(409).json({ error: 'not running' })
   res.json({ ok: true })
-})
-
-// セッション登録（履歴再開用）
-router.post('/register-session', (req, res) => {
-  const { pocketSessionId, claudeSessionId } = req.body
-  if (!pocketSessionId || !claudeSessionId) return res.status(400).json({ error: 'pocketSessionId and claudeSessionId required' })
-  // pocketSessionId は saveSessionMeta 経由でファイル名(パス)に使われ、claudeSessionId は
-  // 保存後に services/history.js が再びファイル名(パス)として使う（getSessionEvents）。
-  // どちらも書き込み/読み出しパスの材料になるため両方を検証する。
-  if (!UUID_RE.test(pocketSessionId) || !UUID_RE.test(claudeSessionId)) {
-    return res.status(400).json({ error: 'invalid sessionId' })
-  }
-  try {
-    // saveClaudeSessionId は既存フィールド(project等)とマージする＝ここでの直接writeFileSync
-    // をやめないと、先に保存済みの project が上書きで消える
-    saveClaudeSessionId(pocketSessionId, claudeSessionId)
-    res.json({ ok: true })
-  } catch (e) {
-    res.status(500).json({ error: e.message })
-  }
-})
-
-// 履歴一覧のID（Claude session ID）から、その会話が紐づく pocket session ID を引く。
-// 履歴から実行中の会話を開くときに、別IDの新しいタブ（＝ライブ配信も実行中フラグも届かない
-// 影のタブ）を作らず、走っている本体のセッションへ合流させるための逆引き。
-router.get('/resolve-session/:claudeSessionId', (req, res) => {
-  const { claudeSessionId } = req.params
-  if (!UUID_RE.test(claudeSessionId)) return res.status(400).json({ error: 'invalid sessionId' })
-  const candidates = findPocketSessionIds(claudeSessionId)
-  // 生きているものを最優先。無ければ最終更新が新しいもの（findPocketSessionIds が新しい順）。
-  const live = candidates.find(id => {
-    const s = peekState(id)
-    return !!(s && s.process)
-  })
-  const pocketSessionId = live || candidates[0] || null
-  const s = pocketSessionId ? peekState(pocketSessionId) : null
-  res.json({
-    pocketSessionId,
-    running: !!(s && s.turning),
-    alive: !!(s && s.process),
-  })
 })
 
 // セッションの最終使用設定を取得（履歴からの復帰時、端末の既定値ではなく
@@ -198,26 +165,27 @@ router.get('/resolve-session/:claudeSessionId', (req, res) => {
 router.get('/session-settings/:sessionId', (req, res) => {
   const { sessionId } = req.params
   if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
-  res.json(getSessionSettings(sessionId))
+  res.json(getSessionSettings(resolveCanonicalId(sessionId)))
 })
 
 // セッションリセット
 router.post('/reset', (req, res) => {
-  const sessionId = req.body.session
-  if (!sessionId) return res.status(400).json({ error: 'session required' })
-  if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
+  const raw = req.body.session
+  if (!raw) return res.status(400).json({ error: 'session required' })
+  if (!UUID_RE.test(raw)) return res.status(400).json({ error: 'invalid sessionId' })
+  const sessionId = resolveCanonicalId(raw)
   const s = getState(sessionId)
   if (s.process) return res.status(409).json({ error: 'Claude is running.' })
   s.buffer = []
   fs.unlink(logFile(sessionId), () => {})
   fs.unlink(path.join(sessionsDir, `${sessionId}.json`), () => {})
-  forgetSession(sessionId)
   res.json({ ok: true, sessionId })
 })
 
 // 自動再開スケジュール登録
 router.post('/schedule-resume/:sessionId', (req, res) => {
-  const { sessionId } = req.params
+  if (!UUID_RE.test(req.params.sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
+  const sessionId = resolveCanonicalId(req.params.sessionId)
   const { resetAt, prompt, project, model, effort, thinking } = req.body
   if (!sessionId || !resetAt) return res.status(400).json({ error: 'sessionId, resetAt required' })
   console.log(`[schedule-resume] POST sessionId=${sessionId} autoResume=${!!prompt} resetAt=${resetAt}`)
@@ -228,7 +196,8 @@ router.post('/schedule-resume/:sessionId', (req, res) => {
 
 // 自動再開スケジュールキャンセル
 router.delete('/schedule-resume/:sessionId', (req, res) => {
-  const { sessionId } = req.params
+  if (!UUID_RE.test(req.params.sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
+  const sessionId = resolveCanonicalId(req.params.sessionId)
   console.log(`[schedule-resume] DELETE sessionId=${sessionId}`)
   cancelResume(sessionId)
   res.json({ ok: true })
@@ -236,7 +205,8 @@ router.delete('/schedule-resume/:sessionId', (req, res) => {
 
 // 自動再開スケジュール確認
 router.get('/schedule-resume/:sessionId', (req, res) => {
-  const { sessionId } = req.params
+  if (!UUID_RE.test(req.params.sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
+  const sessionId = resolveCanonicalId(req.params.sessionId)
   const s = getSchedule(sessionId)
   console.log(`[schedule-resume] GET sessionId=${sessionId} → resetAt=${s?.resetAt || 'null'} autoResume=${s ? !!s.prompt : 'null'}`)
   res.json(s || { resetAt: null })

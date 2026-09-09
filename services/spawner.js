@@ -1,9 +1,12 @@
 const { spawn } = require('child_process')
 const { randomUUID } = require('crypto')
+const fs = require('fs')
+const path = require('path')
 const config = require('../config/index')
-const { broadcast, getState } = require('./stream')
+const { broadcast, getState, discardPocketLog } = require('./stream')
 const { gitPull } = require('./git')
-const { saveClaudeSessionId, getClaudeSessionId } = require('./sessions')
+const { loadSessionMeta, markStarted } = require('./sessions')
+const { CLAUDE_PROJECTS_DIR } = require('./history')
 const { parseResetTime } = require('./reset-time')
 const { getProxyEnv, getToolFlags } = require('./proxy-route')
 const { saveToolsCatalog } = require('./tools-catalog')
@@ -12,6 +15,12 @@ const { saveToolsCatalog } = require('./tools-catalog')
 // 実測(interrupt/set_model とも成功時は数ms〜十数msでACKが返る)に対して十分な余裕を持たせつつ、
 // ACKが来ない場合のフォールバック(SIGTERM/kill+resume)への切替を遅らせすぎない値。
 const CONTROL_TIMEOUT_MS = 1800
+
+// server.js の gracefulShutdown が立てる。シャットダウン中は proc の close で
+// pocketログを破棄しない（全実行中セッションを一斉に消して再起動直後の再取得を
+// 誘発しないため。破棄は次の起動時GCと通常のターン完了に任せる）。
+let serverShuttingDown = false
+function markServerShuttingDown() { serverShuttingDown = true }
 
 // claude CLI (stream-json) の stdin へ制御メッセージ(control_request)を送り、対応する
 // control_response を待って解決する。タイムアウト/送信失敗時は null を返す＝呼び出し元は
@@ -41,10 +50,22 @@ function sendControlMessage(proc, subtype, extra = {}, timeoutMs = CONTROL_TIMEO
 }
 
 // claude プロセス起動（常駐モード: --input-format stream-json）
-function startClaude(sessionId, prompt, model, project, claudeSessionId, effort, thinking, imageData) {
+//
+// ID統一（v2.12.0）: pocket session ID === Claude session ID。
+//  - 初回spawn        : `--session-id <sessionId>` で使うIDを外から固定する
+//  - 2回目以降(再開)   : `--resume <sessionId>`（既存IDへ --session-id 再指定は "already in use" で拒否される）
+// 「初回か再開か」は `sessions/<id>.json` の started フラグと本体jsonlの存在で判定する。
+// opts.forceResume: "already in use" フォールバック時に true（--resume を強制）
+function startClaude(sessionId, prompt, model, project, effort, thinking, imageData, opts = {}) {
   const projects = config.projects
   const projectDir = projects[project] || projects[Object.keys(projects)[0]]
   const s = getState(sessionId)
+
+  const meta = loadSessionMeta(sessionId)
+  const hasRun = !!opts.forceResume || !!meta.started ||
+    fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`))
+  const idArgs = hasRun ? ['--resume', sessionId] : ['--session-id', sessionId]
+  const usedSessionId = !hasRun
   // spawn時のモデルを記録。/api/send がアイドル時のモデル変更を検知し、
   // 異なれば --resume で再起動して新モデルを適用するために使う。
   s.model = model || null
@@ -78,7 +99,7 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   }
 
   const args = [
-    ...(claudeSessionId ? ['--resume', claudeSessionId] : []),
+    ...idArgs,
     '-p',
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
@@ -113,6 +134,12 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
   s.process = proc
   proc.stdin.on('error', () => {})
 
+  // 初回spawnが起動できた＝以後このIDは --resume で開く（--session-id 再指定は拒否される）。
+  if (usedSessionId) markStarted(sessionId)
+
+  // "already in use" を stderr で検知したら、--resume で一度だけ再試行する（fail-loud）。
+  let sawIdInUse = false
+
   // 最初のメッセージ送信
   _sendMessage(proc, prompt, imageData)
 
@@ -133,9 +160,12 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
           return
         }
 
-        // session_id の初回取得
-        if (parsed.type === 'system' && parsed.subtype === 'init' && !claudeSessionId) {
-          saveClaudeSessionId(sessionId, parsed.session_id)
+        // ID統一の検証（fail-loud）: --session-id で起動したのに init が別IDを返したら、
+        // CLI仕様変更で黙ってID分裂が再発した可能性がある。握りつぶさず警告を残す。
+        if (parsed.type === 'system' && parsed.subtype === 'init' && usedSessionId &&
+            parsed.session_id && parsed.session_id !== sessionId) {
+          console.warn(`[spawn] session-id MISMATCH sessionId=${sessionId} but CLI init reported ${parsed.session_id} — a CLI change may have re-introduced ID divergence`)
+          broadcast(sessionId, { type: 'system', text: '⚠ セッションIDの不一致を検出しました（サーバーログ参照）' })
         }
 
         // init イベントの tools はそのプロセスが実際に持つツール名一覧(正)。設定モーダルの
@@ -182,12 +212,30 @@ function startClaude(sessionId, prompt, model, project, claudeSessionId, effort,
 
   proc.stderr.on('data', data => {
     const text = data.toString().trim()
+    if (/already in use|session id .*in use/i.test(text)) sawIdInUse = true
     if (text) broadcast(sessionId, { type: 'stderr', text })
   })
 
   proc.on('close', code => {
     s.process = null
+    // --session-id が既存IDと衝突して即終了したケース。stale/lost なレコードで started が
+    // 立っていなかった等。--resume で一度だけ再試行する（forceResume 経路は usedSessionId=false
+    // なので無限ループしない）。
+    if (usedSessionId && sawIdInUse && !opts.forceResume) {
+      console.warn(`[spawn] --session-id ${sessionId} rejected (already in use) -> retrying once with --resume`)
+      markStarted(sessionId)
+      startClaude(sessionId, prompt, model, project, effort, thinking, imageData, { forceResume: true })
+      return
+    }
     broadcast(sessionId, { type: 'done', exitCode: code, timestamp: new Date().toISOString() })
+    // ターン完了（常駐プロセス終了）。会話は本体jsonlに揃っているので pocketライブログを
+    // 破棄する（v2.12.0 有限化）。次に開くと getSessionEvents が本体jsonlを変換して復元する。
+    // シャットダウン中は一斉破棄を避けて起動時GC/次ターンに委ねる。
+    if (!serverShuttingDown) {
+      try {
+        if (fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`))) discardPocketLog(sessionId)
+      } catch {}
+    }
   })
 
   proc.on('error', err => {
@@ -317,9 +365,8 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
     return { status: 'failed', reason: 'プロジェクトが設定されていません' }
   }
 
-  const claudeSessionId = getClaudeSessionId(sessionId)
   try {
-    startClaude(sessionId, prompt, model, project, claudeSessionId, effort, thinking, imageData)
+    startClaude(sessionId, prompt, model, project, effort, thinking, imageData)
     // user_input の broadcast は startClaude() が例外を投げずに起動できたことを確認してから行う
     // （失敗時に画面だけユーザー発言が残りClaudeのコンテキストには無い、という食い違いを避ける）。
     if (!silent) broadcast(sessionId, { type: 'user_input', text: prompt })
@@ -338,4 +385,4 @@ function _notifyFailure(sessionId, prompt, reason) {
   broadcast(sessionId, { type: 'system', text: `⚠ 送信できませんでした: ${reason} — ${preview}` })
 }
 
-module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull }
+module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull, markServerShuttingDown }

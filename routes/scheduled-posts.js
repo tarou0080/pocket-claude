@@ -9,13 +9,17 @@ const {
   getAllPosts,
   getPostsBySession
 } = require('../services/scheduled-posts')
+const { resolveCanonicalId } = require('../services/sessions')
+const { UUID_RE } = require('../services/history')
 
 // 予約投稿作成
 router.post('/', (req, res) => {
-  const { scheduledAt, prompt, sessionId, project, model, effort, thinking } = req.body
+  const { scheduledAt, prompt, project, model, effort, thinking } = req.body
+  let { sessionId } = req.body
   if (!scheduledAt || !prompt || !sessionId) {
     return res.status(400).json({ error: 'scheduledAt, prompt, sessionId are required' })
   }
+  if (UUID_RE.test(sessionId)) sessionId = resolveCanonicalId(sessionId)
   const id = createPost({ scheduledAt, prompt, sessionId, project, model, effort, thinking })
   res.json({ id })
 })
@@ -27,7 +31,10 @@ router.get('/', (req, res) => {
 
 // 特定セッションの予約投稿取得
 router.get('/session/:sessionId', (req, res) => {
-  res.json(getPostsBySession(req.params.sessionId))
+  const sessionId = UUID_RE.test(req.params.sessionId)
+    ? resolveCanonicalId(req.params.sessionId)
+    : req.params.sessionId
+  res.json(getPostsBySession(sessionId))
 })
 
 // 特定予約投稿取得

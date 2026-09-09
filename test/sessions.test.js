@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
-const { getSessionSettings, saveSessionSettings, saveClaudeSessionId, findPocketSessionIds, forgetSession } = require('../services/sessions')
+const { getSessionSettings, saveSessionSettings, resolveCanonicalId, markStarted, loadSessionMeta } = require('../services/sessions')
 
 // services/sessions.js の sessionsDir は実行ディレクトリ固定（../sessions）で、
 // テストのために本体を書き換えないため、実ディレクトリへ実際に書き込んで検証する。
@@ -55,30 +55,48 @@ test('未指定フィールドは保存されず既定(null)のまま', (t) => {
   assert.equal(settings.thinking, null)
 })
 
-// ── Claude session ID → pocket session ID の逆引き ──
-// 履歴一覧のIDは Claude session ID だが、走っているプロセス・ライブ配信・実行中フラグは
-// pocket session ID で管理されている。この逆引きが無かったため、実行中の会話を履歴から
-// 開くと本体と繋がらない別タブができていた（描写が止まる・ドットが緑のまま）。
+// ── ID統一（v2.12.0）: pocket session ID === Claude session ID ──
+// 逆引き（claudeSessionId フィールド・sessions/全走査・resolve-session）は撤去した。
+// マイグレーション済みの旧会話は sessions/<oldPocketId>.json に転送スタブ（movedTo）が残り、
+// resolveCanonicalId がそれを1段辿って正規IDへ寄せる。
 
-test('Claude session ID から pocket session ID を逆引きできる', (t) => {
-  const pocketId = randomUUID()
-  const claudeId = randomUUID()
-  t.after(() => { cleanup(pocketId); forgetSession(pocketId) })
-
-  saveClaudeSessionId(pocketId, claudeId)
-  assert.deepEqual(findPocketSessionIds(claudeId), [pocketId])
+test('resolveCanonicalId: スタブでなければ id をそのまま返す', () => {
+  const id = randomUUID()
+  assert.equal(resolveCanonicalId(id), id)
 })
 
-test('紐づくセッションが無ければ空配列（存在しないIDをliveとして返さない）', () => {
-  assert.deepEqual(findPocketSessionIds(randomUUID()), [])
+test('resolveCanonicalId: movedTo スタブは正規ID（Claude session ID）へ解決する', (t) => {
+  const oldId = randomUUID()
+  const claudeId = randomUUID()
+  t.after(() => cleanup(oldId))
+
+  fs.writeFileSync(path.join(sessionsDir, `${oldId}.json`), JSON.stringify({ movedTo: claudeId, schemaVersion: 1 }))
+  assert.equal(resolveCanonicalId(oldId), claudeId)
 })
 
-test('forgetSession 後は逆引きに出ない（reset済みセッションを掴み続けない）', (t) => {
-  const pocketId = randomUUID()
-  const claudeId = randomUUID()
-  t.after(() => cleanup(pocketId))
+test('resolveCanonicalId: movedTo は1段だけ辿る（多段チェーンを追わない）', (t) => {
+  const a = randomUUID(), b = randomUUID(), c = randomUUID()
+  t.after(() => { cleanup(a); cleanup(b) })
+  fs.writeFileSync(path.join(sessionsDir, `${a}.json`), JSON.stringify({ movedTo: b }))
+  fs.writeFileSync(path.join(sessionsDir, `${b}.json`), JSON.stringify({ movedTo: c }))
+  assert.equal(resolveCanonicalId(a), b)
+})
 
-  saveClaudeSessionId(pocketId, claudeId)
-  forgetSession(pocketId)
-  assert.deepEqual(findPocketSessionIds(claudeId), [])
+test('markStarted: started フラグを立てる（以後 startClaude は --resume を使う）', (t) => {
+  const id = randomUUID()
+  t.after(() => cleanup(id))
+  assert.equal(loadSessionMeta(id).started, undefined)
+  markStarted(id)
+  assert.equal(loadSessionMeta(id).started, true)
+})
+
+test('markStarted は既存フィールドを壊さない', (t) => {
+  const id = randomUUID()
+  t.after(() => cleanup(id))
+  saveSessionSettings(id, { project: 'home', model: 'opus' })
+  markStarted(id)
+  const m = loadSessionMeta(id)
+  assert.equal(m.project, 'home')
+  assert.equal(m.model, 'opus')
+  assert.equal(m.started, true)
 })
