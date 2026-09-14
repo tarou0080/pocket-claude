@@ -112,19 +112,6 @@ function deleteState(sessionId) {
   delete state[sessionId]
 }
 
-// pocketライブログを破棄する（v2.12.0 有限化。v2.12.1でターン跨ぎにも拡大したが、
-// 切断中に終わったターンが復帰時に取りこぼれる回帰を招いたため v2.12.2 で撤回、
-// 寿命＝claudeプロセスの寿命に戻した。呼び出し元は spawner.js の proc close のみ）。
-// 会話の正典は本体jsonl側にあり、再生時は getSessionEvents が本体jsonlを変換して復元
-// するため、プロセス終了後のライブログは冗長になる。行番号カウンタ（lineCounts）は
-// 巻き戻さない：クライアントの dedup は lineId <= 直近受信行 で捨てるため、ここで
-// リセットすると破棄直後の次ターンが id 0 から届いて（stale扱いで）全部捨てられる。
-// ファイルだけ消し、次に開いたファイルの行0が全体の行番号空間で何行目に当たるかは
-// getLineBase が引き継ぐ。
-function discardPocketLog(sessionId) {
-  try { fs.unlinkSync(logFile(sessionId)) } catch {}
-}
-
 // pocketログファイルが無ければ作る（v2.12.2）。log_start 行＝「このpocketログの行0は
 // 本体jsonlの何行目(mainLines)から続きか」という境界情報。getSessionEvents はこれを見て
 // 本体jsonlのどこまでを再生済みとして読み飛ばすかを決める（cutCurrentTurnのテキスト
@@ -170,10 +157,11 @@ function classifyCursor(cursor, meta) {
   return 'ok'
 }
 
-// GET /api/stream 用: 現在のログファイル（discardPocketLog後に作り直されたもの）の
-// 行0が、セッション全体の行番号空間で何行目に当たるかを返す。lineCounts は破棄で
-// 巻き戻らない（上記）ため、通常は fileLength より大きい。未初期化（サーバー再起動直後
-// など、このセッションでまだ一度も broadcast/nextLineId が走っていない）場合は
+// GET /api/stream 用: 現在のログファイルの行0が、セッション全体の行番号空間で
+// 何行目に当たるかを返す（v2.12.3時点：pocketログは30日GCのみで破棄されないため
+// base は常に0になる。行番号空間の定義としては維持しておき、将来ログを作り直す
+// 経路（有限化の再導入等）が入ったときの受け皿とする）。未初期化（サーバー再起動
+// 直後など、このセッションでまだ一度も broadcast/nextLineId が走っていない）場合は
 // nextLineId と同じ基準（ファイル長）で初期化し、base=0 として返す。
 function getLineBase(sessionId, fileLength) {
   if (lineCounts[sessionId] === undefined) lineCounts[sessionId] = fileLength
@@ -189,7 +177,6 @@ module.exports = {
   registerSSEClient,
   unregisterSSEClient,
   deleteState,
-  discardPocketLog,
   ensurePocketLog,
   classifyCursor,
   getLineBase,

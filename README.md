@@ -256,6 +256,7 @@ All settings are stored in the browser and persist across restarts.
 - **Backend**: Express server managing a persistent `claude` process per session (stream-json mode)
 - **Communication**: Server-Sent Events (SSE) for streaming
 - **Session Management**: JSON files for persistence
+- **Log retention**: `logs/*.jsonl` (live logs) are swept on a 30-day age basis, run at startup and once a day thereafter - not tied to CLI process lifetime or whether the CLI's own transcript exists
 
 ## Security Considerations
 

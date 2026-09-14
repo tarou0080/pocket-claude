@@ -2,7 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const config = require('./config/index')
-const { initDirectories } = require('./services/directories')
+const { initDirectories, sweepOldPocketLogs } = require('./services/directories')
 const claudeRouter = require('./routes/claude')
 const streamRouter = require('./routes/stream')
 const historyRouter = require('./routes/history')
@@ -22,6 +22,10 @@ const HOST = process.env.HOST || config.host || '0.0.0.0'
 
 // ディレクトリ初期化
 initDirectories()
+
+// pocketログの日数GC（v2.12.3）: 起動時に加えて日次でも走らせる（長期稼働で30日超の
+// ログが溜まらないようにするだけ・破棄条件は sweepOldPocketLogs 参照）。
+setInterval(() => sweepOldPocketLogs(), 24 * 60 * 60 * 1000).unref()
 
 // 起動時マイグレーション（v2.12.0・schema version 1）: pocket ID と Claude session ID の
 // 二重身分を廃止する。冪等（sessions/.schema.json）・変換前に tar.gz 退避・全件を起動ログへ出力。

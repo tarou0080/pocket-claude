@@ -7,18 +7,20 @@ const config = require('../config/index')
 function initDirectories() {
   fs.mkdirSync(config.SESSIONS_DIR, { recursive: true })
   fs.mkdirSync(config.LOGS_DIR, { recursive: true })
-  sweepStalePocketLogs()
+  sweepOldPocketLogs()
 }
 
-// 起動時スイープ（v2.12.1）: logs/*.jsonl のうち本体jsonl（CLAUDE_PROJECTS_DIR側）が
-// 既に存在するものを全削除する。pocketログの寿命は1ターン（spawner.js の result/error 直後の
-// discardPocketLog）で通常は残らないが、サーバーが常駐プロセスの結果を受け取れずに落ちた場合
-// （再起動・kill等）は破棄が走らず取り残る。起動時点では走っている会話は無い＝本体jsonlが
-// あるログは確実に読み終えた過去のもの、というのが唯一の安全な判定基準。
-// require はここで行う（server.js の require 順で directories.js が最初に読まれるため、
-// 循環参照を避けてこの関数の呼び出し時点で遅延評価する）。
-function sweepStalePocketLogs() {
-  const { CLAUDE_PROJECTS_DIR } = require('./history')
+// 日数GC（v2.12.3）: logs/*.jsonl のうち mtime が maxAgeDays 日より古いものを削除する。
+// 旧v2.12.1〜v2.12.2は「本体jsonl（CLAUDE_PROJECTS_DIR側）が既に存在する＝冗長」として
+// 削除していたが、本体jsonlはサーバー側の事実（done/result/start/stderr）を持たず、
+// 再起動を跨ぐとタブから開始マーカー・トークン%・Interrupted表示が消える不具合の原因になった。
+// pocketログは画面履歴の正であり、境界は log_start.mainLines がログの長さに関係なく
+// 正確に切るため、残しても二重描画にはならない。寿命は単純な日数だけで管理する。
+// `.jsonl` 以外（server.log 等）は対象外。起動時（initDirectories）と日次（server.js の
+// setInterval）から呼ばれる。
+function sweepOldPocketLogs(maxAgeDays = 30) {
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000
+  const now = Date.now()
   let deleted = 0
   let kept = 0
   let files
@@ -28,18 +30,18 @@ function sweepStalePocketLogs() {
     return
   }
   for (const file of files) {
-    const sessionId = file.replace(/\.jsonl$/, '')
-    const mainJsonl = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
-    if (fs.existsSync(mainJsonl)) {
-      try {
-        fs.unlinkSync(path.join(config.LOGS_DIR, file))
+    const filePath = path.join(config.LOGS_DIR, file)
+    try {
+      const stat = fs.statSync(filePath)
+      if (now - stat.mtimeMs > maxAgeMs) {
+        fs.unlinkSync(filePath)
         deleted++
-      } catch {}
-    } else {
-      kept++
-    }
+      } else {
+        kept++
+      }
+    } catch {}
   }
-  console.log(`[startup-sweep] deleted=${deleted} kept=${kept}`)
+  console.log(`[log-gc] deleted=${deleted} kept=${kept}`)
 }
 
-module.exports = { initDirectories }
+module.exports = { initDirectories, sweepOldPocketLogs }

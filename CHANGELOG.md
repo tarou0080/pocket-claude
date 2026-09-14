@@ -4,7 +4,13 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
-## [v2.12.2] - 2026-09-14
+## [v2.12.3] - 2026-09-15
+
+### Fixed
+- **Crossing a server restart could drop a tab's start marker, token-percent line and `⚠ Interrupted (server restarted)` indicator** - the startup sweep used to delete any live log (`logs/<id>.jsonl`) whose CLI transcript counterpart already existed, on the assumption the live log was then redundant. The CLI's own transcript carries none of pocket-claude's own server-side facts (`done`, `result`, `start`, stderr), so once the live log for a session was swept, reopening that tab after a restart rebuilt it purely from the CLI transcript and those markers were gone.
+
+### Changed
+- **The live log's lifetime is now a plain 30-day age-based sweep, not process-close discard or a "CLI transcript already exists" startup sweep** - both of those removed logs that were still the only source for on-screen markers. The `log_start` boundary already cuts precisely regardless of how long a live log is kept, so keeping it longer does not cause duplicate rendering. The sweep now runs at startup and once a day thereafter.
 
 ### Fixed
 - **A turn that finished while a device was disconnected could silently vanish** - v2.12.1 made the live log (`logs/<id>.jsonl`) live for exactly one turn, discarded right after the CLI reports `result`/`error`. If the turn finished while the client was offline, the file was already gone by the time the client reconnected and asked for the line after the one it last saw - there was nothing there to serve, and that turn simply never appeared. A related, longer-standing gap: after a server restart, line numbers start over from zero, and if a session's live log grew past a stale cached line number before the client reconnected, the client had no way to tell its cursor no longer pointed at what it used to and would silently splice new content onto old.

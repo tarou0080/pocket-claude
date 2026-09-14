@@ -3,7 +3,7 @@ const { randomUUID } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
-const { broadcast, getState, discardPocketLog, ensurePocketLog } = require('./stream')
+const { broadcast, getState, ensurePocketLog } = require('./stream')
 const { gitPull } = require('./git')
 const { loadSessionMeta, markStarted } = require('./sessions')
 const { CLAUDE_PROJECTS_DIR } = require('./history')
@@ -231,14 +231,6 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
       return
     }
     broadcast(sessionId, { type: 'done', exitCode: code, timestamp: new Date().toISOString() })
-    // ターン完了（常駐プロセス終了）。会話は本体jsonlに揃っているので pocketライブログを
-    // 破棄する（v2.12.0 有限化）。次に開くと getSessionEvents が本体jsonlを変換して復元する。
-    // シャットダウン中は一斉破棄を避けて起動時GC/次ターンに委ねる。
-    if (!serverShuttingDown) {
-      try {
-        if (fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`))) discardPocketLog(sessionId)
-      } catch {}
-    }
   })
 
   proc.on('error', err => {
