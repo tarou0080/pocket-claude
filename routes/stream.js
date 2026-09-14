@@ -1,6 +1,6 @@
 const express = require('express')
 const router = express.Router()
-const { getState, loadLogFile, registerSSEClient, unregisterSSEClient } = require('../services/stream')
+const { getState, loadLogFile, registerSSEClient, unregisterSSEClient, getLineBase } = require('../services/stream')
 const { UUID_RE } = require('../services/history')
 const { resolveCanonicalId } = require('../services/sessions')
 
@@ -39,12 +39,16 @@ router.get('/', (req, res) => {
   // プロトコルレベルで区別する。クライアントは history を isLive=false で処理する。
   // appendFileSync 化により、loadLogFile(readFileSync) と registerSSEClient の間に
   // 新規行が割り込むことはなく、取りこぼし/重複ゼロを保証する（同期ブロック内）。
+  // base: discardPocketLog（v2.12.1、ターン跨ぎ）でファイルは消えても行番号空間は
+  // 巻き戻らないため、現在のファイルの行0が全体で何行目かは lineCounts 側から引く。
   const all = loadLogFile(sessionId)
-  all.slice(fromLine).forEach((ev, i) => {
-    res.write(`event: history\nid: ${fromLine + i}\ndata: ${JSON.stringify(ev)}\n\n`)
+  const base = getLineBase(sessionId, all.length)
+  all.forEach((ev, i) => {
+    const id = base + i
+    if (id >= fromLine) res.write(`event: history\nid: ${id}\ndata: ${JSON.stringify(ev)}\n\n`)
   })
   // キャッシュlastLineがサーバー実行数を超えていない（stale）かチェックするためのメタ情報
-  res.write(`event: history-meta\ndata: ${JSON.stringify({ maxLine: all.length - 1 })}\n\n`)
+  res.write(`event: history-meta\ndata: ${JSON.stringify({ maxLine: base + all.length - 1 })}\n\n`)
   registerSSEClient(sessionId, res)
 
   const heartbeat = setInterval(() => {

@@ -101,12 +101,24 @@ function deleteState(sessionId) {
   delete state[sessionId]
 }
 
-// pocketライブログを破棄する（v2.12.0 有限化）。会話の正典は本体jsonl側にあり、
-// 再生時は getSessionEvents が本体jsonlを変換して復元するため、ターン完了後の
-// ライブログは冗長になる。行番号カウンタもリセットして次の broadcast が行0から積み直す。
+// pocketライブログを破棄する（v2.12.0 有限化、v2.12.1でターン跨ぎにも拡大）。会話の正典は
+// 本体jsonl側にあり、再生時は getSessionEvents が本体jsonlを変換して復元するため、
+// ターン完了後のライブログは冗長になる。行番号カウンタ（lineCounts）は巻き戻さない：
+// クライアントの dedup は lineId <= 直近受信行 で捨てるため、ここでリセットすると
+// 破棄直後の次ターンが id 0 から届いて（stale扱いで）全部捨てられる。ファイルだけ消し、
+// 次に開いたファイルの行0が全体の行番号空間で何行目に当たるかは getLineBase が引き継ぐ。
 function discardPocketLog(sessionId) {
   try { fs.unlinkSync(logFile(sessionId)) } catch {}
-  delete lineCounts[sessionId]
+}
+
+// GET /api/stream 用: 現在のログファイル（discardPocketLog後に作り直されたもの）の
+// 行0が、セッション全体の行番号空間で何行目に当たるかを返す。lineCounts は破棄で
+// 巻き戻らない（上記）ため、通常は fileLength より大きい。未初期化（サーバー再起動直後
+// など、このセッションでまだ一度も broadcast/nextLineId が走っていない）場合は
+// nextLineId と同じ基準（ファイル長）で初期化し、base=0 として返す。
+function getLineBase(sessionId, fileLength) {
+  if (lineCounts[sessionId] === undefined) lineCounts[sessionId] = fileLength
+  return lineCounts[sessionId] - fileLength
 }
 
 module.exports = {
@@ -118,5 +130,6 @@ module.exports = {
   unregisterSSEClient,
   deleteState,
   discardPocketLog,
+  getLineBase,
   logFile,
 }

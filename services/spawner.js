@@ -204,6 +204,16 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
         }
 
         broadcast(sessionId, parsed)
+
+        // pocketログの寿命＝1ターン（v2.12.1）。result/error でターンが閉じた直後に破棄する。
+        // 常駐プロセスは proc の close までターン跨ぎで生き続けるため、close 待ちだと次ターンの
+        // ログが混ざり Resume が二重描画する（本体jsonl変換＋pocketログ再生が重複）。
+        // シャットダウン中は既存の close 側と同様に一斉破棄を避け、起動時スイープへ委ねる。
+        if ((parsed.type === 'result' || parsed.type === 'error') && !serverShuttingDown) {
+          try {
+            if (fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`))) discardPocketLog(sessionId)
+          } catch {}
+        }
       } catch {
         broadcast(sessionId, { type: 'raw', text: line })
       }

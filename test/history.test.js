@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { slimEventsForReplay } = require('../services/history')
+const { slimEventsForReplay, cutCurrentTurn } = require('../services/history')
 
 // slimEventsForReplay() は履歴再生専用にイベント列を整理する純粋関数。
 // クライアントの描画結果（handleEventの出力）が1バイトも変わらないことが条件。
@@ -84,4 +84,79 @@ test('入力配列・要素を破壊的に書き換えない', () => {
   const events = [original]
   slimEventsForReplay(events)
   assert.deepEqual(original, { type: 'user', message: {}, tool_use_result: { x: 1 } })
+})
+
+// cutCurrentTurn() は本体jsonl変換済みのeventsから「現在ターン」の末尾を切り落とす純関数。
+// v2.12.1: GET /api/history/:id/events は、pocketログ（現在ターンの進行中ログ）がある場合、
+// この関数でその末尾を切って返す。切った分はクライアントがSSE接続後にpocketログのhistory
+// 全量再生で受け取るため、events側に残すと二重描画になる。
+
+test('cutCurrentTurnはpocketFirstUserTextが無ければ切らない', () => {
+  const events = [
+    { type: 'user_input', text: 'hello' },
+    { type: 'stream_event', event: {} },
+  ]
+  assert.deepEqual(cutCurrentTurn(events, null), events)
+  assert.deepEqual(cutCurrentTurn(events, undefined), events)
+  assert.deepEqual(cutCurrentTurn(events, ''), events)
+})
+
+test('cutCurrentTurnは一致する最後のuser_input以降を落とす', () => {
+  const events = [
+    { type: 'user_input', text: 'turn1' },
+    { type: 'stream_event', event: { a: 1 } },
+    { type: 'user_input', text: 'turn2' },
+    { type: 'stream_event', event: { a: 2 } },
+  ]
+  const out = cutCurrentTurn(events, 'turn2')
+  assert.deepEqual(out, [
+    { type: 'user_input', text: 'turn1' },
+    { type: 'stream_event', event: { a: 1 } },
+  ])
+})
+
+test('同じテキストのuser_inputが複数あれば「最後」の一致を基準に切る', () => {
+  const events = [
+    { type: 'user_input', text: '続けてください' },
+    { type: 'stream_event', event: { a: 1 } },
+    { type: 'user_input', text: '続けてください' },
+    { type: 'stream_event', event: { a: 2 } },
+  ]
+  const out = cutCurrentTurn(events, '続けてください')
+  assert.deepEqual(out, [
+    { type: 'user_input', text: '続けてください' },
+    { type: 'stream_event', event: { a: 1 } },
+  ])
+})
+
+test('一致するuser_inputが無ければ最後のuser_input以降を落とす（フォールバック）', () => {
+  const events = [
+    { type: 'user_input', text: 'turn1' },
+    { type: 'stream_event', event: { a: 1 } },
+    { type: 'user_input', text: 'turn2' },
+    { type: 'stream_event', event: { a: 2 } },
+  ]
+  const out = cutCurrentTurn(events, 'ズレたテキスト（要約等）')
+  assert.deepEqual(out, [
+    { type: 'user_input', text: 'turn1' },
+    { type: 'stream_event', event: { a: 1 } },
+  ])
+})
+
+test('user_inputが1件も無ければ何も切らない', () => {
+  const events = [
+    { type: 'stream_event', event: { a: 1 } },
+    { type: 'system', text: 'x' },
+  ]
+  assert.deepEqual(cutCurrentTurn(events, 'anything'), events)
+})
+
+test('入力配列を破壊的に書き換えない', () => {
+  const original = [
+    { type: 'user_input', text: 'turn1' },
+    { type: 'user_input', text: 'turn2' },
+  ]
+  const copy = JSON.parse(JSON.stringify(original))
+  cutCurrentTurn(original, 'turn2')
+  assert.deepEqual(original, copy)
 })

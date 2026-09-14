@@ -4,6 +4,12 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.12.1] - 2026-09-14
+
+### Fixed
+- **Resuming a conversation from history sometimes rendered it twice** - v2.12.0's ID unification meant a conversation's live log (`logs/<id>.jsonl`) now survives under the same ID history looks up, which broke the assumption that a tab opened from history had no live log of its own. Resume drew the full conversation from the CLI's own transcript, then immediately opened the SSE stream from line 0, which replayed the live log's own copy of the same turns on top - visible as every message doubling in the pane. The live log's lifetime is now exactly one turn: it is discarded right after the CLI reports `result`/`error`, not only when the process later closes, and a startup sweep removes any left over from a prior crash or restart. `GET /api/history/:id/events` now also trims the currently in-progress turn from the transcript it returns when a live log still exists for it, since that turn arrives separately over the reopened stream. Discarding the live log no longer rewinds its line-number counter, so the client's existing duplicate-line guard keeps working across a discard.
+- **The client's history-loading path is now a single function** - `resumeConversation`'s download/parse/render phase and a separate `fillFromHistoryEventsOnce` catch-up path did the same thing slightly differently; only one of them exists now (`loadHistoryIntoPane`), called before the live connection opens whenever a pane is still empty.
+
 ## [v2.12.0] - 2026-09-09
 
 ### Changed

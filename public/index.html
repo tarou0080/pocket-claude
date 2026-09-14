@@ -3153,23 +3153,98 @@ async function restoreConvCache(sessionId) {
   } catch {}
 }
 
-// 履歴から再開したタブ専用の一度きりの穴埋め（自分のログが無くキャッシュも空の場合のみ）。
-// resumeConversationのフェーズ2と同じ /api/history/:id/events + handleEvent(isLive=false) を
-// 再利用するだけで、新しい状態源は増やさない。取得後はscheduleConvSaveで既存のIndexedDB
-// キャッシュ経路に乗せ、次回以降のリロードでは再フェッチせず済むようにする。
-async function fillFromHistoryEventsOnce(sessionId) {
-  const ts = tabState[sessionId]
-  if (!ts || ts._historyFillAttempted) return
-  ts._historyFillAttempted = true
-  try {
-    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`, { redirect: 'manual' })
-    if (res.type === 'opaqueredirect' || !res.ok) return
-    const events = await res.json()
-    for (const ev of events) {
-      try { handleEvent(sessionId, ev, false) } catch {}
+// 会話復元の唯一の経路（v2.12.1）。/api/history/:id/events を取得→パース→
+// handleEvent(...,false)で描画→scheduleConvSave までを1関数に閉じる。
+// resumeConversationのフェーズ1〜2（fetch・parse・rAF描画）と fillFromHistoryEventsOnce を
+// 統合して撤去した（二重描画バグの原因＝復元経路が2本あったこと自体を無くす）。
+// 呼び出し前提: tabState[sessionId] が既に存在すること（呼び出し元が ensureTabState/
+// createTabEl を済ませてから呼ぶ）。onProgress(pct:0-100) は任意（Resumeボタンの%表示用）。
+// opaqueredirect（Authelia等の認証期限切れ）は Error に .opaqueredirect=true を立てて投げる。
+// 呼び出し元（resumeConversation）が画面向けメッセージを出す。
+async function loadHistoryIntoPane(sessionId, onProgress) {
+  const setProgress = onProgress || (() => {})
+
+  // 認証プロキシ（Authelia等）の期限切れは 302 → 別オリジンの認証画面。follow だと CORS で
+  // TypeError になり原因が分からない。manual なら res.type==='opaqueredirect' で判別できる。
+  const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`, { redirect: 'manual' })
+  if (res.type === 'opaqueredirect') {
+    const err = new Error('auth expired (opaqueredirect)')
+    err.opaqueredirect = true
+    throw err
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+  // X-Uncompressed-Length は展開後（reader が返すのと同じ単位）のバイト数。
+  // Content-Length は gzip 時は圧縮後バイト数になり reader の展開後バイト数と
+  // 単位が食い違うため使わない。
+  const uncompressedLength = parseInt(res.headers.get('X-Uncompressed-Length') || '0')
+  const reader = res.body.getReader()
+  // streaming TextDecoder で逐次文字列化して結合する（巨大Uint8Arrayへの二重コピーを避ける）。
+  const decoder = new TextDecoder()
+  let jsonText = ''
+  let downloadedBytes = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    downloadedBytes += value.length
+    jsonText += decoder.decode(value, { stream: true })
+    if (uncompressedLength > 0) {
+      setProgress(Math.min(50, Math.round(downloadedBytes / uncompressedLength * 50)))
     }
-    scheduleConvSave(sessionId)
-  } catch {}
+  }
+  jsonText += decoder.decode()
+
+  const events = JSON.parse(jsonText)
+  setProgress(50)
+
+  const ts = tabState[sessionId]
+  if (!ts) throw new Error(`tabState missing for ${sessionId}`)
+  ts.pane.innerHTML = ''
+  ts.currentTextEl = null
+  ts._rawText = ''
+  ts._ctxTokens = 0
+  ts._prevCtxTokens = 0
+  ts._currentToolEl = null
+  ts._currentToolInput = ''
+  ts._currentBlockType = null
+  ts._thinkingEl = null
+  ts._initialLoaded = true
+  ts.autoScroll = false
+
+  // 1件の壊れたイベントで全体を止めない: handleEvent を try/catch で包みスキップして進む。
+  // rAFコールバック内の例外は素通しだと外側のtry/catchに届かずPromiseが永久に未解決に
+  // なる（＝復元が固まったまま復帰しない）ため、致命的な例外はここでrejectして必ず外側へ届ける。
+  let skipped = 0
+  await new Promise((resolve, reject) => {
+    let i = 0
+    const tick = () => {
+      try {
+        const deadline = performance.now() + 16
+        while (i < events.length && performance.now() < deadline) {
+          try {
+            handleEvent(sessionId, events[i], false)
+          } catch (e) {
+            skipped++
+          }
+          i++
+        }
+        setProgress(50 + Math.round((events.length ? i / events.length : 1) * 50))
+        if (i < events.length) requestAnimationFrame(tick)
+        else resolve()
+      } catch (e) {
+        reject(e)
+      }
+    }
+    requestAnimationFrame(tick)
+  })
+
+  ts.autoScroll = true
+  if (skipped > 0) {
+    addLine(ts, `[注意] 表示できなかった記録を ${skipped} 件スキップしました`, 'line-system')
+  }
+  scheduleConvSave(sessionId)
+  return { eventsCount: events.length, skipped }
 }
 
 // ── SSE接続 ──
@@ -3187,7 +3262,24 @@ async function connectSSE(sessionId) {
 }
 
 // SSE接続（実際のストリーム処理）
-function connectSSEStream(sessionId) {
+// async化（v2.12.1）: pane が空＆lastLine===-1（=このタブでまだ一度も会話を描いていない）
+// なら、EventSource を開く前に loadHistoryIntoPane で会話本文を描き切る。history-meta到達後に
+// 穴埋めする旧方式（fillFromHistoryEventsOnce）だと、既に来ているライブ/リプレイの後ろに
+// 過去の会話が積まれてしまう（handleEventの順序依存）。呼び出し元は誰もこの関数の返り値
+// （Promise）を待っていない（fire-and-forget）ため、async化してもawaitしない既存呼び出しは
+// そのまま動く。
+async function connectSSEStream(sessionId) {
+  const preTs = tabState[sessionId]
+  if (preTs && !preTs.pane.firstChild && preTs.lastLine === -1) {
+    try {
+      await loadHistoryIntoPane(sessionId)
+    } catch (e) {
+      // ここでの失敗はResumeボタンのような専用UIを持たない（switchTab/再接続の裏で走る）。
+      // 握りつぶさずログに残し、後続のSSE接続自体は試みる（ライブ分だけでも表示させる）。
+      console.error(`[connectSSEStream] loadHistoryIntoPane failed sessionId=${sessionId}`, e.message)
+    }
+  }
+
   // 既存の接続をクローズ
   if (currentES) {
     currentES.close()
@@ -3288,15 +3380,10 @@ function connectSSEStream(sessionId) {
         deleteConv(sessionId)
         if (currentES) { currentES.close(); currentES = null }
         connectSSEStream(sessionId)  // fromLine=0で再接続（maxLine>=-1なので無限ループしない）
-      } else if (maxLine === -1 && ts && !ts.pane.firstChild) {
-        // 履歴から再開したタブは自分のログ(logs/<sessionId>.jsonl)を持たない
-        // （履歴イベントはClaude Code側の会話データから取得したもので、pocket-claudeの
-        // 増分同期の対象ではない）。maxLine===-1＝自分のログが空、かつpaneも空
-        // （IndexedDBキャッシュ復元済みでもない）ときだけ、この再接続で一度だけ
-        // /api/history/:id/events を取得して再生し、リロードで空表示になるのを防ぐ。
-        // lastLineは-1のまま変更しない（既存の増分同期の真実源＝own logの行番号を汚さない）。
-        fillFromHistoryEventsOnce(sessionId)
       }
+      // 旧: maxLine===-1 && pane空 のときここで fillFromHistoryEventsOnce を呼んでいたが、
+      // v2.12.1 で connectSSEStream 冒頭の loadHistoryIntoPane に統合済み（EventSourceを
+      // 開く前に描き終えている）ため、この時点でpaneが空になることはない。
     } catch {}
   })
 
@@ -4139,63 +4226,24 @@ async function resumeConversation(sessionId, title) {
 
   if (btn) { btn.disabled = true; btn.textContent = '0%' }
   const startTs = performance.now()
-  let phase = 'download'
-  let downloadedBytes = 0
-  let skipped = 0
-  let eventsCount = 0
   clientLog('resume:start', { sessionId })
 
   try {
-    // ── フェーズ1: ダウンロード（0→50%）──
-    // 認証プロキシ（Authelia等）の期限切れは 302 → 別オリジンの認証画面。follow だと CORS で
-    // TypeError になり原因が分からない。manual なら res.type==='opaqueredirect' で判別できる。
-    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}/events`, { redirect: 'manual' })
-    if (res.type === 'opaqueredirect') {
-      clientLog('resume:error', { sessionId, phase, message: 'auth expired (opaqueredirect)' })
-      showResumeError('認証の期限が切れました。ページを再読み込みしてログインし直してください')
-      return
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-
-    // X-Uncompressed-Length は展開後（reader が返すのと同じ単位）のバイト数。
-    // Content-Length は gzip 時は圧縮後バイト数になり reader の展開後バイト数と
-    // 単位が食い違うため使わない（従来はこれで進捗が約25%地点で50%に張り付いていた）。
-    const uncompressedLength = parseInt(res.headers.get('X-Uncompressed-Length') || '0')
-    const reader = res.body.getReader()
-    // streaming TextDecoder で逐次文字列化して結合する。巨大 Uint8Array へ
-    // 一旦コピーしてから丸ごとデコードする方式はピークメモリを二重に使うため廃止。
-    const decoder = new TextDecoder()
-    let jsonText = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      downloadedBytes += value.length
-      jsonText += decoder.decode(value, { stream: true })
-      // X-Uncompressed-Length と downloadedBytes はどちらも展開後バイト数で単位が一致するため
-      // 0→50% が実際のダウンロード進捗に比例する。ヘッダが取れない場合は率を出さず受信量表示。
-      if (uncompressedLength > 0) {
-        setProgress(Math.min(50, Math.round(downloadedBytes / uncompressedLength * 50)))
-      } else if (btn) {
-        btn.textContent = `受信中 ${(downloadedBytes / 1024 / 1024).toFixed(1)}MB`
-      }
-    }
-    jsonText += decoder.decode()
-
-    phase = 'parse'
-    const events = JSON.parse(jsonText)
-    eventsCount = events.length
-    setProgress(50)
-
-    // ── セッション準備（履歴パネルはまだ開いたまま）──
+    // ── セッション準備（履歴パネルはまだ開いたまま）── 会話本文の取得・描画は
+    // loadHistoryIntoPane に一本化した（v2.12.1）。タイトルは履歴一覧が渡す title
+    // （= listSessions() が本体jsonlの最初の user メッセージから作った値と同一の出処）を使う。
+    // これで events を先に覗く必要が無くなった。
     const sessions = loadSessions()
     let targetSession = sessions.find(s => s.sessionId === sessionId)
 
     if (!targetSession) {
-      const firstUserInput = events.find(e => e.type === 'user_input')
-      const title = firstUserInput?.text?.substring(0, 30) || 'Resumed conversation'
       const currentProj = getCurrentSession()?.project || Object.keys(_projectsCache)[0]
-      targetSession = { sessionId, name: title, project: currentProj, lastUsed: Date.now() }
+      targetSession = {
+        sessionId,
+        name: (title || 'Resumed conversation').substring(0, 30),
+        project: currentProj,
+        lastUsed: Date.now(),
+      }
       // サーバーに最終使用設定(model/effort/thinking)が残っていれば引き継ぐ。
       // 無ければ従来どおり端末の既定値へフォールバック（ensureTabStateの既定処理に任せる）。
       try {
@@ -4215,64 +4263,21 @@ async function resumeConversation(sessionId, title) {
       // マッピング登録（/api/register-session）は不要になった（撤去）。
     }
 
-    const ts = tabState[sessionId]
-    if (ts) {
-      ts.pane.innerHTML = ''
-      ts.currentTextEl = null
-      ts._rawText = ''
-      ts._ctxTokens = 0
-      ts._prevCtxTokens = 0
-      ts._currentToolEl = null
-      ts._currentToolInput = ''
-      ts._currentBlockType = null
-      ts._thinkingEl = null
-      ts._initialLoaded = true
-      ts.autoScroll = false
-    }
-
-    phase = 'replay'
-    // ── フェーズ2: リプレイ（50→100%、rAFでyieldしながら描画）──
-    // 1件の壊れたイベントで全体を止めない: handleEvent を try/catch で包みスキップして進む。
-    // rAFコールバック内の例外は素通しだと外側のtry/catchに届かずPromiseが永久に未解決に
-    // なる（＝再開UIが固まったまま復帰しない）ため、致命的な例外はここでreject して必ず
-    // 外側へ届ける。
-    await new Promise((resolve, reject) => {
-      let i = 0
-      const tick = () => {
-        try {
-          const deadline = performance.now() + 16
-          while (i < events.length && performance.now() < deadline) {
-            try {
-              handleEvent(sessionId, events[i], false)
-            } catch (e) {
-              skipped++
-            }
-            i++
-          }
-          setProgress(50 + Math.round(i / events.length * 50))
-          if (i < events.length) requestAnimationFrame(tick)
-          else resolve()
-        } catch (e) {
-          reject(e)
-        }
-      }
-      requestAnimationFrame(tick)
-    })
-
-    if (ts) ts.autoScroll = true
-
-    if (skipped > 0 && ts) {
-      addLine(ts, `[注意] 表示できなかった記録を ${skipped} 件スキップしました`, 'line-system')
-    }
+    const { eventsCount, skipped } = await loadHistoryIntoPane(sessionId, setProgress)
 
     // 描画完了後にタブ切り替えと履歴パネルを閉じる
     switchTab(sessionId)
     closeHistory()
-    scrollToBottom(ts)
+    scrollToBottom(tabState[sessionId])
 
-    clientLog('resume:done', { sessionId, events: eventsCount, skipped, bytes: downloadedBytes, ms: Math.round(performance.now() - startTs) })
+    clientLog('resume:done', { sessionId, events: eventsCount, skipped, ms: Math.round(performance.now() - startTs) })
   } catch (e) {
-    clientLog('resume:error', { sessionId, phase, message: e.message })
+    if (e.opaqueredirect) {
+      clientLog('resume:error', { sessionId, phase: 'download', message: 'auth expired (opaqueredirect)' })
+      showResumeError('認証の期限が切れました。ページを再読み込みしてログインし直してください')
+      return
+    }
+    clientLog('resume:error', { sessionId, phase: 'unknown', message: e.message })
     showResumeError(`Resume error: ${e.message}`)
   }
 }

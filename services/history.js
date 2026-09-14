@@ -139,30 +139,47 @@ function getSessionEvents(sessionId) {
 
   const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
   const pocketEvents = readLogFile(path.join(config.LOGS_DIR, `${sessionId}.jsonl`))
+  const events = claudeEntriesToEvents(readLogFile(jsonlPath))
 
-  // pocketライブログが無い（idleセッション。マイグレーション後・ログGC後の既定状態）→
-  // 本体jsonlを変換して丸ごと再生する。
+  // pocketライブログが無い（v2.12.1: 寿命1ターン。result/error直後に破棄される既定状態）→
+  // 本体jsonlを変換して丸ごと再生する。切り落としは不要。
   if (pocketEvents.length === 0) {
-    return claudeEntriesToEvents(readLogFile(jsonlPath))
+    return events
   }
 
-  // pocketライブログがある（このプロセス生存中に走った／done後GC前）→
-  // 最後のdone以降に本体jsonlへ追記された分だけ変換して継ぎ足す。
-  let lastDoneTs = null
-  for (let i = pocketEvents.length - 1; i >= 0; i--) {
-    if (pocketEvents[i].type === 'done' && pocketEvents[i].timestamp) {
-      lastDoneTs = pocketEvents[i].timestamp
+  // pocketライブログがある＝現在ターンが進行中（まだ result/error が来ていない）。
+  // 本体jsonlはCLIがターン中も逐次書き込むため、events側に現在ターンの一部が
+  // 既に混ざっていることがある。SSE接続後にpocketログのhistory全量再生（現在ターン分）が
+  // 続くため、ここで現在ターンを切り落として二重描画を防ぐ（cutCurrentTurn）。
+  const firstUserInput = pocketEvents.find(e => e.type === 'user_input')
+  return cutCurrentTurn(events, firstUserInput ? firstUserInput.text : null)
+}
+
+// 純関数（v2.12.1）: 本体jsonl変換済みの events から「現在ターン」に相当する末尾を
+// 切り落とす。pocketFirstUserText（進行中のpocketログの先頭 user_input.text）と一致する
+// 最後の user_input 以降を落とす。一致が無ければ（要約・加工等でテキストがズレた場合の保険と
+// して）最後の user_input 以降を落とす。pocketFirstUserText が無い（pocketログが空/無し）
+// なら切らない。events・pocketEventsどちらも破壊しない。
+function cutCurrentTurn(events, pocketFirstUserText) {
+  if (!pocketFirstUserText) return events
+
+  let cutIndex = -1
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].type === 'user_input' && events[i].text === pocketFirstUserText) {
+      cutIndex = i
       break
     }
   }
-  if (lastDoneTs) {
-    const extraEvents = claudeEntriesToEvents(readLogFile(jsonlPath), { since: lastDoneTs })
-    if (extraEvents.length > 0) {
-      return [...pocketEvents, ...extraEvents]
+  if (cutIndex === -1) {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].type === 'user_input') {
+        cutIndex = i
+        break
+      }
     }
   }
-
-  return pocketEvents
+  if (cutIndex === -1) return events
+  return events.slice(0, cutIndex)
 }
 
 // 履歴再生専用にイベント列を整理する純粋関数。
@@ -229,4 +246,4 @@ function slimEventsForReplay(events) {
   return out
 }
 
-module.exports = { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay, UUID_RE, CLAUDE_PROJECTS_DIR }
+module.exports = { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay, cutCurrentTurn, UUID_RE, CLAUDE_PROJECTS_DIR }
