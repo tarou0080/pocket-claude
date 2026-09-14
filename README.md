@@ -264,7 +264,7 @@ pocket-claude is designed for **local/trusted network use**:
 
 - **Local network only** - Runs on localhost or LAN by default
 - **Configurable bind address** - Set `host` in `config.json` (or the `HOST` env var) to listen on a specific interface only, e.g. so the server is reachable solely through your reverse proxy (default: `0.0.0.0`)
-- **Permission mode** - Use `permissionMode: "acceptEdits"` for safer operation. Valid values are those accepted by `claude --permission-mode`: `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk`, `plan`. An unknown value makes the CLI refuse to start.
+- **Permission mode** - Use `permissionMode: "acceptEdits"` for safer operation. The value is passed to `claude --permission-mode` as-is, so the valid set is whatever your installed CLI accepts (see `claude --help`); pocket-claude does not keep its own copy of that list. An unknown value makes the CLI refuse to start.
 - **Trusted environment** - Not designed for public internet exposure
 
 For remote access, consider using a VPN or SSH tunnel instead of exposing the server directly.

@@ -15,5 +15,6 @@
       "ANTHROPIC_API_KEY": "your-proxy-key"
     }
   },
+  "toolsDirect": null,
   "toolsProxy": ["Bash", "Edit", "Read", "Write", "WebFetch"]
 }

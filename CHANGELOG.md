@@ -4,6 +4,14 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.13.1] - 2026-09-15
+
+### Docs
+- CHANGELOG: v2.12.2 (cursor generation / out-of-range reset) now has its own heading; it had been folded under v2.12.3.
+- README: the `permissionMode` note no longer lists the CLI's accepted values - the value is passed to `claude --permission-mode` as-is and pocket-claude keeps no copy of that list (matches the v2.13.0 change).
+- `config.example.json` now shows `toolsDirect` alongside `toolsProxy`.
+- `screenshots/projects.png` updated to the current Settings panel (tool allowlists, header Save/Cancel).
+
 ## [v2.13.0] - 2026-09-15
 
 ### Changed
@@ -29,6 +37,8 @@ All notable changes to pocket-claude are documented here.
 
 ### Changed
 - **The live log's lifetime is now a plain 30-day age-based sweep, not process-close discard or a "CLI transcript already exists" startup sweep** - both of those removed logs that were still the only source for on-screen markers. The `log_start` boundary already cuts precisely regardless of how long a live log is kept, so keeping it longer does not cause duplicate rendering. The sweep now runs at startup and once a day thereafter.
+
+## [v2.12.2] - 2026-09-14
 
 ### Fixed
 - **A turn that finished while a device was disconnected could silently vanish** - v2.12.1 made the live log (`logs/<id>.jsonl`) live for exactly one turn, discarded right after the CLI reports `result`/`error`. If the turn finished while the client was offline, the file was already gone by the time the client reconnected and asked for the line after the one it last saw - there was nothing there to serve, and that turn simply never appeared. A related, longer-standing gap: after a server restart, line numbers start over from zero, and if a session's live log grew past a stale cached line number before the client reconnected, the client had no way to tell its cursor no longer pointed at what it used to and would silently splice new content onto old.
