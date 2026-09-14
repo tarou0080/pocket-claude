@@ -2060,6 +2060,7 @@ function ensureTabState(session) {
     autoScroll: true,  // デフォルトで自動スクロール有効
     _initialLoaded: false,  // 一括描画済みフラグ
     lastLine: -1,  // 受信済み最終行番号（paneと同寿命。リロードで-1に戻り全文再取得）
+    epoch: null,  // 最後に見たサーバー世代（history-metaで更新。未取得時はnull=epoch未指定で接続）
     model: session.model || appSettings.defaultModel || '',
     effort: session.effort !== undefined ? session.effort : (appSettings.effort || ''),
     thinking: session.thinking !== undefined ? session.thinking : appSettings.thinking,
@@ -3103,10 +3104,11 @@ async function saveConvNow(sessionId) {
     snapshot.querySelectorAll('.rl-panel').forEach(el => el.remove())
     const html = snapshot.innerHTML
     const lastLine = getLastLine(sessionId)
+    const epoch = ts.epoch != null ? ts.epoch : null
     const db = await openConvDB()
     await new Promise((resolve, reject) => {
       const tx = db.transaction('conversations', 'readwrite')
-      const req = tx.objectStore('conversations').put({ sessionId, html, lastLine, savedAt: Date.now() })
+      const req = tx.objectStore('conversations').put({ sessionId, html, lastLine, epoch, savedAt: Date.now() })
       req.onsuccess = () => resolve()
       req.onerror = () => reject(req.error)
     })
@@ -3149,6 +3151,7 @@ async function restoreConvCache(sessionId) {
       ts.pane.querySelectorAll('.rl-panel').forEach(el => el.remove())
       markLinksExternal(ts.pane)
       ts.lastLine = (typeof rec.lastLine === 'number' ? rec.lastLine : -1)
+      ts.epoch = (typeof rec.epoch === 'number' ? rec.epoch : null)
     }
   } catch {}
 }
@@ -3295,7 +3298,11 @@ async function connectSSEStream(sessionId) {
   // 最後に受信した行番号の次から取得（増分同期）。未受信なら fromLine=0 で全量取得
   const lastLine = getLastLine(sessionId)
   const fromLine = lastLine + 1
-  const url = `/api/stream?session=${encodeURIComponent(sessionId)}&fromLine=${fromLine}`
+  const ts0 = tabState[sessionId]
+  // epoch: 前回接続時にサーバーから見た世代。何も持っていない(lastLine=-1→fromLine=0)なら
+  // 送らない（fromLine=0はサーバー側で常にokなので epoch 不一致検出は不要）。
+  const epochParam = (lastLine >= 0 && ts0 && ts0.epoch != null) ? `&epoch=${ts0.epoch}` : ''
+  const url = `/api/stream?session=${encodeURIComponent(sessionId)}&fromLine=${fromLine}${epochParam}`
   const es = new EventSource(url)
   currentES = es
   // history イベントを少なくとも1件受信したら自動スクロールする（初回接続時の復元後スクロール）
@@ -3369,18 +3376,23 @@ async function connectSSEStream(sessionId) {
     } catch {}
   })
 
-  // キャッシュlastLineがサーバー最大行を超えている場合（jsonl削除・セッション再利用）はキャッシュ破棄して全文取り直し
+  // カーソルの世代管理（v2.12.2）: サーバーが reset:true を返した（epoch不一致／pocketログ
+  // 有限化で失われた行／再起動後の行番号巻き戻り）場合、またはキャッシュlastLineがサーバー
+  // 最大行を超えている（jsonl削除・セッション再利用。旧来のクライアント側stale判定）場合は
+  // 同じstale guard処理でキャッシュを破棄して全文取り直す。
   es.addEventListener('history-meta', (e) => {
     try {
-      const { maxLine } = JSON.parse(e.data)
+      const { epoch, maxLine, reset } = JSON.parse(e.data)
       const ts = tabState[sessionId]
-      if (getLastLine(sessionId) > maxLine) {
-        // キャッシュがサーバーより先に進んでいる＝stale。破棄して全文取り直し。
-        if (ts) { ts.pane.innerHTML = ''; ts.lastLine = -1 }
+      if (reset === true || getLastLine(sessionId) > maxLine) {
+        // stale。破棄して全文取り直し。
+        if (ts) { ts.pane.innerHTML = ''; ts.lastLine = -1; ts.epoch = null }
         deleteConv(sessionId)
         if (currentES) { currentES.close(); currentES = null }
         connectSSEStream(sessionId)  // fromLine=0で再接続（maxLine>=-1なので無限ループしない）
+        return
       }
+      if (ts) ts.epoch = epoch
       // 旧: maxLine===-1 && pane空 のときここで fillFromHistoryEventsOnce を呼んでいたが、
       // v2.12.1 で connectSSEStream 冒頭の loadHistoryIntoPane に統合済み（EventSourceを
       // 開く前に描き終えている）ため、この時点でpaneが空になることはない。

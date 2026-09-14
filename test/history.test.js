@@ -1,6 +1,10 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { slimEventsForReplay, cutCurrentTurn } = require('../services/history')
+const fs = require('fs')
+const path = require('path')
+const { randomUUID } = require('crypto')
+const { slimEventsForReplay, getSessionEvents, CLAUDE_PROJECTS_DIR } = require('../services/history')
+const config = require('../config/index')
 
 // slimEventsForReplay() は履歴再生専用にイベント列を整理する純粋関数。
 // クライアントの描画結果（handleEventの出力）が1バイトも変わらないことが条件。
@@ -86,77 +90,65 @@ test('入力配列・要素を破壊的に書き換えない', () => {
   assert.deepEqual(original, { type: 'user', message: {}, tool_use_result: { x: 1 } })
 })
 
-// cutCurrentTurn() は本体jsonl変換済みのeventsから「現在ターン」の末尾を切り落とす純関数。
-// v2.12.1: GET /api/history/:id/events は、pocketログ（現在ターンの進行中ログ）がある場合、
-// この関数でその末尾を切って返す。切った分はクライアントがSSE接続後にpocketログのhistory
-// 全量再生で受け取るため、events側に残すと二重描画になる。
+// getSessionEvents() の log_start 境界（v2.12.2）。
+// pocketログの寿命＝claudeプロセスの寿命になったことに伴い、cutCurrentTurn（本体jsonl変換後の
+// テキスト照合で現在ターンを切り落とす方式）を撤去し、pocketログ先頭の log_start 行が持つ
+// mainLines（このpocketログが積まれ始めた時点の本体jsonl非空行数）で境界を決める方式へ
+// 差し替えた。実ファイル（CLAUDE_PROJECTS_DIR・config.LOGS_DIR）に直接書き込んで検証する
+// （services/history.js は依存注入に対応していないため。test/stream.test.js と同じ方針）。
 
-test('cutCurrentTurnはpocketFirstUserTextが無ければ切らない', () => {
-  const events = [
-    { type: 'user_input', text: 'hello' },
-    { type: 'stream_event', event: {} },
-  ]
-  assert.deepEqual(cutCurrentTurn(events, null), events)
-  assert.deepEqual(cutCurrentTurn(events, undefined), events)
-  assert.deepEqual(cutCurrentTurn(events, ''), events)
+function mainJsonlPath(id) { return path.join(CLAUDE_PROJECTS_DIR, `${id}.jsonl`) }
+function pocketLogPath(id) { return path.join(config.LOGS_DIR, `${id}.jsonl`) }
+
+let usedIds = []
+function testSessionId() {
+  const id = randomUUID()
+  usedIds.push(id)
+  return id
+}
+
+test.afterEach(() => {
+  for (const id of usedIds) {
+    try { fs.unlinkSync(mainJsonlPath(id)) } catch {}
+    try { fs.unlinkSync(pocketLogPath(id)) } catch {}
+  }
+  usedIds = []
 })
 
-test('cutCurrentTurnは一致する最後のuser_input以降を落とす', () => {
-  const events = [
-    { type: 'user_input', text: 'turn1' },
-    { type: 'stream_event', event: { a: 1 } },
-    { type: 'user_input', text: 'turn2' },
-    { type: 'stream_event', event: { a: 2 } },
+test('pocketログが無ければ本体jsonl全部を返す', () => {
+  const id = testSessionId()
+  const lines = [
+    { type: 'user', message: { content: 'turn1' } },
+    { type: 'user', message: { content: 'turn2' } },
   ]
-  const out = cutCurrentTurn(events, 'turn2')
-  assert.deepEqual(out, [
-    { type: 'user_input', text: 'turn1' },
-    { type: 'stream_event', event: { a: 1 } },
-  ])
+  fs.writeFileSync(mainJsonlPath(id), lines.map(l => JSON.stringify(l)).join('\n') + '\n')
+
+  const out = getSessionEvents(id)
+  assert.deepEqual(out.map(e => e.text), ['turn1', 'turn2'])
 })
 
-test('同じテキストのuser_inputが複数あれば「最後」の一致を基準に切る', () => {
-  const events = [
-    { type: 'user_input', text: '続けてください' },
-    { type: 'stream_event', event: { a: 1 } },
-    { type: 'user_input', text: '続けてください' },
-    { type: 'stream_event', event: { a: 2 } },
+test('pocketログのlog_start.mainLinesで本体jsonlをsliceする', () => {
+  const id = testSessionId()
+  const lines = [
+    { type: 'user', message: { content: 'turn1' } },
+    { type: 'user', message: { content: 'turn2 (進行中ターン、pocketログ側で配信される)' } },
   ]
-  const out = cutCurrentTurn(events, '続けてください')
-  assert.deepEqual(out, [
-    { type: 'user_input', text: '続けてください' },
-    { type: 'stream_event', event: { a: 1 } },
-  ])
+  fs.writeFileSync(mainJsonlPath(id), lines.map(l => JSON.stringify(l)).join('\n') + '\n')
+  // log_start.mainLines=1 → 本体jsonlはturn1までしか含めない
+  fs.writeFileSync(pocketLogPath(id), JSON.stringify({ type: 'log_start', mainLines: 1, epoch: 123, timestamp: 't' }) + '\n')
+
+  const out = getSessionEvents(id)
+  assert.deepEqual(out.map(e => e.text), ['turn1'])
 })
 
-test('一致するuser_inputが無ければ最後のuser_input以降を落とす（フォールバック）', () => {
-  const events = [
-    { type: 'user_input', text: 'turn1' },
-    { type: 'stream_event', event: { a: 1 } },
-    { type: 'user_input', text: 'turn2' },
-    { type: 'stream_event', event: { a: 2 } },
+test('pocketログの先頭行がlog_startでない（旧形式）ならmainLines=0扱いで本体jsonlは含めない', () => {
+  const id = testSessionId()
+  const lines = [
+    { type: 'user', message: { content: 'turn1' } },
   ]
-  const out = cutCurrentTurn(events, 'ズレたテキスト（要約等）')
-  assert.deepEqual(out, [
-    { type: 'user_input', text: 'turn1' },
-    { type: 'stream_event', event: { a: 1 } },
-  ])
-})
+  fs.writeFileSync(mainJsonlPath(id), lines.map(l => JSON.stringify(l)).join('\n') + '\n')
+  fs.writeFileSync(pocketLogPath(id), JSON.stringify({ type: 'user_input', text: 'old-format live line' }) + '\n')
 
-test('user_inputが1件も無ければ何も切らない', () => {
-  const events = [
-    { type: 'stream_event', event: { a: 1 } },
-    { type: 'system', text: 'x' },
-  ]
-  assert.deepEqual(cutCurrentTurn(events, 'anything'), events)
-})
-
-test('入力配列を破壊的に書き換えない', () => {
-  const original = [
-    { type: 'user_input', text: 'turn1' },
-    { type: 'user_input', text: 'turn2' },
-  ]
-  const copy = JSON.parse(JSON.stringify(original))
-  cutCurrentTurn(original, 'turn2')
-  assert.deepEqual(original, copy)
+  const out = getSessionEvents(id)
+  assert.deepEqual(out, [])
 })

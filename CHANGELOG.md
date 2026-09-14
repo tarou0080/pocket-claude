@@ -4,6 +4,14 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.12.2] - 2026-09-14
+
+### Fixed
+- **A turn that finished while a device was disconnected could silently vanish** - v2.12.1 made the live log (`logs/<id>.jsonl`) live for exactly one turn, discarded right after the CLI reports `result`/`error`. If the turn finished while the client was offline, the file was already gone by the time the client reconnected and asked for the line after the one it last saw - there was nothing there to serve, and that turn simply never appeared. A related, longer-standing gap: after a server restart, line numbers start over from zero, and if a session's live log grew past a stale cached line number before the client reconnected, the client had no way to tell its cursor no longer pointed at what it used to and would silently splice new content onto old.
+### Changed
+- **The live log's lifetime is now the CLI process's lifetime, not one turn** - the discard that used to run right after `result`/`error` is gone; the log is only removed when the CLI process actually closes (unchanged) or by the startup sweep for logs left over from a crash. A new `log_start` line marks where a live log picks up relative to the CLI's own transcript, replacing the previous text-matching heuristic used to avoid re-showing the same turn twice on reopen.
+- **The server can now tell a client its saved position is invalid, in both directions** - each server process now has a generation number (an "epoch"), and every stream response reports it alongside the valid line range. A client whose epoch doesn't match, whose position now predates everything the server has, or whose position is ahead of everything the server has, is told to discard its cache and start over - server-driven now, rather than relying on the client noticing on its own.
+
 ## [v2.12.1] - 2026-09-14
 
 ### Fixed

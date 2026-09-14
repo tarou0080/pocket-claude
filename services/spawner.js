@@ -3,7 +3,7 @@ const { randomUUID } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
-const { broadcast, getState, discardPocketLog } = require('./stream')
+const { broadcast, getState, discardPocketLog, ensurePocketLog } = require('./stream')
 const { gitPull } = require('./git')
 const { loadSessionMeta, markStarted } = require('./sessions')
 const { CLAUDE_PROJECTS_DIR } = require('./history')
@@ -126,6 +126,9 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   })
 
   console.log(`[spawn] project=${project} cwd=${projectDir}`)
+  // spawn直前にlog_start境界を確定させる（stdin書き込み前の_sendMessage側の呼び出しは
+  // 冪等な安全網。ここが本来の境界確定点＝CLIがまだ本体jsonlへ何も書いていない時点）。
+  ensurePocketLog(sessionId)
   const proc = spawn('claude', args, {
     cwd: projectDir,
     env: { ...process.env, ...(proxyEnv || {}) },
@@ -141,7 +144,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   let sawIdInUse = false
 
   // 最初のメッセージ送信
-  _sendMessage(proc, prompt, imageData)
+  _sendMessage(sessionId, proc, prompt, imageData)
 
   proc.stdout.on('data', data => {
     data.toString().split('\n').filter(l => l.trim()).forEach(line => {
@@ -204,16 +207,6 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
         }
 
         broadcast(sessionId, parsed)
-
-        // pocketログの寿命＝1ターン（v2.12.1）。result/error でターンが閉じた直後に破棄する。
-        // 常駐プロセスは proc の close までターン跨ぎで生き続けるため、close 待ちだと次ターンの
-        // ログが混ざり Resume が二重描画する（本体jsonl変換＋pocketログ再生が重複）。
-        // シャットダウン中は既存の close 側と同様に一斉破棄を避け、起動時スイープへ委ねる。
-        if ((parsed.type === 'result' || parsed.type === 'error') && !serverShuttingDown) {
-          try {
-            if (fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`))) discardPocketLog(sessionId)
-          } catch {}
-        }
       } catch {
         broadcast(sessionId, { type: 'raw', text: line })
       }
@@ -258,7 +251,10 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
 
 // stdin に user メッセージを JSON で送信。書き込みの成否をbooleanで返す
 // （呼び出し元が「送信できたか」を見て broadcast/ログの要否を判断するため）。
-function _sendMessage(proc, prompt, imageData) {
+// ensurePocketLog(sessionId) を stdin 書き込み「直前」に呼ぶ（v2.12.2 log_start境界）:
+// CLIはstdin受信後ms単位で本体jsonlへuser行を書くため、送ってから数えると現在ターンが
+// 境界(mainLines)内に入ってしまい、次の復元で二重に描画される。
+function _sendMessage(sessionId, proc, prompt, imageData) {
   if (!proc || !proc.stdin || proc.stdin.destroyed) return false
 
   const content = []
@@ -289,6 +285,7 @@ function _sendMessage(proc, prompt, imageData) {
   }
 
   try {
+    ensurePocketLog(sessionId)
     proc.stdin.write(JSON.stringify(msg) + '\n')
     return true
   } catch {
@@ -341,7 +338,7 @@ function injectPrompt(sessionId, prompt, imageData) {
   const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
   s.lastStillQueued = null
-  const sent = _sendMessage(s.process, prompt, imageData)
+  const sent = _sendMessage(sessionId, s.process, prompt, imageData)
   if (sent) broadcast(sessionId, { type: 'user_input', text: prompt })
   return sent
 }

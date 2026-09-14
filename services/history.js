@@ -119,6 +119,11 @@ function getSessionMessages(sessionId) {
 // v2.12.0 でID統一済み: pocket session ID === Claude session ID。逆引き（claudeSessionId
 // フィールド・sessions/全走査）は撤去した。旧pocket IDから開かれた場合は resolveCanonicalId が
 // 転送スタブを1段辿って正規IDへ寄せる。
+// v2.12.2: pocketログの寿命＝claudeプロセスの寿命になり、進行中の会話は常に
+// pocketログ側にある。境界はテキスト照合（cutCurrentTurn、要約等でズレ得た）ではなく
+// pocketログ先頭の log_start 行が持つ mainLines（このpocketログが積まれ始めた時点の
+// 本体jsonl非空行数）で決める。本体jsonlは非空行数で mainLines 件だけ読み、残りは
+// SSE側（routes/stream.js の event:history、pocketログのhistory全量再生）に任せる。
 function getSessionEvents(sessionId) {
   if (!UUID_RE.test(sessionId)) {
     throw new Error('invalid sessionId')
@@ -127,59 +132,44 @@ function getSessionEvents(sessionId) {
 
   const config = require('../config/index')
 
-  function readLogFile(logPath) {
-    try {
-      return fs.readFileSync(logPath, 'utf8').split('\n').filter(l => l.trim()).map(l => {
-        try { return JSON.parse(l) } catch { return null }
-      }).filter(Boolean)
-    } catch {
-      return []
-    }
-  }
-
   const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
-  const pocketEvents = readLogFile(path.join(config.LOGS_DIR, `${sessionId}.jsonl`))
-  const events = claudeEntriesToEvents(readLogFile(jsonlPath))
+  const pocketLogPath = path.join(config.LOGS_DIR, `${sessionId}.jsonl`)
 
-  // pocketライブログが無い（v2.12.1: 寿命1ターン。result/error直後に破棄される既定状態）→
-  // 本体jsonlを変換して丸ごと再生する。切り落としは不要。
-  if (pocketEvents.length === 0) {
-    return events
+  let mainRawLines
+  try {
+    mainRawLines = fs.readFileSync(jsonlPath, 'utf8').split('\n').filter(l => l.trim())
+  } catch {
+    mainRawLines = []
   }
 
-  // pocketライブログがある＝現在ターンが進行中（まだ result/error が来ていない）。
-  // 本体jsonlはCLIがターン中も逐次書き込むため、events側に現在ターンの一部が
-  // 既に混ざっていることがある。SSE接続後にpocketログのhistory全量再生（現在ターン分）が
-  // 続くため、ここで現在ターンを切り落として二重描画を防ぐ（cutCurrentTurn）。
-  const firstUserInput = pocketEvents.find(e => e.type === 'user_input')
-  return cutCurrentTurn(events, firstUserInput ? firstUserInput.text : null)
-}
+  let pocketFirstLineText
+  try {
+    pocketFirstLineText = fs.readFileSync(pocketLogPath, 'utf8').split('\n').find(l => l.trim())
+  } catch {
+    pocketFirstLineText = undefined
+  }
 
-// 純関数（v2.12.1）: 本体jsonl変換済みの events から「現在ターン」に相当する末尾を
-// 切り落とす。pocketFirstUserText（進行中のpocketログの先頭 user_input.text）と一致する
-// 最後の user_input 以降を落とす。一致が無ければ（要約・加工等でテキストがズレた場合の保険と
-// して）最後の user_input 以降を落とす。pocketFirstUserText が無い（pocketログが空/無し）
-// なら切らない。events・pocketEventsどちらも破壊しない。
-function cutCurrentTurn(events, pocketFirstUserText) {
-  if (!pocketFirstUserText) return events
+  // pocketログが無い → 本体jsonl全部（切り落とし不要）
+  if (pocketFirstLineText === undefined) {
+    return claudeEntriesToEvents(mainRawLines.map(l => {
+      try { return JSON.parse(l) } catch { return null }
+    }).filter(Boolean))
+  }
 
-  let cutIndex = -1
-  for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].type === 'user_input' && events[i].text === pocketFirstUserText) {
-      cutIndex = i
-      break
+  // pocketログはあるが先頭行が log_start でない（v2.12.2デプロイ以前からの旧形式ファイル）
+  // → mainLines=0 扱い。本体jsonl側は何も含めず、続きは丸ごとSSEのpocketログ再生に委ねる。
+  let mainLines = 0
+  try {
+    const firstLine = JSON.parse(pocketFirstLineText)
+    if (firstLine && firstLine.type === 'log_start' && typeof firstLine.mainLines === 'number') {
+      mainLines = firstLine.mainLines
     }
-  }
-  if (cutIndex === -1) {
-    for (let i = events.length - 1; i >= 0; i--) {
-      if (events[i].type === 'user_input') {
-        cutIndex = i
-        break
-      }
-    }
-  }
-  if (cutIndex === -1) return events
-  return events.slice(0, cutIndex)
+  } catch {}
+
+  const slice = mainRawLines.slice(0, mainLines).map(l => {
+    try { return JSON.parse(l) } catch { return null }
+  }).filter(Boolean)
+  return claudeEntriesToEvents(slice)
 }
 
 // 履歴再生専用にイベント列を整理する純粋関数。
@@ -246,4 +236,4 @@ function slimEventsForReplay(events) {
   return out
 }
 
-module.exports = { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay, cutCurrentTurn, UUID_RE, CLAUDE_PROJECTS_DIR }
+module.exports = { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay, UUID_RE, CLAUDE_PROJECTS_DIR }
