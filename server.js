@@ -2,7 +2,8 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const config = require('./config/index')
-const { initDirectories, sweepOldPocketLogs } = require('./services/directories')
+const { initDirectories, sweepRetention } = require('./services/directories')
+const { readCleanupPeriodDays } = require('./services/claude-dir')
 const claudeRouter = require('./routes/claude')
 const streamRouter = require('./routes/stream')
 const historyRouter = require('./routes/history')
@@ -20,12 +21,17 @@ if (isNaN(PORT) || PORT < 1024 || PORT > 65535) {
 // リバースプロキシ経由のアクセスのみ許可しLANから直接叩かせない場合は、プロキシから到達できるIFのIPを指定する。
 const HOST = process.env.HOST || config.host || '0.0.0.0'
 
-// ディレクトリ初期化
-initDirectories()
+// 保持日数（v2.13.0）: Claude Code の cleanupPeriodDays（managed > user settings、既定30）に
+// 追従する。起動時に1回だけ読む＝設定変更は再起動で反映（services/claude-dir.js 参照）。
+const retentionDays = readCleanupPeriodDays()
 
-// pocketログの日数GC（v2.12.3）: 起動時に加えて日次でも走らせる（長期稼働で30日超の
-// ログが溜まらないようにするだけ・破棄条件は sweepOldPocketLogs 参照）。
-setInterval(() => sweepOldPocketLogs(), 24 * 60 * 60 * 1000).unref()
+// ディレクトリ初期化
+initDirectories(retentionDays)
+
+// logs/*.jsonl・sessions/*.json の日数GC（v2.12.3、v2.13.0でsessionsにも拡大）: 起動時に
+// 加えて日次でも走らせる（長期稼働で保持日数超のファイルが溜まらないようにするだけ・
+// 破棄条件は services/directories.js の sweepRetention 参照）。
+setInterval(() => sweepRetention(retentionDays), 24 * 60 * 60 * 1000).unref()
 
 // 起動時マイグレーション（v2.12.0・schema version 1）: pocket ID と Claude session ID の
 // 二重身分を廃止する。冪等（sessions/.schema.json）・変換前に tar.gz 退避・全件を起動ログへ出力。

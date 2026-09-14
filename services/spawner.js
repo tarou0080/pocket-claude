@@ -64,14 +64,9 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   // 異なれば --resume で再起動して新モデルを適用するために使う。
   s.model = model || null
 
-  // claude CLI が受け付けない値を渡すと起動そのものが失敗する（画面には stderr だけが出て
-  // 原因が分かりにくい）。未知の値は既定へ落とし、理由をサーバーログに残す。
-  const PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan']
-  let permissionMode = config.permissionMode || 'acceptEdits'
-  if (!PERMISSION_MODES.includes(permissionMode)) {
-    console.warn(`[config] unknown permissionMode "${permissionMode}" -> fallback to acceptEdits (valid: ${PERMISSION_MODES.join(', ')})`)
-    permissionMode = 'acceptEdits'
-  }
+  // permissionMode の妥当性は CLI が正（一覧をここで複製しない・v2.13.0）。無効値は
+  // claude CLI が起動時に stderr で拒否し、それがそのままタブへ出る（fail-loud）。
+  const permissionMode = config.permissionMode || 'acceptEdits'
 
   // プロキシ経由モデル(GLM等): 該当時のみ翻訳プロキシへ向ける環境変数を子プロセスに注入する。
   // 非選択時は process.env そのまま＝プロキシが落ちていても他モデルは完全に無影響。

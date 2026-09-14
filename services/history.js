@@ -2,10 +2,8 @@ const fs = require('fs')
 const path = require('path')
 const { claudeEntriesToEvents } = require('./history-convert')
 const { resolveCanonicalId } = require('./sessions')
+const { CLAUDE_PROJECTS_DIR } = require('./claude-dir')
 
-const homeDir = process.env.HOME || path.join('/home', process.env.USER || 'user')
-const homeDirNormalized = homeDir.replace(/\//g, '-')
-const CLAUDE_PROJECTS_DIR = path.join(homeDir, '.claude', 'projects', homeDirNormalized)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // セッション一覧取得

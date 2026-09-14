@@ -4,6 +4,15 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v2.13.0] - 2026-09-15
+
+### 変更
+- `logs/*.jsonl` の保持日数がコード固定値の30日ではなくなり、Claude Code自身の `cleanupPeriodDays` 設定に追従するようになりました。`/etc/claude-code/managed-settings.json` を先に読み、次に `~/.claude/settings.json`（または `$CLAUDE_CONFIG_DIR/settings.json`）を読みます。project/local settings は参照しません。値が無い・非数・`1`未満の場合は既定の30日にフォールバックします（新設 `services/claude-dir.js` の `readCleanupPeriodDays`）。
+- `sessions/*.json`（pocket自身のセッションメタ）も同じ日数GCの対象になりました。従来は寿命が無く本番で1332件（CLI transcriptは122件）まで肥大化していました。マイグレーションの版管理ファイル `sessions/.schema.json` はGC対象から除外します。
+- `services/directories.js` の `sweepOldPocketLogs` を `sweepOldFiles(dir, ext, maxAgeDays, { exclude })` へ汎用化し、`logs/` と `sessions/` を1回で掃除する `sweepRetention(maxAgeDays)` を新設しました。`server.js` は起動時に `cleanupPeriodDays` を1回だけ読み、起動時スイープと日次の `setInterval` の両方に同じ値を渡します（設定変更の反映は再起動時）。
+- `services/history.js` は `~/.claude/projects/<...>` を自前計算しなくなり、新設 `services/claude-dir.js` から `CLAUDE_PROJECTS_DIR` を取得するようになりました。`CLAUDE_CONFIG_DIR` が設定されていればそれに追従します（従来はCLIの設定場所に関わらず `~/.claude` に固定していました）。
+- `services/spawner.js` はCLIが受け付ける `--permission-mode` の一覧を複製したり、未知の値を黙って `acceptEdits` へ書き換えたりしなくなりました。`config.permissionMode`（未設定時は `acceptEdits`）をそのままCLIへ渡します。不正な値は黙って書き換えられる代わりに、CLI自身が起動を拒否しタブにstderrとして表示されます。
+
 ## [v2.12.4] - 2026-09-15
 
 ### 変更

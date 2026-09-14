@@ -255,7 +255,7 @@ npm start
 - **バックエンド**: セッションごとに `claude` の常駐プロセスを管理する Express サーバー（stream-json モード）
 - **通信**: ストリーミング用 Server-Sent Events (SSE)
 - **セッション管理**: 永続化用 JSON ファイル
-- **ログ保持**: `logs/*.jsonl`（ライブログ）は30日の日数GCで削除されます（起動時＋日次）。CLIプロセスの寿命や本体jsonlの有無とは連動しません
+- **保持**: `logs/*.jsonl`（ライブログ）と `sessions/*.json`（セッションメタ）は同じ日数GCで削除されます（起動時＋日次）。CLIプロセスの寿命や本体jsonlの有無とは連動しません。日数は Claude Code 自身の `cleanupPeriodDays` に追従します（`managed-settings.json` を先に確認し、次に user の `settings.json`。project/local settings は読みません。未設定・不正値は既定30日）。Claude Code の設定ディレクトリ自体も `CLAUDE_CONFIG_DIR` が設定されていればそれに従い、無ければ `~/.claude` を使います
 
 ## セキュリティ上の考慮事項
 
