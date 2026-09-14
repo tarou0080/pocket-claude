@@ -18,19 +18,19 @@ function initDirectories() {
 // 正確に切るため、残しても二重描画にはならない。寿命は単純な日数だけで管理する。
 // `.jsonl` 以外（server.log 等）は対象外。起動時（initDirectories）と日次（server.js の
 // setInterval）から呼ばれる。
-function sweepOldPocketLogs(maxAgeDays = 30) {
+function sweepOldPocketLogs(maxAgeDays = 30, dir = config.LOGS_DIR) {
   const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000
   const now = Date.now()
   let deleted = 0
   let kept = 0
   let files
   try {
-    files = fs.readdirSync(config.LOGS_DIR).filter(f => f.endsWith('.jsonl'))
+    files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl'))
   } catch {
     return
   }
   for (const file of files) {
-    const filePath = path.join(config.LOGS_DIR, file)
+    const filePath = path.join(dir, file)
     try {
       const stat = fs.statSync(filePath)
       if (now - stat.mtimeMs > maxAgeMs) {

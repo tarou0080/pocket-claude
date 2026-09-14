@@ -4,6 +4,15 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.12.4] - 2026-09-15
+
+### Changed
+- Removed the `serverShuttingDown` shutdown flag and its `markServerShuttingDown` function/export from `services/spawner.js` and `server.js` - the process-close discard it used to suppress was already removed in v2.12.3, so the flag no longer guarded anything and the comment describing it was stale.
+- `sweepOldPocketLogs` now takes the target directory as a second argument (`sweepOldPocketLogs(maxAgeDays, dir)`), defaulting to `config.LOGS_DIR` so `initDirectories()` and the daily `server.js` timer are unaffected. `test/directories.test.js` now runs entirely against a `fs.mkdtempSync` temp directory instead of writing into and sweeping the real `logs/` directory.
+
+### Docs
+- README.md's v2.12.0 upgrade note now makes clear the described live-log deletion happened only during that one-time conversion, and that live logs are kept under the 30-day retention from v2.12.3 onward - the previous wording read as still-current behavior.
+
 ## [v2.12.3] - 2026-09-15
 
 ### Fixed

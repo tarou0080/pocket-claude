@@ -155,8 +155,7 @@ function gracefulShutdown(signal) {
 
   // 2. 実行中のすべてのセッションに done イベントを送信
   const { getState, broadcast } = require('./services/stream')
-  const { stopClaude, markServerShuttingDown } = require('./services/spawner')
-  markServerShuttingDown()  // シャットダウン中は proc close での pocketログ一斉破棄を抑止
+  const { stopClaude } = require('./services/spawner')
 
   // state オブジェクトから全セッションIDを取得（stream.jsのstateは外部公開されていないため、
   // 実行中プロセスを持つセッションのみ処理）

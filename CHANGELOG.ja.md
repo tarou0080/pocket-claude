@@ -4,6 +4,15 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v2.12.4] - 2026-09-15
+
+### 変更
+- 用途を失った shutdown フラグ `serverShuttingDown` とその `markServerShuttingDown` 関数/exportを `services/spawner.js`・`server.js` から撤去 — v2.12.3で抑止対象のプロセス終了時破棄そのものを撤去済みで、このフラグは既に何も守っていませんでした。コメントも存在しない仕組みを説明したままでした。
+- `sweepOldPocketLogs` の対象ディレクトリを第2引数化（`sweepOldPocketLogs(maxAgeDays, dir)`）。既定値は `config.LOGS_DIR` のため `initDirectories()` と `server.js` の日次タイマーは無変更で動作します。`test/directories.test.js` は本番 `logs/` への書き込みを廃止し、`fs.mkdtempSync` で作る一時ディレクトリだけで検証するようにしました。
+
+### ドキュメント
+- README.md のv2.12.0アップグレード記述を、そのライブログ削除がその変換時限りの挙動であり、v2.12.3以降は30日保持で残る旨が分かるように修正 — 従来の書き方は現行動作であるかのように読めました。
+
 ## [v2.12.3] - 2026-09-15
 
 ### 修正

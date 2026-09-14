@@ -16,12 +16,6 @@ const { saveToolsCatalog } = require('./tools-catalog')
 // ACKが来ない場合のフォールバック(SIGTERM/kill+resume)への切替を遅らせすぎない値。
 const CONTROL_TIMEOUT_MS = 1800
 
-// server.js の gracefulShutdown が立てる。シャットダウン中は proc の close で
-// pocketログを破棄しない（全実行中セッションを一斉に消して再起動直後の再取得を
-// 誘発しないため。破棄は次の起動時GCと通常のターン完了に任せる）。
-let serverShuttingDown = false
-function markServerShuttingDown() { serverShuttingDown = true }
-
 // claude CLI (stream-json) の stdin へ制御メッセージ(control_request)を送り、対応する
 // control_response を待って解決する。タイムアウト/送信失敗時は null を返す＝呼び出し元は
 // これを「ACKが来ない/失敗した」として現行動作へフォールバックすること。
@@ -384,4 +378,4 @@ function _notifyFailure(sessionId, prompt, reason) {
   broadcast(sessionId, { type: 'system', text: `⚠ 送信できませんでした: ${reason} — ${preview}` })
 }
 
-module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull, markServerShuttingDown }
+module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull }

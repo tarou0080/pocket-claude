@@ -45,8 +45,8 @@ router.get('/', (req, res) => {
   // プロトコルレベルで区別する。クライアントは history を isLive=false で処理する。
   // appendFileSync 化により、loadLogFile(readFileSync) と registerSSEClient の間に
   // 新規行が割り込むことはなく、取りこぼし/重複ゼロを保証する（同期ブロック内）。
-  // base: discardPocketLog（プロセス終了時）でファイルは消えても行番号空間は
-  // 巻き戻らないため、現在のファイルの行0が全体で何行目かは lineCounts 側から引く。
+  // base: 現在のファイルの行0が全体で何行目かは lineCounts 側から引く
+  // （v2.12.3 以降ログは作り直されないので通常0。getLineBase 参照）。
   const all = loadLogFile(sessionId)
   const base = getLineBase(sessionId, all.length)
   const maxLine = base + all.length - 1
