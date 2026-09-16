@@ -192,7 +192,7 @@ router.get('/', (req, res) => {
       try {
         const entry = JSON.parse(line)
         for (const ev of claudeEntriesToEvents([entry])) {
-          sendEvent(res, `A${lineNo}`, undefined, ev)
+          sendEvent(res, `A${lineNo}`, 'history', ev)
         }
       } catch {}
     }

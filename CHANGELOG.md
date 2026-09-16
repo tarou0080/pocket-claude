@@ -4,6 +4,17 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.15.0] - 2026-09-17
+
+### Changed
+- **Conversations are delivered over a single path** (part 3 of 3) - `GET /api/stream` now takes `fromA`/`fromB` cursors instead of `fromLine`/`epoch`/`Last-Event-ID`. Conversations pocket spawned and conversations started outside pocket-claude (`claude --session-id ...` in a terminal) are streamed through the same route; the only remaining branches are the synthesized `start` event for external sessions and watching the external pid for `done {reason:'external_exit'}`. After the opening replay (`event: history` with `id: A<n>`/`B<n>`), the in-flight turn's buffered events are re-sent (converted to the display vocabulary where they are `assistant`/`user`, raw otherwise), then a `history-meta {maxA, maxB, external}` closes the replay section, and everything after that is live, as anonymous events. Appended A lines are tailed per session (size-diff read, incomplete trailing line buffered as bytes) and re-sent as `event: history` with `id: A<n>`, so a B line and its A counterpart can be deduped by the client.
+- **`X-Cursor-A` / `X-Cursor-B`** - `GET /api/history/:id/events` now returns the cursors (`maxA+1` / `maxB+1`) the client should send back as `fromA`/`fromB` when re-opening the stream. A cursor that runs past the server's history (file swept, session reused) is answered with a single `history-meta {maxA, maxB, reset:true}` instead of a partial replay.
+- **Fact logs are self-weaving** - Each line in `logs/<id>.jsonl` now carries `after: <uuid|null>` (the uuid of the preceding A line), so the pocket log says by itself where it hangs off the CLI transcript. `log_start`/`mainLines`/`epoch` markers are gone; legacy-format logs are converted to the `after` format once at startup.
+- **The current turn's raw stdout events are no longer persisted** - They live only in memory (`state[id].buffer`) and are re-sent to newly connecting clients; the full history remains in A (the CLI transcript) and B (facts only).
+
+### Migration note
+- Old `logs/*.jsonl` files (with a `log_start` first line) are converted in place at startup; no manual action needed. Clients must stop sending `fromLine`/`epoch` and use `fromA`/`fromB` (this repo's bundled `public/index.html` does both).
+
 ## [v2.14.0] - 2026-09-16
 
 ### Changed

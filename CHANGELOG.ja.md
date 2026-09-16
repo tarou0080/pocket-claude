@@ -4,6 +4,17 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v2.15.0] - 2026-09-17
+
+### 変更
+- **会話の配信経路を1本化**（3票のうち3本目） — `GET /api/stream` は `fromLine`/`epoch`/`Last-Event-ID` に代えて `fromA`/`fromB` カーソルを受け取るようになりました。pocket が spawn した会話も、pocket 外で起動された会話（ターミナルの `claude --session-id ...` など）も同じ経路でストリーミングされます。残る分岐は外部セッションへの `start` 合成と、外部 pid の監視（`done {reason:'external_exit'}`）だけです。冒頭の再生（`event: history`・`id: A<n>`/`B<n>`）の後、実行中ターンのバッファを再送（`assistant`/`user` は表示語彙へ変換、それ以外は生のまま）、続いて `history-meta {maxA, maxB, external}` で再生区間を閉じ、以降はすべてライブ（無名イベント）で配信します。追記された A 行はセッションごとに tail（サイズ差分読み・末尾の不完全行はバイト列でバッファ）し、`event: history`・`id: A<n>` で再送するため、クライアントは B 行と A 行の対応で重複排除できます。
+- **`X-Cursor-A` / `X-Cursor-B`** — `GET /api/history/:id/events` が、ストリーム再接続時に `fromA`/`fromB` として返すべきカーソル（`maxA+1` / `maxB+1`）を返すようになりました。サーバーの履歴を追い越すカーソル（ファイルGC・セッション再利用）には、部分的な再生の代わりに `history-meta {maxA, maxB, reset:true}` だけを返します。
+- **事実ログが自己織り込みに** — `logs/<id>.jsonl` の各行が `after: <uuid|null>`（直前の A 行の uuid）を持つようになり、pocket ログがそれ自身で CLI 会話ログのどこに掛かるかを語ります。`log_start`/`mainLines`/`epoch` マーカーは撤去。旧形式のログは起動時に一度だけ `after` 形式へ変換します。
+- **現在ターンの生 stdout イベントを永続化しない** — メモリ（`state[id].buffer`）だけに置き、新規接続クライアントへは再送します。完全な履歴は A（CLI の会話ログ）と B（事実のみ）が担います。
+
+### 移行
+- 旧形式の `logs/*.jsonl`（先頭行が `log_start` のもの）は起動時にその場で変換されます。手作業は不要です。クライアントは `fromLine`/`epoch` の送信をやめ、`fromA`/`fromB` を使ってください（同梱の `public/index.html` は両方対応済み）。
+
 ## [v2.14.0] - 2026-09-16
 
 ### 変更

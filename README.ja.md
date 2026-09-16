@@ -254,6 +254,7 @@ npm start
 - **フロントエンド**: バニラ JavaScript の単一 HTML ファイル
 - **バックエンド**: セッションごとに `claude` の常駐プロセスを管理する Express サーバー（stream-json モード）
 - **通信**: ストリーミング用 Server-Sent Events (SSE)
+- **会話の配信（v2.15.0）**: `GET /api/stream?session=<id>&fromA=<n>&fromB=<n>` は、`claude` プロセスを起動したのが pocket でも外部でも同じ1経路で会話を再生します。`A` ＝ CLI 自身の会話ログ（非空行番号 `a`、`id: A<n>`）、`B` ＝ pocket のログ（`logs/<id>.jsonl`。各行に `after: <uuid>`＝直前の A 行の uuid を持ち、A へ自己織り込みします）。クライアントは受け取ったカーソル（`GET /api/history/:id/events` の `X-Cursor-A`/`X-Cursor-B`）を返し、サーバーの履歴を追い越すカーソルには `history-meta {reset:true}` だけを返します。meta 以降はすべてライブ（無名イベント）で配信され、追記された A 行は tail して `id: A<n>` で送ります。
 - **セッション管理**: 実行中の状態はメモリに保持し、永続化は Claude Code 自身の会話ログ（`~/.claude/projects/<id>.jsonl`）に委譲します。
 - **保持**: `logs/*.jsonl`（pocket のライブログ）のみを日数GCで削除します（起動時＋日次）。日数は Claude Code 自身の `cleanupPeriodDays` に追従します（`managed-settings.json` を先に確認し、次に user の `settings.json`。project/local settings は読みません。未設定・不正値は既定30日）。Claude Code の設定ディレクトリ自体も `CLAUDE_CONFIG_DIR` が設定されていればそれに従い、無ければ `~/.claude` を使います
 
