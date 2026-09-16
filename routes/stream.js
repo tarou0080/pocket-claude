@@ -4,7 +4,7 @@ const express = require('express')
 const router = express.Router()
 const { getState, loadLogFile, registerSSEClient, unregisterSSEClient, getLineBase, classifyCursor, EPOCH } = require('../services/stream')
 const { UUID_RE, CLAUDE_PROJECTS_DIR } = require('../services/history')
-const { readSessionFacts, matchConfigModel, projectFromCwd } = require('../services/session-facts')
+const { matchConfigModel, projectFromCwd } = require('../services/session-facts')
 const { findClaudePid } = require('../services/external-process')
 const { claudeEntriesToEvents } = require('../services/history-convert')
 const config = require('../config/index')
@@ -19,6 +19,36 @@ function sendEvent(res, id, event, dataObj) {
   if (event) line += `event: ${event}\n`
   line += `data: ${JSON.stringify(dataObj)}\n\n`
   res.write(line)
+}
+
+function readClosedFacts(sessionId) {
+  const jsonlPath = mainJsonlPath(sessionId)
+  let cwd = null
+  let modelId = null
+  let model = null
+  let effort = null
+  let lines
+  try {
+    lines = fs.readFileSync(jsonlPath, 'utf8').split('\n')
+  } catch {
+    return { cwd, modelId, model, effort }
+  }
+  for (const line of lines) {
+    if (!line.trim()) continue
+    let entry
+    try { entry = JSON.parse(line) } catch { continue }
+    if (!entry || typeof entry !== 'object') continue
+    if (cwd === null && typeof entry.cwd === 'string' && entry.cwd) cwd = entry.cwd
+    if (modelId === null && entry.attachment && entry.attachment.type === 'model' &&
+        entry.attachment.identity && typeof entry.attachment.identity.modelId === 'string') {
+      modelId = entry.attachment.identity.modelId
+    }
+    if (entry.type === 'assistant' && entry.message) {
+      if (typeof entry.message.model === 'string') model = entry.message.model
+      if (typeof entry.effort === 'string') effort = entry.effort
+    }
+  }
+  return { cwd, modelId, model, effort }
 }
 
 function mainEventsForSession(sessionId) {
@@ -65,9 +95,10 @@ router.get('/', (req, res) => {
 
   // 外部会話: pocketがspawnしていないが /proc 上に claude プロセスが存在する。
   if (!s.process && findClaudePid(sessionId)) {
-    const facts = readSessionFacts(sessionId)
+    const facts = readClosedFacts(sessionId)
     const project = projectFromCwd(facts.cwd, config.projects)
-    const model = matchConfigModel(facts, config.models)
+    const resolvedModel = matchConfigModel(facts, config.models)
+    const displayModel = resolvedModel ?? facts.modelId ?? facts.model ?? 'default'
 
     const events = mainEventsForSession(sessionId)
     if (fromLine === 0) {
@@ -78,38 +109,42 @@ router.get('/', (req, res) => {
     }
     const maxLine = Math.max(0, events.length - 1)
     sendEvent(res, undefined, 'history-meta', { base: 0, maxLine, external: true })
-    sendEvent(res, undefined, undefined, { type: 'start', project, model: facts.model, external: true })
+    sendEvent(res, undefined, undefined, { type: 'start', project, model: displayModel, external: true })
 
     let watcher = null
     let lastSize = 0
     try {
       lastSize = fs.statSync(mainJsonlPath(sessionId)).size
     } catch {}
-    let buffered = ''
+    let buffered = Buffer.alloc(0)
+    let mainLines = events.length
 
     // 新規追加分を検出して配信
     function processTail() {
       let rawMain
       try {
-        rawMain = fs.readFileSync(mainJsonlPath(sessionId), 'utf8')
+        rawMain = fs.readFileSync(mainJsonlPath(sessionId))
       } catch { return }
-      buffered += rawMain.slice(lastSize)
+      const newBytes = rawMain.slice(lastSize)
       lastSize = rawMain.length
-      const parts = buffered.split('\n')
-      // 最後の不完全行は次回に連結
-      buffered = parts.pop()
-      parts.forEach((part, idx) => {
-        if (!part.trim()) return
+      buffered = Buffer.concat([buffered, newBytes])
+      let nlIndex
+      // 最後の不完全行はバッファに残す
+      while ((nlIndex = buffered.indexOf(0x0a)) !== -1) {
+        const lineBuf = buffered.slice(0, nlIndex)
+        buffered = buffered.slice(nlIndex + 1)
+        const line = lineBuf.toString('utf8')
+        if (!line.trim()) continue
         try {
-          const entry = JSON.parse(part)
-          // 変換結果を 1件ずつ event: history で送る
+          const entry = JSON.parse(line)
           const converted = claudeEntriesToEvents([entry])
+          const baseLine = mainLines
           converted.forEach((ev, ci) => {
-            const globalIdx = events.length + idx + ci
-            sendEvent(res, globalIdx, 'history', ev)
+            sendEvent(res, baseLine, 'history', ev)
           })
+          mainLines++
         } catch {}
-      })
+      }
     }
 
     const pollInterval = setInterval(() => {
