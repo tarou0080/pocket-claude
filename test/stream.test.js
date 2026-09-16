@@ -15,9 +15,9 @@ const { CLAUDE_PROJECTS_DIR } = require('../services/history')
 // セッションIDには本体jsonlが存在しないため mainLines=0 の log_start になる）。以下の行数・
 // id期待値はその log_start 分を織り込んでいる。
 //
-// services/stream.js は LOGS_DIR のパス注入に対応していない（test/migrate.test.jsのような
-// tmpdir override が無い）ため、実際の config.LOGS_DIR にテスト専用のユニークIDでファイルを
-// 作り、afterEachで必ず削除する。
+// services/stream.js は LOGS_DIR のパス注入に対応していない（tmpdir override が無い）
+// ため、実際の config.LOGS_DIR にテスト専用のユニークIDでファイルを作り、
+// afterEachで必ず削除する。
 
 function testSessionId(name) {
   return `test-stream-${name}-${process.pid}-${Date.now()}`

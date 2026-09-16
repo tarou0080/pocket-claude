@@ -4,7 +4,7 @@ const express = require('express')
 const router = express.Router()
 const { getState, loadLogFile, registerSSEClient, unregisterSSEClient, getLineBase, classifyCursor, EPOCH } = require('../services/stream')
 const { UUID_RE, CLAUDE_PROJECTS_DIR } = require('../services/history')
-const { matchConfigModel, projectFromCwd } = require('../services/session-facts')
+const { readSessionFacts, projectFromCwd } = require('../services/session-facts')
 const { findClaudePid } = require('../services/external-process')
 const { claudeEntriesToEvents } = require('../services/history-convert')
 const config = require('../config/index')
@@ -19,47 +19,6 @@ function sendEvent(res, id, event, dataObj) {
   if (event) line += `event: ${event}\n`
   line += `data: ${JSON.stringify(dataObj)}\n\n`
   res.write(line)
-}
-
-function readClosedFacts(sessionId) {
-  const jsonlPath = mainJsonlPath(sessionId)
-  let cwd = null
-  let modelId = null
-  let model = null
-  let effort = null
-  let lines
-  try {
-    lines = fs.readFileSync(jsonlPath, 'utf8').split('\n')
-  } catch {
-    return { cwd, modelId, model, effort }
-  }
-  for (const line of lines) {
-    if (!line.trim()) continue
-    let entry
-    try { entry = JSON.parse(line) } catch { continue }
-    if (!entry || typeof entry !== 'object') continue
-    if (cwd === null && typeof entry.cwd === 'string' && entry.cwd) cwd = entry.cwd
-    if (modelId === null && entry.attachment && entry.attachment.type === 'model' &&
-        entry.attachment.identity && typeof entry.attachment.identity.modelId === 'string') {
-      modelId = entry.attachment.identity.modelId
-    }
-    if (entry.type === 'assistant' && entry.message) {
-      if (typeof entry.message.model === 'string') model = entry.message.model
-      if (typeof entry.effort === 'string') effort = entry.effort
-    }
-  }
-  return { cwd, modelId, model, effort }
-}
-
-function mainEventsForSession(sessionId) {
-  let rawLines
-  try {
-    rawLines = fs.readFileSync(mainJsonlPath(sessionId), 'utf8').split('\n').filter(l => l.trim())
-  } catch {
-    rawLines = []
-  }
-  const entries = rawLines.map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
-  return claudeEntriesToEvents(entries)
 }
 
 router.get('/', (req, res) => {
@@ -95,29 +54,43 @@ router.get('/', (req, res) => {
 
   // 外部会話: pocketがspawnしていないが /proc 上に claude プロセスが存在する。
   if (!s.process && findClaudePid(sessionId)) {
-    const facts = readClosedFacts(sessionId)
+    const facts = readSessionFacts(sessionId)
     const project = projectFromCwd(facts.cwd, config.projects)
-    const resolvedModel = matchConfigModel(facts, config.models)
-    const displayModel = resolvedModel ?? facts.modelId ?? facts.model ?? 'default'
+    const displayModel = facts.modelId ?? facts.model ?? 'default'
 
-    const events = mainEventsForSession(sessionId)
-    if (fromLine === 0) {
-      events.forEach((ev, i) => sendEvent(res, i, 'history', ev))
-    } else {
-      // fromLine に対応するエントリが events の何番目かを探す（id=line index）。
-      events.forEach((ev, i) => { if (i >= fromLine) sendEvent(res, i, 'history', ev) })
+    // 行番号空間: id=本体jsonlの非空行番号（0-origin）。1行が複数イベントに変換されても
+    // 同じ行番号を持ち、クライアントは「行番号 < lastLine」で dedup する（同一行番号の
+    // グループは丸ごと通す）。行番号を消費するのは jsonl 行だけなので、pocketが走らせて
+    // いる会話の行番号空間（pocketログの行）と独立して一貫する。
+    let rawMainLines
+    try {
+      rawMainLines = fs.readFileSync(mainJsonlPath(sessionId), 'utf8').split('\n').filter(l => l.trim())
+    } catch {
+      rawMainLines = []
     }
-    const maxLine = Math.max(0, events.length - 1)
+    const entries = rawMainLines.map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+
+    // fromLine=最後に受信した行番号。それより後の行（=行番号 >= fromLine のグループ）だけ送る。
+    // fromLine=0 は全量。
+    const startLine = fromLine
+    entries.forEach((entry, lineNo) => {
+      if (lineNo < startLine) return
+      const converted = claudeEntriesToEvents([entry])
+      converted.forEach(ev => sendEvent(res, lineNo, 'history', ev))
+    })
+    const maxLine = Math.max(0, entries.length - 1)
     sendEvent(res, undefined, 'history-meta', { base: 0, maxLine, external: true })
     sendEvent(res, undefined, undefined, { type: 'start', project, model: displayModel, external: true })
 
-    let watcher = null
     let lastSize = 0
     try {
       lastSize = fs.statSync(mainJsonlPath(sessionId)).size
     } catch {}
+    // 末尾の不完全行はバイト列のままバッファし、改行が揃ってから toString('utf8') する
+    // （マルチバイト文字の境界で分割されないようにする＝バイト長と文字長の混同防止）。
     let buffered = Buffer.alloc(0)
-    let mainLines = events.length
+    // 追記分の行番号は「変換済みjsonl行数」の累積カウンタ。起動時点の行数から始める。
+    let nextLineNo = entries.length
 
     // 新規追加分を検出して配信
     function processTail() {
@@ -135,15 +108,14 @@ router.get('/', (req, res) => {
         buffered = buffered.slice(nlIndex + 1)
         const line = lineBuf.toString('utf8')
         if (!line.trim()) continue
+        const lineNo = nextLineNo
         try {
           const entry = JSON.parse(line)
           const converted = claudeEntriesToEvents([entry])
-          const baseLine = mainLines
-          converted.forEach((ev, ci) => {
-            sendEvent(res, baseLine, 'history', ev)
-          })
-          mainLines++
+          // 同一 jsonl 行から変換されたイベント群は1グループ＝同じ行番号を持つ
+          converted.forEach(ev => sendEvent(res, lineNo, 'history', ev))
         } catch {}
+        nextLineNo++
       }
     }
 

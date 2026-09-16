@@ -4,8 +4,8 @@ const config = require('../config/index')
 const { readCleanupPeriodDays } = require('./claude-dir')
 
 // 起動時のディレクトリ初期化（logs/ が無ければ作る）。
-// v2.14.0: sessions/ は sessions/*.json を保持しなくなったため初期化対象から外れ、
-// logs/（pocketのライブログ）だけを残す。
+// v2.14.0: セッションメタデータを保持しなくなったため初期化対象は logs/（pocketの
+// ライブログ）だけ。
 function initDirectories(maxAgeDays = readCleanupPeriodDays()) {
   fs.mkdirSync(config.LOGS_DIR, { recursive: true })
   sweepRetention(maxAgeDays)

@@ -114,7 +114,7 @@ function getSessionMessages(sessionId) {
 // 特定セッションの全イベント取得（履歴再開用）。
 //
 // v2.12.0 でID統一済み: pocket session ID === Claude session ID。逆引き
-// （claudeSessionId フィールド・sessions/全走査）は撤去した。
+// （claudeSessionId フィールドによる別名解決）は撤去した。
 // v2.12.2: pocketログの寿命＝claudeプロセスの寿命になり、進行中の会話は常に
 // pocketログ側にある。境界はテキスト照合（cutCurrentTurn、要約等でズレ得た）ではなく
 // pocketログ先頭の log_start 行が持つ mainLines（このpocketログが積まれ始めた時点の

@@ -3177,13 +3177,16 @@ async function loadHistoryIntoPane(sessionId, onProgress, { isExternal = false }
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-  // 外部会話: サーバーは変換済み非空行数を X-Main-Lines で返す。
-  // connectSSEStream で SSE の history-meta が到達した時点で lastLine を調整するため、
-  // ここでは lastLine をいじらず、読み込んだ分だけを描画する。
+  // 外部会話: サーバーは変換済み非空行数を X-Main-Lines で返す。SSE を張る前に
+  // lastLine を X-Main-Lines - 1 へ進めておくことで、直後に張る SSE の
+  // fromLine = lastLine + 1 = X-Main-Lines が「まだ受信していない行番号」と一致し、
+  // ここで描いた分が SSE の history 再生で二重に描かれるのを防ぐ。
   const mainLinesHeader = res.headers.get('X-Main-Lines')
-  if (isExternal && mainLinesHeader != null) {
-    const ts = tabState[sessionId]
-    if (ts) ts._externalMainLines = parseInt(mainLinesHeader, 10) || 0
+  if (isExternal && mainLinesHeader != null && ts) {
+    const mainLines = parseInt(mainLinesHeader, 10) || 0
+    if (ts.lastLine < mainLines - 1) {
+      ts.lastLine = mainLines - 1
+    }
   }
 
   // X-Uncompressed-Length は展開後（reader が返すのと同じ単位）のバイト数。
@@ -3348,11 +3351,18 @@ async function connectSSEStream(sessionId) {
   es.onmessage = e => {
     try {
       lastHeartbeat = Date.now()
-      const lineId = parseInt(e.lastEventId, 10)
-      // dedup ガード（fromLine方式で基本重複しないが安全弁）
-      if (!isNaN(lineId) && lineId <= getLastLine(sessionId)) return
-      handleEvent(sessionId, JSON.parse(e.data), true)
-      if (!isNaN(lineId)) setLastLine(sessionId, lineId)
+      const ev = JSON.parse(e.data)
+      // start/done は行番号空間に属さない合成イベント（サーバーは id 無しで送る）。
+      // EventSource は直前の lastEventId を持ち越すため、ここを id dedup に入れると
+      // 「直前の行番号 <= lastLine」判定で捨てられて start/done が消える。
+      // （行番号空間は jsonl の行と1対1に保つため、合成イベントに行番号を消費させない）
+      if (ev.type !== 'start' && ev.type !== 'done') {
+        const lineId = parseInt(e.lastEventId, 10)
+        // dedup ガード（fromLine方式で基本重複しないが安全弁）
+        if (!isNaN(lineId) && lineId <= getLastLine(sessionId)) return
+        if (!isNaN(lineId)) setLastLine(sessionId, lineId)
+      }
+      handleEvent(sessionId, ev, true)
     } catch {}
   }
 
@@ -3363,8 +3373,12 @@ async function connectSSEStream(sessionId) {
     try {
       lastHeartbeat = Date.now()
       const lineId = parseInt(e.lastEventId, 10)
-      // dedup ガード
-      if (!isNaN(lineId) && lineId <= getLastLine(sessionId)) return
+      // dedup ガード。外部会話では1つの jsonl 行が複数イベント（同一行番号のグループ）に
+      // 変換されるため「<=」で落とすと同グループの後続が消える。「< lastLine」なら
+      // グループは丸ごと通り、既に受信済みの古い行番号だけが落ちる。
+      const isExternal = tabState[sessionId]?.isExternal
+      if (!isNaN(lineId) && lineId < getLastLine(sessionId)) return
+      if (!isNaN(lineId) && !isExternal && lineId <= getLastLine(sessionId)) return
       handleEvent(sessionId, JSON.parse(e.data), false)
       if (!isNaN(lineId)) setLastLine(sessionId, lineId)
       // history 受信後、最初の1件で自動スクロール（初回接続時の復元完了スクロール）
@@ -3399,11 +3413,8 @@ async function connectSSEStream(sessionId) {
       }
       if (external && ts) {
         ts.isExternal = true
-        // 外部会話: maxLine は現在までの変換済み非空行数-1。lastLine をそれに合わせれば、
-        // これまでの history イベントは重複排除でスキップされ、今後の追加分だけが生きる。
-        if (getLastLine(sessionId) < maxLine) {
-          ts.lastLine = maxLine
-        }
+        // 外部会話: lastLine は loadHistoryIntoPane で X-Main-Lines - 1 に既に進めている
+        // （戻しても冪等）。今後の追加分（jsonl行番号 >= lastLine+1）だけが生きる。
       }
       if (ts) ts.epoch = epoch
       // 旧: maxLine===-1 && pane空 のときここで fillFromHistoryEventsOnce を呼んでいたが、
@@ -4210,6 +4221,17 @@ async function attachLiveSession(liveSessionId, title) {
     ensureTabState(session)
     createTabEl(session)
   }
+  // 実行中判定は履歴一覧→Resumeの経路（resumeConversation）で /api/status の running が
+  // true のときだけ来る。external（pocketがspawnしていないプロセス）ならここで先に
+  // isExternal を立てておかないと、connectSSEStream 冒頭の loadHistoryIntoPane が
+  // X-Main-Lines を使わず lastLine を進められず、SSE の history 再生が二重描画になる。
+  // （外部プロセスは SSE 接続後に onopen の /api/status 照合で external が判明するが、
+  // その時点では loadHistoryIntoPane は既に走り終えている＝遅い）
+  try {
+    const st = await fetch(`/api/status?session=${encodeURIComponent(liveSessionId)}`).then(r => r.json())
+    const ts = tabState[liveSessionId]
+    if (ts && st.external) ts.isExternal = true
+  } catch (e) { /* 照合に失敗しても通常経路で続行 */ }
   // 会話の中身は switchTab → connectSSE が fromLine=0 で取得する（新規タブは lastLine=-1）。
   // 以降は同じSSEでライブが続くため、生ログのリプレイと二重描画にならない。
   await switchTab(liveSessionId)
