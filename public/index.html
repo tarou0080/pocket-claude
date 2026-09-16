@@ -759,6 +759,7 @@
   }
 
   .line { margin-bottom: 2px; word-break: break-word; white-space: pre-wrap; }
+  .pc-provisional { /* M由来の書きかけ領域。確定時は中身がpane直下へ移る＝見た目に影響しない */ }
   .line-user    { color: var(--green-user); }
   .line-text    { color: var(--text); white-space: normal; }
   .line-tool    { color: var(--accent); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
@@ -2059,8 +2060,11 @@ function ensureTabState(session) {
     pane,
     autoScroll: true,  // デフォルトで自動スクロール有効
     _initialLoaded: false,  // 一括描画済みフラグ
-    lastLine: -1,  // 受信済み最終行番号（paneと同寿命。リロードで-1に戻り全文再取得）
-    epoch: null,  // 最後に見たサーバー世代（history-metaで更新。未取得時はnull=epoch未指定で接続）
+    a: 0,  // 受信済みAカーソル（＝未受信の先頭行番号。paneと同寿命。リロードで0に戻り全文再取得）
+    b: 0,  // 受信済みBカーソル（pocketログ側。同上）
+    _seenUuids: [],  // M再送で描いた uuid（上限200・IndexedDBへ同梱保存）
+    _provisional: null,  // 仮領域div（M由来の描画先。id付きイベントで確定）
+    _metaSeen: false,  // history-meta 受信済みフラグ（以降のhistoryはライブ扱い）
     model: session.model || appSettings.defaultModel || '',
     effort: session.effort !== undefined ? session.effort : (appSettings.effort || ''),
     thinking: session.thinking !== undefined ? session.thinking : appSettings.thinking,
@@ -2164,14 +2168,14 @@ function rekeyTabToCanonical(oldId, newId) {
     currentSessionId = newId
     if (currentES) { currentES.close(); currentES = null }
   }
-  // 正規IDで張り直す（lastLine は tabState と一緒に移動済み。ズレていれば history-meta が是正）
+  // 正規IDで張り直す（a/b は tabState と一緒に移動済み。ズレていれば history-meta が是正）
   if (currentSessionId === newId) connectSSEStream(newId)
 }
 
 async function deleteTab(sessionId) {
   clearRateLimitPanel(sessionId)
   deleteConv(sessionId)  // IndexedDBキャッシュも削除
-  // lastLineはtabState[sessionId]に同梱されdelete tabState[...]で一緒に消える（下記）
+  // カーソル(a/b)はtabState[sessionId]に同梱されdelete tabState[...]で一緒に消える（下記）
   fetch(`/api/schedule-resume/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
   tabBar.querySelector(`[data-session-id="${sessionId}"]`)?.remove()
   tabState[sessionId]?.pane.remove()
@@ -3040,27 +3044,30 @@ async function resendScheduledPost(id) {
   }
 }
 
-// ── 行番号オフセット（in-memory: tabState[sessionId].lastLine） ──
+// ── カーソル（in-memory: tabState[sessionId].{a,b}） ──
 // 描画済みメッセージ(pane DOM)と同じ寿命にするためメモリに置く。完全リロードで
-// tabStateごと消える→lastLine=-1→fromLine=0→全文再取得され再描画される（真っ黒対策）。
-// タブ切替/回線復帰ではtabState/paneが残るのでlastLineも保持され増分のみ取得。
-// 値: 最後に受信した行番号。未取得=-1
-function getLastLine(sessionId) {
+// tabStateごと消える→a=0,b=0→fromA=0&fromB=0→全文再取得され再描画される（真っ黒対策）。
+// タブ切替/回線復帰ではtabState/paneが残るのでカーソルも保持され増分のみ取得。
+// 値: a/b ＝「まだ受信していない行番号の先頭」（最後に通したid+1）。未取得=0
+function getCursor(sessionId) {
   const ts = tabState[sessionId]
-  return ts && ts.lastLine != null ? ts.lastLine : -1
+  return ts ? { a: ts.a || 0, b: ts.b || 0 } : { a: 0, b: 0 }
 }
-function setLastLine(sessionId, lineId) {
+// which: 'A'|'B'。n ＝ 直前に通したid番号。カーソルは n+1（同一idグループを丸ごと
+// 通すため < 比較で dedup する。id は飛ぶので +1 でなく n+1 で追随する）。
+function advanceCursor(sessionId, which, n) {
   const ts = tabState[sessionId]
-  if (ts) {
-    ts.lastLine = lineId
-    scheduleConvSave(sessionId)
-  }
+  if (!ts) return
+  const next = n + 1
+  if (which === 'A') { if (next > (ts.a || 0)) ts.a = next }
+  else { if (next > (ts.b || 0)) ts.b = next }
+  scheduleConvSave(sessionId)
 }
 
 // ── 会話IndexedDBキャッシュ ──
 // DB名: pocket-claude、store: conversations、keyPath: sessionId
-// レコード: { sessionId, html, lastLine, savedAt }
-// 中身(html)とオフセット(lastLine)は必ず同寿命で1レコードに保存する。
+// レコード: { sessionId, html, a, b, seenUuids, savedAt }
+// 中身(html)とカーソル(a/b)は必ず同寿命で1レコードに保存する。
 // IndexedDB不可・例外時は握りつぶしてキャッシュ無効として動作継続。
 
 let _convDB = null
@@ -3100,15 +3107,18 @@ async function saveConvNow(sessionId) {
     // 再開カード(.rl-panel)は一時UI。会話キャッシュに焼き込むとリロード時に
     // 死んだカードが復元され、restoreRateLimitPanelの生カードと二重表示になる。
     // 保存前にcloneから除去して会話ログ本体だけをキャッシュする。
+    // 仮領域(M由来の書きかけ・未確定)も焼き込まない——サーバーがMを再送するので
+    // リロード後に二重になる。確定済み(idで確定された)分だけを保存する。
     const snapshot = ts.pane.cloneNode(true)
     snapshot.querySelectorAll('.rl-panel').forEach(el => el.remove())
+    snapshot.querySelectorAll('.pc-provisional').forEach(el => el.remove())
     const html = snapshot.innerHTML
-    const lastLine = getLastLine(sessionId)
-    const epoch = ts.epoch != null ? ts.epoch : null
+    const cur = getCursor(sessionId)
+    const seenUuids = Array.isArray(ts._seenUuids) ? ts._seenUuids : []
     const db = await openConvDB()
     await new Promise((resolve, reject) => {
       const tx = db.transaction('conversations', 'readwrite')
-      const req = tx.objectStore('conversations').put({ sessionId, html, lastLine, epoch, savedAt: Date.now() })
+      const req = tx.objectStore('conversations').put({ sessionId, html, a: cur.a, b: cur.b, seenUuids, savedAt: Date.now() })
       req.onsuccess = () => resolve()
       req.onerror = () => reject(req.error)
     })
@@ -3141,17 +3151,23 @@ async function restoreConvCache(sessionId) {
   try {
     const ts = tabState[sessionId]
     if (!ts) return
-    // フレッシュ時のみ復元（lastLine!==-1 か pane に既にコンテンツがあれば何もしない）
-    if (ts.lastLine !== -1 || ts.pane.firstChild) return
+    // フレッシュ時のみ復元（カーソルが0でない＝既に描いた、あるいは pane に既に
+    // コンテンツがあれば何もしない）
+    if ((ts.a || 0) !== 0 || (ts.b || 0) !== 0 || ts.pane.firstChild) return
     const rec = await loadConv(sessionId)
     if (rec && rec.html) {
+      // 旧レコード(lastLine/epochを持つ・a/bを持たない)は読み捨てる——カーソル体系が
+      // 変わっており信頼できない。html も捨てて全文取り直しにする。
+      const isLegacy = !('a' in rec) && !('b' in rec)
+      if (isLegacy) return
       ts.pane.innerHTML = rec.html
       // 旧バージョンが焼き込んだ死んだ再開カードを除去（既存キャッシュ救済）。
       // 生きたカードは直後の restoreRateLimitPanel が再生成する。
       ts.pane.querySelectorAll('.rl-panel').forEach(el => el.remove())
       markLinksExternal(ts.pane)
-      ts.lastLine = (typeof rec.lastLine === 'number' ? rec.lastLine : -1)
-      ts.epoch = (typeof rec.epoch === 'number' ? rec.epoch : null)
+      ts.a = (typeof rec.a === 'number' ? rec.a : 0)
+      ts.b = (typeof rec.b === 'number' ? rec.b : 0)
+      ts._seenUuids = Array.isArray(rec.seenUuids) ? rec.seenUuids.slice() : []
     }
   } catch {}
 }
@@ -3164,7 +3180,7 @@ async function restoreConvCache(sessionId) {
 // createTabEl を済ませてから呼ぶ）。onProgress(pct:0-100) は任意（Resumeボタンの%表示用）。
 // opaqueredirect（Authelia等の認証期限切れ）は Error に .opaqueredirect=true を立てて投げる。
 // 呼び出し元（resumeConversation）が画面向けメッセージを出す。
-async function loadHistoryIntoPane(sessionId, onProgress, { isExternal = false } = {}) {
+async function loadHistoryIntoPane(sessionId, onProgress) {
   const setProgress = onProgress || (() => {})
 
   // 認証プロキシ（Authelia等）の期限切れは 302 → 別オリジンの認証画面。follow だと CORS で
@@ -3203,17 +3219,12 @@ async function loadHistoryIntoPane(sessionId, onProgress, { isExternal = false }
 
   const ts = tabState[sessionId]
   if (!ts) throw new Error(`tabState missing for ${sessionId}`)
-  // 外部会話: サーバーは変換済み非空行数を X-Main-Lines で返す。SSE を張る前に
-  // lastLine を X-Main-Lines - 1 へ進めておくことで、直後に張る SSE の
-  // fromLine = lastLine + 1 = X-Main-Lines が「まだ受信していない行番号」と一致し、
-  // ここで描いた分が SSE の history 再生で二重に描かれるのを防ぐ。
-  const mainLinesHeader = res.headers.get('X-Main-Lines')
-  if (isExternal && mainLinesHeader != null) {
-    const mainLines = parseInt(mainLinesHeader, 10) || 0
-    if (ts.lastLine < mainLines - 1) {
-      ts.lastLine = mainLines - 1
-    }
-  }
+  // X-Cursor-A/B: 次にクライアントが要求すべき境界（maxA+1/maxB+1）。ここで描いた分を
+  // 直後に張る SSE が再送してこないためのカーソル設定（二重描画防止）。
+  const cursorA = parseInt(res.headers.get('X-Cursor-A') || '0', 10) || 0
+  const cursorB = parseInt(res.headers.get('X-Cursor-B') || '0', 10) || 0
+  if (cursorA > (ts.a || 0)) ts.a = cursorA
+  if (cursorB > (ts.b || 0)) ts.b = cursorB
 
   ts.pane.innerHTML = ''
   ts.currentTextEl = null
@@ -3224,6 +3235,7 @@ async function loadHistoryIntoPane(sessionId, onProgress, { isExternal = false }
   ts._currentToolInput = ''
   ts._currentBlockType = null
   ts._thinkingEl = null
+  ts._provisional = null
   ts._initialLoaded = true
   ts.autoScroll = false
 
@@ -3277,7 +3289,7 @@ async function connectSSE(sessionId) {
 }
 
 // SSE接続（実際のストリーム処理）
-// async化（v2.12.1）: pane が空＆lastLine===-1（=このタブでまだ一度も会話を描いていない）
+// async化（v2.12.1）: pane が空＆カーソルa=b=0（=このタブでまだ一度も会話を描いていない）
 // なら、EventSource を開く前に loadHistoryIntoPane で会話本文を描き切る。history-meta到達後に
 // 穴埋めする旧方式（fillFromHistoryEventsOnce）だと、既に来ているライブ/リプレイの後ろに
 // 過去の会話が積まれてしまう（handleEventの順序依存）。呼び出し元は誰もこの関数の返り値
@@ -3285,9 +3297,15 @@ async function connectSSE(sessionId) {
 // そのまま動く。
 async function connectSSEStream(sessionId) {
   const preTs = tabState[sessionId]
-  if (preTs && !preTs.pane.firstChild && preTs.lastLine === -1) {
+  // 張り直しのたびに未確定の仮領域（M由来の書きかけ）を捨てる。サーバーが M を
+  // 再送してくるので残すと二重になる。
+  if (preTs && preTs._provisional) {
+    try { preTs._provisional.remove() } catch {}
+    preTs._provisional = null
+  }
+  if (preTs && !preTs.pane.firstChild && (preTs.a || 0) === 0 && (preTs.b || 0) === 0) {
     try {
-      await loadHistoryIntoPane(sessionId, null, { isExternal: !!preTs.isExternal })
+      await loadHistoryIntoPane(sessionId, null)
     } catch (e) {
       // ここでの失敗はResumeボタンのような専用UIを持たない（switchTab/再接続の裏で走る）。
       // 握りつぶさずログに残し、後続のSSE接続自体は試みる（ライブ分だけでも表示させる）。
@@ -3307,14 +3325,9 @@ async function connectSSEStream(sessionId) {
     reconnectTimer = null
   }
 
-  // 最後に受信した行番号の次から取得（増分同期）。未受信なら fromLine=0 で全量取得
-  const lastLine = getLastLine(sessionId)
-  const fromLine = lastLine + 1
-  const ts0 = tabState[sessionId]
-  // epoch: 前回接続時にサーバーから見た世代。何も持っていない(lastLine=-1→fromLine=0)なら
-  // 送らない（fromLine=0はサーバー側で常にokなので epoch 不一致検出は不要）。
-  const epochParam = (lastLine >= 0 && ts0 && ts0.epoch != null) ? `&epoch=${ts0.epoch}` : ''
-  const url = `/api/stream?session=${encodeURIComponent(sessionId)}&fromLine=${fromLine}${epochParam}`
+  // 最後に通したidの次から取得（増分同期）。未受信なら fromA=0&fromB=0 で全量取得
+  const cur = getCursor(sessionId)
+  const url = `/api/stream?session=${encodeURIComponent(sessionId)}&fromA=${cur.a}&fromB=${cur.b}`
   const es = new EventSource(url)
   currentES = es
   // history イベントを少なくとも1件受信したら自動スクロールする（初回接続時の復元後スクロール）
@@ -3352,35 +3365,59 @@ async function connectSSEStream(sessionId) {
     try {
       lastHeartbeat = Date.now()
       const ev = JSON.parse(e.data)
-      // start/done は行番号空間に属さない合成イベント（サーバーは id 無しで送る）。
-      // EventSource は直前の lastEventId を持ち越すため、ここを id dedup に入れると
-      // 「直前の行番号 <= lastLine」判定で捨てられて start/done が消える。
-      // （行番号空間は jsonl の行と1対1に保つため、合成イベントに行番号を消費させない）
-      if (ev.type !== 'start' && ev.type !== 'done') {
-        const lineId = parseInt(e.lastEventId, 10)
-        // dedup ガード（fromLine方式で基本重複しないが安全弁）
-        if (!isNaN(lineId) && lineId <= getLastLine(sessionId)) return
-        if (!isNaN(lineId)) setLastLine(sessionId, lineId)
+      // 無名イベント（id 無し）＝ M（現在ターンの書きかけ）・外部のstart合成・外部のdone。
+      // 行番号空間に属さないため dedup に入れない（EventSource は直前の lastEventId を
+      // 持ち越すため、ここで id 判定すると消える）。描画先は仮領域へ（M巻き戻し対応）。
+      if (e.lastEventId === '' || e.lastEventId == null) {
+        advanceProvisionalTarget(sessionId)
+        handleEvent(sessionId, ev, true)
+        return
       }
+      const m = /^(A|B)(\d+)$/.exec(e.lastEventId)
+      if (!m) return
+      // dedup: 既に通したid（カーソル-1以下）は捨てる。「<」比較で同一idグループを
+      // 丸ごと通す（1つのA行が複数イベントに変換される。idは飛ぶので n+1 で追随）。
+      const which = m[1]
+      const n = parseInt(m[2], 10)
+      const c = getCursor(sessionId)
+      const pos = which === 'A' ? c.a : c.b
+      if (n < pos) return
+      advanceCursor(sessionId, which, n)
+      advanceProvisionalTarget(sessionId, true)  // id付き＝確定描画へ
       handleEvent(sessionId, ev, true)
     } catch {}
   }
 
-  // ログ再生イベント（サーバーが event: history で送る）。
-  // ライブと区別して isLive=false で処理する。リプレイをライブ扱いすると、
-  // 古いrate_limit文言を現在時刻で再パースして翌日resetAtのゾンビカードが生まれる
+  // 履歴再生イベント（サーバーが event: history で送る）。id があればカーソル判定、
+  // id 無し（M再送の変換済みassistant/user・外部start）なら仮領域へ描く。
   es.addEventListener('history', e => {
     try {
       lastHeartbeat = Date.now()
-      const lineId = parseInt(e.lastEventId, 10)
-      // dedup ガード。外部会話では1つの jsonl 行が複数イベント（同一行番号のグループ）に
-      // 変換されるため「<=」で落とすと同グループの後続が消える。「< lastLine」なら
-      // グループは丸ごと通り、既に受信済みの古い行番号だけが落ちる。
-      const isExternal = tabState[sessionId]?.isExternal
-      if (!isNaN(lineId) && lineId < getLastLine(sessionId)) return
-      if (!isNaN(lineId) && !isExternal && lineId <= getLastLine(sessionId)) return
-      handleEvent(sessionId, JSON.parse(e.data), false)
-      if (!isNaN(lineId)) setLastLine(sessionId, lineId)
+      const ev = JSON.parse(e.data)
+      if (e.lastEventId) {
+        const m = /^(A|B)(\d+)$/.exec(e.lastEventId)
+        if (m) {
+          const which = m[1]
+          const n = parseInt(m[2], 10)
+          const c = getCursor(sessionId)
+          const pos = which === 'A' ? c.a : c.b
+          if (n < pos) return
+          advanceCursor(sessionId, which, n)
+          advanceProvisionalTarget(sessionId, true)
+          // ライブ区間（history-meta 以降）の history もライブとして扱う（user_inputの
+          // _doneShown リセット等が効くように）。meta 前の履歴再生は isLive=false。
+          const isLive = !!tabState[sessionId]?._metaSeen
+          handleEvent(sessionId, ev, isLive)
+        }
+      } else {
+        // id 無しの event: history ＝ M再送の変換済みイベント（uuid 付き）または
+        // 外部会話の start 合成。仮領域へ描き、uuid は_seenUuidsへ記録して
+        // 後続の id:A<n> 再送との二重描画を防ぐ。
+        advanceProvisionalTarget(sessionId)
+        if (ev.uuid && tabState[sessionId]) rememberUuid(sessionId, ev.uuid)
+        const isLive = !!tabState[sessionId]?._metaSeen
+        handleEvent(sessionId, ev, isLive)
+      }
       // history 受信後、最初の1件で自動スクロール（初回接続時の復元完了スクロール）
       if (!firstHistoryReceived && currentSessionId === sessionId) {
         firstHistoryReceived = true
@@ -3395,31 +3432,29 @@ async function connectSSEStream(sessionId) {
     } catch {}
   })
 
-  // カーソルの世代管理（v2.12.2）: サーバーが reset:true を返した（epoch不一致／pocketログ
-  // 有限化で失われた行／再起動後の行番号巻き戻り）場合、またはキャッシュlastLineがサーバー
-  // 最大行を超えている（jsonl削除・セッション再利用。旧来のクライアント側stale判定）場合は
-  // 同じstale guard処理でキャッシュを破棄して全文取り直す。
+  // カーソルの世代管理: サーバーが reset:true を返した（カーソルがサーバーの履歴を
+  // 追い越した＝jsonl削除・セッション再利用）、またはキャッシュのカーソルがサーバー
+  // 最大行を超えている場合は stale guard でキャッシュを破棄して全文取り直す。
   es.addEventListener('history-meta', (e) => {
     try {
-      const { epoch, maxLine, reset, external } = JSON.parse(e.data)
+      const { maxA, maxB, reset, external } = JSON.parse(e.data)
       const ts = tabState[sessionId]
-      if (reset === true || getLastLine(sessionId) > maxLine) {
+      if (ts) ts._metaSeen = true
+      if (reset === true || (ts && ((ts.a || 0) > maxA + 1 || (ts.b || 0) > maxB + 1))) {
         // stale。破棄して全文取り直し。
-        if (ts) { ts.pane.innerHTML = ''; ts.lastLine = -1; ts.epoch = null }
+        if (ts) {
+          ts.pane.innerHTML = ''
+          ts.a = 0
+          ts.b = 0
+          ts._seenUuids = []
+          ts._provisional = null
+        }
         deleteConv(sessionId)
         if (currentES) { currentES.close(); currentES = null }
-        connectSSEStream(sessionId)  // fromLine=0で再接続（maxLine>=-1なので無限ループしない）
+        connectSSEStream(sessionId)  // fromA=0&fromB=0で再接続（無限ループしない）
         return
       }
-      if (external && ts) {
-        ts.isExternal = true
-        // 外部会話: lastLine は loadHistoryIntoPane で X-Main-Lines - 1 に既に進めている
-        // （戻しても冪等）。今後の追加分（jsonl行番号 >= lastLine+1）だけが生きる。
-      }
-      if (ts) ts.epoch = epoch
-      // 旧: maxLine===-1 && pane空 のときここで fillFromHistoryEventsOnce を呼んでいたが、
-      // v2.12.1 で connectSSEStream 冒頭の loadHistoryIntoPane に統合済み（EventSourceを
-      // 開く前に描き終えている）ため、この時点でpaneが空になることはない。
+      if (external && ts) ts.isExternal = true
     } catch {}
   })
 
@@ -3539,6 +3574,45 @@ function resolveToolContent(content, toolUseResult) {
   return '(no output)'
 }
 
+// ── 仮領域（M由来の描画の巻き戻し） ──
+// id 無しイベント（M再送・M生イベント）は「書きかけ」として div.pc-provisional 内へ
+// 描く。その後 id:A<n>/B<n> 付きイベント or uuid 付き event:history が来たら仮領域を
+// 確定（中身をpane直下へ移してdivを外す＝見た目は変わらない）。
+// SSEを張り直すときは connectSSEStream 冒頭で未確定の仮領域を捨てる（サーバーがMを
+// 再送するので二重にならない）。仮領域内の描画は saveConvNow が保存しない。
+function advanceProvisionalTarget(sessionId, finalizeOnly = false) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+  const div = ts._provisional
+  if (div && div.isConnected) {
+    // 既存の仮領域がある。
+    if (!finalizeOnly) return  // id無しイベントはその中へ描き続ける
+    // 確定: 仮領域の中身をpane直下へ移してから仮領域divを外す（見た目は変わらない）
+    const pane = ts.pane
+    while (div.firstChild) pane.insertBefore(div.firstChild, div)
+    div.remove()
+    ts._provisional = null
+    return
+  }
+  if (finalizeOnly) { ts._provisional = null; return }
+  const wrap = document.createElement('div')
+  wrap.className = 'pc-provisional'
+  ts.pane.appendChild(wrap)
+  ts._provisional = wrap
+}
+
+// M再送で描いた uuid を記録する（上限200件・古い方から捨てる）。
+// 後で id:A<n> で同じuuidが来たときに描画をスキップするため。
+function rememberUuid(sessionId, uuid) {
+  const ts = tabState[sessionId]
+  if (!ts || !uuid) return
+  if (!ts._seenUuids) ts._seenUuids = []
+  if (ts._seenUuids.includes(uuid)) return
+  ts._seenUuids.push(uuid)
+  if (ts._seenUuids.length > 200) ts._seenUuids.splice(0, ts._seenUuids.length - 200)
+  scheduleConvSave(sessionId)
+}
+
 // ── イベント処理 ──
 function handleEvent(sessionId, ev, isLive = true) {
   // isLive===false（event:history の再生）では永続/再接続跨ぎ状態
@@ -3548,6 +3622,11 @@ function handleEvent(sessionId, ev, isLive = true) {
   const ts = tabState[sessionId]
   if (!ts) return
   const isActive = sessionId === currentSessionId
+
+  // M再送で既に描いた uuid（_seenUuids）が、後から id:A<n> で同じuuidとして届いた
+  // 場合は描かずにカーソルだけ進める（カーソル進行は SSE リスナー側で済んでいる）。
+  // M再送・生イベント（id無し）は dedup 対象外（rememberUuid 記録側で制御する）。
+  if (ev.uuid && Array.isArray(ts._seenUuids) && ts._seenUuids.includes(ev.uuid)) return
 
   // 再試行中の表示は「次に何か届いた時点」で役目を終える。api_retry 以外のライブイベントが
   // 来たら畳む（＝APIが応答を再開した合図。tool_result等の中間イベントでも構わない）。
@@ -4188,7 +4267,7 @@ async function openHistoryDetail(session) {
 
 // 実行中の会話へ「合流」する。履歴一覧のID（Claude session ID）がそのまま
 // プロセス・ライブ配信・実行中フラグのキー。/api/session-settings から最終使用設定を取得し、
-// タブを作って switchTab すると通常の増分同期経路（SSE fromLine）に乗る。
+// タブを作って switchTab すると通常の増分同期経路（SSE fromA/fromB）に乗る。
 async function attachLiveSession(liveSessionId, title) {
   if (!tabState[liveSessionId]) {
     const sessions = loadSessions()
@@ -4224,7 +4303,8 @@ async function attachLiveSession(liveSessionId, title) {
   // 実行中判定は履歴一覧→Resumeの経路（resumeConversation）で /api/status の running が
   // true のときだけ来る。external（pocketがspawnしていないプロセス）ならここで先に
   // isExternal を立てておかないと、connectSSEStream 冒頭の loadHistoryIntoPane が
-  // X-Main-Lines を使わず lastLine を進められず、SSE の history 再生が二重描画になる。
+  // X-Main-Lines 廃止（v2.15.0）: external 合流でもカーソル同期は history-meta と id:A/B
+  // が担うため、ここでの事前カーソル進めは不要。external 判明だけ済ませておく。
   // （外部プロセスは SSE 接続後に onopen の /api/status 照合で external が判明するが、
   // その時点では loadHistoryIntoPane は既に走り終えている＝遅い）
   try {
@@ -4232,7 +4312,7 @@ async function attachLiveSession(liveSessionId, title) {
     const ts = tabState[liveSessionId]
     if (ts && st.external) ts.isExternal = true
   } catch (e) { /* 照合に失敗しても通常経路で続行 */ }
-  // 会話の中身は switchTab → connectSSE が fromLine=0 で取得する（新規タブは lastLine=-1）。
+  // 会話の中身は switchTab → connectSSE が fromA=0&fromB=0 で取得する（新規タブは a=b=0）。
   // 以降は同じSSEでライブが続くため、生ログのリプレイと二重描画にならない。
   await switchTab(liveSessionId)
   closeHistory()
