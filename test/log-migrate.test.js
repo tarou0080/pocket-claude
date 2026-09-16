@@ -71,7 +71,7 @@ test('残す型: interrupted/error/stderr/raw/system(text)/system(init)/assistan
   assert.equal(out.find(l => l.type === 'assistant').after, null)
 })
 
-test('捨てる型（user_input/stream_event/user）のuuidも直前A行の追跡に使われる', () => {
+test('捨てる型でも user のuuidは直前A行の追跡に使われる', () => {
   const input = [
     { type: 'log_start', mainLines: 0 },
     { type: 'user', uuid: 'u9', message: { content: [] } },
