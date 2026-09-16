@@ -3164,7 +3164,7 @@ async function restoreConvCache(sessionId) {
 // createTabEl を済ませてから呼ぶ）。onProgress(pct:0-100) は任意（Resumeボタンの%表示用）。
 // opaqueredirect（Authelia等の認証期限切れ）は Error に .opaqueredirect=true を立てて投げる。
 // 呼び出し元（resumeConversation）が画面向けメッセージを出す。
-async function loadHistoryIntoPane(sessionId, onProgress) {
+async function loadHistoryIntoPane(sessionId, onProgress, { isExternal = false } = {}) {
   const setProgress = onProgress || (() => {})
 
   // 認証プロキシ（Authelia等）の期限切れは 302 → 別オリジンの認証画面。follow だと CORS で
@@ -3176,6 +3176,15 @@ async function loadHistoryIntoPane(sessionId, onProgress) {
     throw err
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+  // 外部会話: サーバーは変換済み非空行数を X-Main-Lines で返す。
+  // connectSSEStream で SSE の history-meta が到達した時点で lastLine を調整するため、
+  // ここでは lastLine をいじらず、読み込んだ分だけを描画する。
+  const mainLinesHeader = res.headers.get('X-Main-Lines')
+  if (isExternal && mainLinesHeader != null) {
+    const ts = tabState[sessionId]
+    if (ts) ts._externalMainLines = parseInt(mainLinesHeader, 10) || 0
+  }
 
   // X-Uncompressed-Length は展開後（reader が返すのと同じ単位）のバイト数。
   // Content-Length は gzip 時は圧縮後バイト数になり reader の展開後バイト数と
@@ -3275,7 +3284,7 @@ async function connectSSEStream(sessionId) {
   const preTs = tabState[sessionId]
   if (preTs && !preTs.pane.firstChild && preTs.lastLine === -1) {
     try {
-      await loadHistoryIntoPane(sessionId)
+      await loadHistoryIntoPane(sessionId, null, { isExternal: !!preTs.isExternal })
     } catch (e) {
       // ここでの失敗はResumeボタンのような専用UIを持たない（switchTab/再接続の裏で走る）。
       // 握りつぶさずログに残し、後続のSSE接続自体は試みる（ライブ分だけでも表示させる）。
@@ -3323,15 +3332,11 @@ async function connectSSEStream(sessionId) {
       fetch(`/api/status?session=${encodeURIComponent(sessionId)}`)
         .then(r => r.json())
         .then(data => {
-          // v2.12.0: サーバーがこのセッションの正規ID（Claude session ID）を返す。
-          // 自分の持つIDと違う＝旧pocket IDのタブ＝マイグレーション済み会話。
-          // 逆引きは呼ばず、サーバーが返した canonicalId を信じてタブを貼り替える。
-          if (data.canonicalId && data.canonicalId !== sessionId) {
-            rekeyTabToCanonical(sessionId, data.canonicalId)
-            return
-          }
           const ts = tabState[sessionId]
-          if (ts) ts.isRunning = !!data.running
+          if (ts) {
+            ts.isRunning = !!data.running
+            ts.isExternal = !!data.external
+          }
           updateUI()
         })
         .catch(() => updateUI())
@@ -3382,7 +3387,7 @@ async function connectSSEStream(sessionId) {
   // 同じstale guard処理でキャッシュを破棄して全文取り直す。
   es.addEventListener('history-meta', (e) => {
     try {
-      const { epoch, maxLine, reset } = JSON.parse(e.data)
+      const { epoch, maxLine, reset, external } = JSON.parse(e.data)
       const ts = tabState[sessionId]
       if (reset === true || getLastLine(sessionId) > maxLine) {
         // stale。破棄して全文取り直し。
@@ -3391,6 +3396,14 @@ async function connectSSEStream(sessionId) {
         if (currentES) { currentES.close(); currentES = null }
         connectSSEStream(sessionId)  // fromLine=0で再接続（maxLine>=-1なので無限ループしない）
         return
+      }
+      if (external && ts) {
+        ts.isExternal = true
+        // 外部会話: maxLine は現在までの変換済み非空行数-1。lastLine をそれに合わせれば、
+        // これまでの history イベントは重複排除でスキップされ、今後の追加分だけが生きる。
+        if (getLastLine(sessionId) < maxLine) {
+          ts.lastLine = maxLine
+        }
       }
       if (ts) ts.epoch = epoch
       // 旧: maxLine===-1 && pane空 のときここで fillFromHistoryEventsOnce を呼んでいたが、
@@ -3612,7 +3625,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       finalizeText(ts)
       if (isLive) ts.isRunning = true
       ts._doneShown = false  // 新規spawnにつき次のdoneは描画対象に戻す
-      addLine(ts, `── ${ev.project} (${ev.model}) ──`, 'line-system')
+      addLine(ts, `── ${ev.project} (${ev.model})${ev.external ? ' (external)' : ''} ──`, 'line-system')
       if (isActive) updateUI()
       break
 
@@ -3748,17 +3761,21 @@ function handleEvent(sessionId, ev, isLive = true) {
       // 'server_restart'（起動時ログ修復の別経路）と合わせて両方とも
       // 「⚠ Interrupted (server restarted)」として扱い、かつ後続の重複描画を
       // _doneShownで抑止する（次のstart/user_inputで解除）。
+      // external_exit: pocketがspawnしていないプロセスが終了した。Interrupted扱いにしない。
       const isRestartReason = ev.reason === 'server_restart' || ev.reason === 'server_shutdown'
-      if (ts._doneShown) { if (isActive) updateUI(); break }
-      ts._doneShown = true
+      const isExternalExit = ev.reason === 'external_exit'
+      if (ts._doneShown && !isExternalExit) { if (isActive) updateUI(); break }
+      if (!isExternalExit) ts._doneShown = true
       const ctxMaxD = ts._ctxMax || CTX_MAX
       const fmtKD = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
       const pct = Math.round(ts._ctxTokens / ctxMaxD * 100)
       const doneMsg = isRestartReason
         ? `⚠ Interrupted (server restarted)`
-        : `✓ Done (exit ${ev.exitCode}) — ${pct}% (${fmtKD(ts._ctxTokens)} / ${fmtKD(ctxMaxD)})`
+        : isExternalExit
+          ? `── エージェント終了 ──`
+          : `✓ Done (exit ${ev.exitCode}) — ${pct}% (${fmtKD(ts._ctxTokens)} / ${fmtKD(ctxMaxD)})`
       const doneEl = addLine(ts, doneMsg, 'line-done')
-      if (isRestartReason || ev.exitCode !== 0 || pct >= 50) doneEl.classList.add('warn')
+      if (isRestartReason || (isExternalExit && pct >= 50) || (!isExternalExit && (ev.exitCode !== 0 || pct >= 50))) doneEl.classList.add('warn')
       if (isActive) updateUI()
       break
     }
@@ -4104,9 +4121,10 @@ async function openHistory() {
     for (const s of sessions) {
       const item = document.createElement('div')
       item.className = 'history-item'
+      const modelPart = s.model ? ` · ${escapeHtml(prettyModel(s.model))}` : ''
       item.innerHTML = `
         <div class="history-item-title">${escapeHtml(s.title)}</div>
-        <div class="history-item-meta">${formatDate(s.updatedAt)} · ${s.msgCount} messages</div>
+        <div class="history-item-meta">${formatDate(s.updatedAt)} · ${s.msgCount} messages${modelPart}</div>
       `
       item.addEventListener('click', () => openHistoryDetail(s))
       historyBody.appendChild(item)
@@ -4157,30 +4175,33 @@ async function openHistoryDetail(session) {
   }
 }
 
-// 実行中の会話へ「合流」する。履歴一覧のIDは Claude session ID だが、走っているプロセス・
-// ライブ配信・実行中フラグはすべて pocket session ID で管理されているため、Claude IDで新しい
-// タブを作ると本体とは別物の“影のタブ”になり、ライブが一切流れず（logs/<Claude ID>.jsonl が
-// 存在しない）実行中フラグも常にfalse＝ドットが緑のままになる。逆引きした本体のIDでタブを
-// 開けば、通常タブとまったく同じ増分同期経路（SSE fromLine）に乗る。
-async function attachLiveSession(livePocketId, title) {
-  if (!tabState[livePocketId]) {
+// 実行中の会話へ「合流」する。履歴一覧のID（Claude session ID）がそのまま
+// プロセス・ライブ配信・実行中フラグのキー。/api/session-settings から最終使用設定を取得し、
+// タブを作って switchTab すると通常の増分同期経路（SSE fromLine）に乗る。
+async function attachLiveSession(liveSessionId, title) {
+  if (!tabState[liveSessionId]) {
     const sessions = loadSessions()
-    let session = sessions.find(s => s.sessionId === livePocketId)
+    let session = sessions.find(s => s.sessionId === liveSessionId)
     if (!session) {
       // model/effort/thinking/project はサーバーがそのセッションの最終使用値を持っている。
       // 端末の既定値へ落とすと、合流した瞬間に別モデルで送信してしまう。
       let saved = {}
       try {
-        const r = await fetch(`/api/session-settings/${livePocketId}`)
+        const r = await fetch(`/api/session-settings/${liveSessionId}`)
         if (r.ok) saved = await r.json()
       } catch (e) { /* 取得失敗時は既定値フォールバック */ }
       session = {
-        sessionId: livePocketId,
+        sessionId: liveSessionId,
         name: (title || 'Resumed conversation').substring(0, 30),
         project: saved.project || getCurrentSession()?.project || Object.keys(_projectsCache)[0],
         lastUsed: Date.now(),
       }
       if (saved.model != null) session.model = saved.model
+      if (saved.modelResolved && !saved.model) {
+        // model が config に無い場合、resolved 値から逆引きしてタブの初期モデルを決める。
+        const alias = Object.entries(resolvedModels).find(([, v]) => v === saved.modelResolved)?.[0]
+        session.model = alias || ''
+      }
       if (saved.effort != null) session.effort = saved.effort
       if (saved.thinking != null) session.thinking = saved.thinking
       sessions.push(session)
@@ -4191,7 +4212,7 @@ async function attachLiveSession(livePocketId, title) {
   }
   // 会話の中身は switchTab → connectSSE が fromLine=0 で取得する（新規タブは lastLine=-1）。
   // 以降は同じSSEでライブが続くため、生ログのリプレイと二重描画にならない。
-  await switchTab(livePocketId)
+  await switchTab(liveSessionId)
   closeHistory()
 }
 
@@ -4213,8 +4234,7 @@ async function resumeConversation(sessionId, title) {
 
   // その会話が今も実行中なら、走っているセッションへ合流する。
   // v2.12.0 で pocket ID === Claude session ID に統一したため、履歴一覧のID（=このsessionId）が
-  // そのまま実行中プロセス・ライブ配信・実行中フラグのキー。逆引き（/api/resolve-session）は
-  // 廃止し、/api/status を見るだけにした。canonicalId は旧pocket IDのタブ救済用。
+  // そのまま実行中プロセス・ライブ配信・実行中フラグのキー。逆引き（/api/resolve-session）は廃止。
   // 実行中でない場合は従来どおり Claude の生ログをリプレイする（過去会話は生ログの方が完全なため）。
   try {
     const res = await fetch(`/api/status?session=${encodeURIComponent(sessionId)}`, { redirect: 'manual' })
@@ -4222,7 +4242,7 @@ async function resumeConversation(sessionId, title) {
       const info = await res.json()
       if (info.running) {
         if (btn) { btn.disabled = true; btn.textContent = '接続中…' }
-        await attachLiveSession(info.canonicalId || sessionId, title)
+        await attachLiveSession(sessionId, title)
         return
       }
     }
@@ -4257,12 +4277,18 @@ async function resumeConversation(sessionId, title) {
         lastUsed: Date.now(),
       }
       // サーバーに最終使用設定(model/effort/thinking)が残っていれば引き継ぐ。
-      // 無ければ従来どおり端末の既定値へフォールバック（ensureTabStateの既定処理に任せる）。
+      // model は matchConfigModel で解決した config 内の値。config に無ければ resolvedModels を
+      // 逆引きし、それでも無ければ既定値へフォールバック（ensureTabStateの既定処理に任せる）。
       try {
         const settingsRes = await fetch(`/api/session-settings/${sessionId}`)
         if (settingsRes.ok) {
           const saved = await settingsRes.json()
-          if (saved.model != null) targetSession.model = saved.model
+          if (saved.model != null) {
+            targetSession.model = saved.model
+          } else if (saved.modelResolved) {
+            const alias = Object.entries(resolvedModels).find(([, v]) => v === saved.modelResolved)?.[0]
+            targetSession.model = alias || ''
+          }
           if (saved.effort != null) targetSession.effort = saved.effort
           if (saved.thinking != null) targetSession.thinking = saved.thinking
         }
@@ -4271,9 +4297,7 @@ async function resumeConversation(sessionId, title) {
       saveSessions(sessions)
       ensureTabState(targetSession)
       createTabEl(targetSession)
-      // v2.12.0: pocket ID === Claude session ID に統一したため、
-      // マッピング登録（/api/register-session）は不要になった（撤去）。
-    }
+      }
 
     const { eventsCount, skipped } = await loadHistoryIntoPane(sessionId, setProgress)
 
@@ -4436,7 +4460,7 @@ async function send() {
       let body = null
       try { body = await res.json() } catch {}
       if (!res.ok || (body && body.ok === false)) {
-        failMessage = (body && body.reason) || `Server error (${res.status})`
+        failMessage = (body && (body.reason || body.error)) || `Server error (${res.status})`
         deliveryConfirmedFailed = true
       }
     }

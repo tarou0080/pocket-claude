@@ -47,7 +47,7 @@ function sendControlMessage(proc, subtype, extra = {}, timeoutMs = CONTROL_TIMEO
 // ID統一（v2.12.0）: pocket session ID === Claude session ID。
 //  - 初回spawn        : `--session-id <sessionId>` で使うIDを外から固定する
 //  - 2回目以降(再開)   : `--resume <sessionId>`（既存IDへ --session-id 再指定は "already in use" で拒否される）
-// 「初回か再開か」は `sessions/<id>.json` の started フラグと本体jsonlの存在で判定する。
+// 「初回か再開か」は本体jsonlの存在で判定する。
 // opts.forceResume: "already in use" フォールバック時に true（--resume を強制）
 function startClaude(sessionId, prompt, model, project, effort, thinking, imageData, opts = {}) {
   const projects = config.projects
@@ -205,9 +205,9 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
 
   proc.on('close', code => {
     s.process = null
-    // --session-id が既存IDと衝突して即終了したケース。stale/lost なレコードで started が
-    // 立っていなかった等。--resume で一度だけ再試行する（forceResume 経路は usedSessionId=false
-    // なので無限ループしない）。
+    // --session-id が既存IDと衝突して即終了したケース。本体jsonlが既に存在するにもかかわらず
+    // --session-id を使ってしまった等。--resume で一度だけ再試行する（forceResume 経路は
+    // usedSessionId=false なので無限ループしない）。
     if (usedSessionId && sawIdInUse && !opts.forceResume) {
       console.warn(`[spawn] --session-id ${sessionId} rejected (already in use) -> retrying once with --resume`)
       startClaude(sessionId, prompt, model, project, effort, thinking, imageData, { forceResume: true })

@@ -1,5 +1,4 @@
 node_modules/
-sessions/
 logs/
 tabs.json
 *.log
@@ -15,6 +14,3 @@ ops/claude-keepalive/keepalive.log
 
 # writeJsonAtomic() の一時ファイル（クラッシュ時に残りうる）
 .*.tmp
-
-# 起動時マイグレーション（v2.12.0）が変換前に作る退避アーカイブ
-migration-backup-*.tar.gz

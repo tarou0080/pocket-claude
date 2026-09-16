@@ -19,7 +19,7 @@ function listSessions() {
     const sessionId = file.replace('.jsonl', '')
     if (!UUID_RE.test(sessionId)) continue
     const filePath = path.join(CLAUDE_PROJECTS_DIR, file)
-    let stat, title = '', updatedAt = '', msgCount = 0
+    let stat, title = '', updatedAt = '', msgCount = 0, model = null
     try {
       stat = fs.statSync(filePath)
       updatedAt = stat.mtime.toISOString()
@@ -43,12 +43,15 @@ function listSessions() {
             }
           } else if (d.type === 'assistant') {
             msgCount++
+            if (d.message && typeof d.message.model === 'string') {
+              model = d.message.model
+            }
           }
         } catch {}
       }
     } catch {}
     if (!title) title = `(${sessionId.slice(0, 8)})`
-    sessions.push({ sessionId, title: title.slice(0, 80), updatedAt, msgCount })
+    sessions.push({ sessionId, title: title.slice(0, 80), updatedAt, msgCount, model })
   }
 
   sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -110,9 +113,8 @@ function getSessionMessages(sessionId) {
 
 // 特定セッションの全イベント取得（履歴再開用）。
 //
-// v2.12.0 でID統一済み: pocket session ID === Claude session ID。逆引き（claudeSessionId
-// フィールド・sessions/全走査）は撤去した。旧pocket IDから開かれた場合は resolveCanonicalId が
-// 転送スタブを1段辿って正規IDへ寄せる。
+// v2.12.0 でID統一済み: pocket session ID === Claude session ID。逆引き
+// （claudeSessionId フィールド・sessions/全走査）は撤去した。
 // v2.12.2: pocketログの寿命＝claudeプロセスの寿命になり、進行中の会話は常に
 // pocketログ側にある。境界はテキスト照合（cutCurrentTurn、要約等でズレ得た）ではなく
 // pocketログ先頭の log_start 行が持つ mainLines（このpocketログが積まれ始めた時点の
@@ -150,6 +152,7 @@ function getSessionEvents(sessionId) {
 
   // pocketログはあるが先頭行が log_start でない（v2.12.2デプロイ以前からの旧形式ファイル）
   // → mainLines=0 扱い。本体jsonl側は何も含めず、続きは丸ごとSSEのpocketログ再生に委ねる。
+  // log_start が無くても pocket ログが無い外部会話は mainLines=0 で本体jsonl全部を返す。
   let mainLines = 0
   try {
     const firstLine = JSON.parse(pocketFirstLineText)

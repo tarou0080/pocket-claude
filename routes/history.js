@@ -1,7 +1,9 @@
 const express = require('express')
 const zlib = require('zlib')
+const fs = require('fs')
+const path = require('path')
 const router = express.Router()
-const { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay } = require('../services/history')
+const { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay, CLAUDE_PROJECTS_DIR } = require('../services/history')
 
 // セッション一覧
 router.get('/', (_req, res) => {
@@ -42,6 +44,13 @@ router.get('/:sessionId/events', (req, res) => {
     const body = JSON.stringify(events)
     const acceptEncoding = req.headers['accept-encoding'] || ''
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    // X-Main-Lines: 本体jsonlから変換した非空行数。外部会話は SSE で history-meta.maxLine
+    // として使われ、既に読み込んだ分を飛ばすための基準になる。
+    try {
+      const raw = fs.readFileSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`), 'utf8')
+      const mainLines = raw.split('\n').filter(l => l.trim()).length
+      res.setHeader('X-Main-Lines', String(mainLines))
+    } catch {}
     // X-Uncompressed-Length: 展開後（実際にクライアントが受信・デコードする）バイト数。
     // Content-Length は gzip 時は圧縮後バイト数になるため、進捗計算の分母には使えない
     // （クライアントの reader は展開後バイト数を返すため単位が食い違う）。

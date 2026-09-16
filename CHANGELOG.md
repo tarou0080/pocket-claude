@@ -4,6 +4,15 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.14.0] - 2026-09-16
+
+### Changed
+- **`sessions/*.json` and the v2.12.0 startup migration are removed** - pocket-claude no longer keeps its own session metadata files. Project, model, effort, and thinking are all read directly from the CLI's own transcript (`~/.claude/projects/<id>.jsonl`) via the new `services/session-facts.js`. The startup migration, `PC_SKIP_STARTUP_MIGRATION`, and `migration-backup-*.tar.gz` are gone. This follows the design principle "a thin wrapper should not hold facts that the CLI already holds".
+- **Conversations started outside pocket-claude are now tracked live** - If a `claude` process is running with `--session-id <id>` or `--resume <id>` but pocket-claude did not spawn it, the UI still shows it as running, streams its output from the CLI transcript, and prevents conflicting sends with a 409 `external process running`. When the external process exits, the pane displays `── External process ended ──`.
+- **`POST /api/send` can now omit the `model` field to mean "do not change"** - Sending `model: ''` still means "use the default", and any other value still switches the model. Sending no `model` at all leaves the current session's model untouched.
+- **History list now shows each conversation's last used model** - `GET /api/history` includes a `model` field for each session, and the client meta line displays `date · N messages · <model>` (omitted if unknown).
+- **Old pocket-ID tabs are no longer forwarded** - The `canonicalId` field and the `movedTo` forwarding stub infrastructure from the v2.12.0 migration have been removed. Tabs that still hold an old pocket ID are simply reopened under the canonical session ID.
+
 ## [v2.13.1] - 2026-09-15
 
 ### Docs
@@ -20,6 +29,9 @@ All notable changes to pocket-claude are documented here.
 - `services/directories.js`'s `sweepOldPocketLogs` was generalized into `sweepOldFiles(dir, ext, maxAgeDays, { exclude })` plus a new `sweepRetention(maxAgeDays)` that sweeps both `logs/` and `sessions/` in one call. `server.js` now reads `cleanupPeriodDays` once at startup and passes that same value to both the startup sweep and the daily `setInterval` - a config change takes effect on restart.
 - `services/history.js` no longer computes `~/.claude/projects/<...>` itself; it now takes `CLAUDE_PROJECTS_DIR` from the new `services/claude-dir.js`, which honors `CLAUDE_CONFIG_DIR` if set (previously hardcoded to `~/.claude` regardless of the CLI's own config location).
 - `services/spawner.js` no longer duplicates the CLI's list of valid `--permission-mode` values or silently falls back to `acceptEdits` on an unrecognized one. `config.permissionMode` (defaulting to `acceptEdits` if unset) is passed to the CLI as-is; an invalid value is now rejected by the CLI itself, visible in the tab as a stderr message, instead of being silently rewritten.
+
+### Migration note
+- The v2.12.0 startup migration (`sessions/*.json` merge, `migration-backup-*.tar.gz`, `PC_SKIP_STARTUP_MIGRATION`) was removed in v2.14.0. From v2.14.0 onward pocket-claude keeps no session metadata of its own.
 
 ## [v2.12.4] - 2026-09-15
 

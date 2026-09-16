@@ -4,6 +4,15 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v2.14.0] - 2026-09-16
+
+### 変更
+- **`sessions/*.json` と v2.12.0 の起動時マイグレーションを撤去** — pocket-claude は独自のセッションメタデータファイルを保持しなくなりました。project・model・effort・thinking はすべて、CLI 自身の会話ログ（`~/.claude/projects/<id>.jsonl`）から新設の `services/session-facts.js` で読み取ります。起動時マイグレーション・`PC_SKIP_STARTUP_MIGRATION`・`migration-backup-*.tar.gz` は削除しました。設計指針「薄いラッパーはCLIが持つ事実を自前で持たない」に従います。
+- **pocket-claude 外で起動された会話もライブで追尾** — `--session-id <id>` または `--resume <id>` で `claude` プロセスが動いていても、pocket-claude が spawn していない場合でも、UI は実行中として表示し、CLI の会話ログから出力をストリーミングします。競合する送信は 409 `external process running` で防ぎ、外部プロセス終了後は `── エージェント終了 ──` を表示します。
+- **`POST /api/send` の `model` 省略の意味を変更** — `model` フィールドを送らない場合は「現在のモデルを変えない」、`model: ''` は「既定モデル」を意味します。それ以外はモデル切り替えとして動作します。
+- **履歴一覧に最終使用モデルを表示** — `GET /api/history` の各要素に `model` を追加し、クライアントのメタ行を `日時 · N messages · <model>` に変更しました（モデル不明時は省略）。
+- **旧 pocket ID タブの転送を廃止** — v2.12.0 マイグレーションで使っていた `canonicalId` フィールドと `movedTo` 転送スタブの仕組みを削除しました。旧 pocket ID を持つタブは、正規のセッション ID で開き直されます。
+
 ## [v2.13.1] - 2026-09-15
 
 ### ドキュメント
@@ -20,6 +29,9 @@ pocket-claude の主要な変更をここに記録します。
 - `services/directories.js` の `sweepOldPocketLogs` を `sweepOldFiles(dir, ext, maxAgeDays, { exclude })` へ汎用化し、`logs/` と `sessions/` を1回で掃除する `sweepRetention(maxAgeDays)` を新設しました。`server.js` は起動時に `cleanupPeriodDays` を1回だけ読み、起動時スイープと日次の `setInterval` の両方に同じ値を渡します（設定変更の反映は再起動時）。
 - `services/history.js` は `~/.claude/projects/<...>` を自前計算しなくなり、新設 `services/claude-dir.js` から `CLAUDE_PROJECTS_DIR` を取得するようになりました。`CLAUDE_CONFIG_DIR` が設定されていればそれに追従します（従来はCLIの設定場所に関わらず `~/.claude` に固定していました）。
 - `services/spawner.js` はCLIが受け付ける `--permission-mode` の一覧を複製したり、未知の値を黙って `acceptEdits` へ書き換えたりしなくなりました。`config.permissionMode`（未設定時は `acceptEdits`）をそのままCLIへ渡します。不正な値は黙って書き換えられる代わりに、CLI自身が起動を拒否しタブにstderrとして表示されます。
+
+## v2.12.0 の移行記述は v2.14.0 で撤去済み
+- v2.12.0 で導入された起動時マイグレーション（`sessions/*.json` の統合・`migration-backup-*.tar.gz`・`PC_SKIP_STARTUP_MIGRATION`）は、v2.14.0 で削除されました。v2.14.0 以降、pocket-claude は自前のセッションメタを一切保持しません。
 
 ## [v2.12.4] - 2026-09-15
 
