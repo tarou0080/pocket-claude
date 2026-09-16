@@ -113,58 +113,108 @@ function getSessionMessages(sessionId) {
 
 // 特定セッションの全イベント取得（履歴再開用）。
 //
-// v2.12.0 でID統一済み: pocket session ID === Claude session ID。逆引き
-// （claudeSessionId フィールドによる別名解決）は撤去した。
-// v2.12.2: pocketログの寿命＝claudeプロセスの寿命になり、進行中の会話は常に
-// pocketログ側にある。境界はテキスト照合（cutCurrentTurn、要約等でズレ得た）ではなく
-// pocketログ先頭の log_start 行が持つ mainLines（このpocketログが積まれ始めた時点の
-// 本体jsonl非空行数）で決める。本体jsonlは非空行数で mainLines 件だけ読み、残りは
-// SSE側（routes/stream.js の event:history、pocketログのhistory全量再生）に任せる。
-function getSessionEvents(sessionId) {
+// v2.15.0: 会話の配信経路を1本に統一（v2.12.2の「自分の会話＝本体jsonl先頭slice＋
+// pocketログ再生／外部会話＝本体jsonl直読み」の2本を廃止）。
+// 用語:
+//  - A ＝ 本体jsonl ~/.claude/projects/<id>.jsonl（非空行番号a、各行にuuid）
+//  - B ＝ pocketログ config.LOGS_DIR/<id>.jsonl（非空行番号b、v2.15.0では各行に
+//    after: <uuid|null> ＝ 直前のA行のuuid。Bの各行はafterでAの織り込み位置を自ら指定する）
+// 実測済み: stdoutのassistant/userイベントはAの行と同じuuidを持つ。
+function buildConversation(sessionId, { fromA = 0, fromB = 0 } = {}) {
   if (!UUID_RE.test(sessionId)) {
     throw new Error('invalid sessionId')
   }
   const config = require('../config/index')
 
-  const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
-  const pocketLogPath = path.join(config.LOGS_DIR, `${sessionId}.jsonl`)
-
-  let mainRawLines
+  let mainRawLines = []
+  let pocketRawLines = []
   try {
-    mainRawLines = fs.readFileSync(jsonlPath, 'utf8').split('\n').filter(l => l.trim())
-  } catch {
-    mainRawLines = []
-  }
-
-  let pocketFirstLineText
+    mainRawLines = fs.readFileSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`), 'utf8').split('\n')
+  } catch {}
   try {
-    pocketFirstLineText = fs.readFileSync(pocketLogPath, 'utf8').split('\n').find(l => l.trim())
-  } catch {
-    pocketFirstLineText = undefined
-  }
-
-  // pocketログが無い → 本体jsonl全部（切り落とし不要）
-  if (pocketFirstLineText === undefined) {
-    return claudeEntriesToEvents(mainRawLines.map(l => {
-      try { return JSON.parse(l) } catch { return null }
-    }).filter(Boolean))
-  }
-
-  // pocketログはあるが先頭行が log_start でない（v2.12.2デプロイ以前からの旧形式ファイル）
-  // → mainLines=0 扱い。本体jsonl側は何も含めず、続きは丸ごとSSEのpocketログ再生に委ねる。
-  // log_start が無くても pocket ログが無い外部会話は mainLines=0 で本体jsonl全部を返す。
-  let mainLines = 0
-  try {
-    const firstLine = JSON.parse(pocketFirstLineText)
-    if (firstLine && firstLine.type === 'log_start' && typeof firstLine.mainLines === 'number') {
-      mainLines = firstLine.mainLines
-    }
+    pocketRawLines = fs.readFileSync(path.join(config.LOGS_DIR, `${sessionId}.jsonl`), 'utf8').split('\n')
   } catch {}
 
-  const slice = mainRawLines.slice(0, mainLines).map(l => {
-    try { return JSON.parse(l) } catch { return null }
-  }).filter(Boolean)
-  return claudeEntriesToEvents(slice)
+  return weave(mainRawLines, pocketRawLines, { fromA, fromB })
+}
+
+// weave: buildConversationの純関数部分。ファイル読みを外に出してテスト可能にしてある
+// （mainRawLines/pocketRawLines を直接渡す）。
+// 返り値: { events: [{id:'A12'|'B3', ev}], maxA, maxB }
+//  - maxA/maxB ＝ 各ファイルの非空行数−1（ファイル無し→−1）
+//  - Aの各行は claudeEntriesToEvents([entry]) で変換する。同じ行から出た複数イベントは
+//    同じid、各evに uuid: entry.uuid を付与
+//  - BのfromB以降をafterで織り込む:
+//     * after が A[:fromA] の行（描画済み）を指すもの／after===null|undefined → 先頭にB順
+//     * A[fromA:] の行を指すもの → その行のイベント群の直後
+//     * Aに無いuuidを指すもの → 末尾にB順
+function weave(mainRawLines, pocketRawLines, { fromA = 0, fromB = 0 } = {}) {
+  const aLines = (mainRawLines || []).filter(l => l && String(l).trim())
+  const bLines = (pocketRawLines || []).filter(l => l && String(l).trim())
+  const maxA = aLines.length - 1
+  const maxB = bLines.length - 1
+
+  // A側: 非空行ごとにイベント群を作る
+  const aGroups = aLines.map((raw, a) => {
+    let entry = null
+    try { entry = JSON.parse(raw) } catch {}
+    const evs = []
+    if (entry && typeof entry === 'object') {
+      for (const ev of claudeEntriesToEvents([entry])) {
+        if (entry.uuid != null) ev.uuid = entry.uuid
+        evs.push(ev)
+      }
+    }
+    return { a, id: `A${a}`, evs, uuid: entry ? entry.uuid : undefined }
+  })
+
+  const uuidToA = new Map()
+  for (const g of aGroups) {
+    if (g.uuid != null && !uuidToA.has(g.uuid)) uuidToA.set(g.uuid, g.a)
+  }
+
+  // B側: fromB以降をafterで分類する
+  const front = []
+  const end = []
+  const afterA = new Map() // a行番号 → [B行アイテム]
+  bLines.forEach((raw, b) => {
+    if (b < fromB) return
+    let ev = null
+    try { ev = JSON.parse(raw) } catch {}
+    if (!ev || typeof ev !== 'object') return
+    const item = { id: `B${b}`, ev }
+    if (ev.after == null) {
+      front.push(item)
+      return
+    }
+    const a = uuidToA.get(ev.after)
+    if (a === undefined) {
+      end.push(item)
+      return
+    }
+    if (a < fromA) {
+      front.push(item)
+      return
+    }
+    if (!afterA.has(a)) afterA.set(a, [])
+    afterA.get(a).push(item)
+  })
+
+  const events = []
+  for (const item of front) events.push(item)
+  for (const g of aGroups) {
+    if (g.a < fromA) continue
+    for (const ev of g.evs) events.push({ id: g.id, ev })
+    const group = afterA.get(g.a)
+    if (group) for (const item of group) events.push(item)
+  }
+  for (const item of end) events.push(item)
+
+  return { events, maxA, maxB }
+}
+
+function getSessionEvents(sessionId) {
+  return buildConversation(sessionId).events.map(e => e.ev)
 }
 
 // 履歴再生専用にイベント列を整理する純粋関数。
@@ -231,4 +281,4 @@ function slimEventsForReplay(events) {
   return out
 }
 
-module.exports = { listSessions, getSessionMessages, getSessionEvents, slimEventsForReplay, UUID_RE, CLAUDE_PROJECTS_DIR }
+module.exports = { listSessions, getSessionMessages, getSessionEvents, buildConversation, weave, slimEventsForReplay, UUID_RE, CLAUDE_PROJECTS_DIR }

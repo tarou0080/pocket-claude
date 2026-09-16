@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
-const { slimEventsForReplay, getSessionEvents, CLAUDE_PROJECTS_DIR } = require('../services/history')
+const { slimEventsForReplay, getSessionEvents, buildConversation, weave, CLAUDE_PROJECTS_DIR } = require('../services/history')
 const config = require('../config/index')
 
 // slimEventsForReplay() は履歴再生専用にイベント列を整理する純粋関数。
@@ -90,12 +90,90 @@ test('入力配列・要素を破壊的に書き換えない', () => {
   assert.deepEqual(original, { type: 'user', message: {}, tool_use_result: { x: 1 } })
 })
 
-// getSessionEvents() の log_start 境界（v2.12.2）。
-// pocketログの寿命＝claudeプロセスの寿命になったことに伴い、cutCurrentTurn（本体jsonl変換後の
-// テキスト照合で現在ターンを切り落とす方式）を撤去し、pocketログ先頭の log_start 行が持つ
-// mainLines（このpocketログが積まれ始めた時点の本体jsonl非空行数）で境界を決める方式へ
-// 差し替えた。実ファイル（CLAUDE_PROJECTS_DIR・config.LOGS_DIR）に直接書き込んで検証する
-// （services/history.js は依存注入に対応していないため。test/stream.test.js と同じ方針）。
+// weave() の after 織り込み（v2.15.0）。
+// A＝本体jsonl（各行にuuid）、B＝pocketログ（各行にafter: <uuid|null>）。
+// BはafterでAの織り込み位置を自ら指定する。complete条件4の3ケース＋αを検証する。
+
+function aLinesFixture() {
+  // A 3行（uuid a0..a2）。user1行＋assistant2行（各1テキストブロック）。
+  return [
+    JSON.stringify({ type: 'user', uuid: 'a0', timestamp: 't0', message: { content: 'turn1' } }),
+    JSON.stringify({ type: 'assistant', uuid: 'a1', timestamp: 't1', message: { content: [{ type: 'text', text: 'resp1' }] } }),
+    JSON.stringify({ type: 'assistant', uuid: 'a2', timestamp: 't2', message: { content: [{ type: 'text', text: 'resp2' }] } }),
+  ]
+}
+
+test('weave: fromA=0 で start→A0→A1→result→A2→done の順に織り込まれる', () => {
+  const A = aLinesFixture()
+  const B = [
+    JSON.stringify({ type: 'start', after: null }),
+    JSON.stringify({ type: 'result', after: 'a1' }),
+    JSON.stringify({ type: 'done', after: 'zz' }),
+  ]
+  const { events, maxA, maxB } = weave(A, B, { fromA: 0, fromB: 0 })
+
+  const kinds = events.map(e => {
+    if (e.id.startsWith('A')) return `A${e.ev.type}:${e.ev.text || ''}`
+    return `B${e.ev.type}`
+  })
+  assert.deepEqual(kinds, [
+    'Bstart',
+    'Auser_input:turn1',
+    'Astream_event:',
+    'Astream_event:',
+    'Astream_event:',
+    'Bresult',
+    'Astream_event:',
+    'Astream_event:',
+    'Astream_event:',
+    'Bdone',
+  ])
+  assert.equal(maxA, 2)
+  assert.equal(maxB, 2)
+})
+
+test('weave: fromA=2 なら描画済み行（a1）を指すresultは先頭、A2→done が続く', () => {
+  const A = aLinesFixture()
+  const B = [
+    JSON.stringify({ type: 'start', after: null }),
+    JSON.stringify({ type: 'result', after: 'a1' }),
+    JSON.stringify({ type: 'done', after: 'zz' }),
+  ]
+  const { events } = weave(A, B, { fromA: 2, fromB: 0 })
+  const kinds = events.map(e => e.id.startsWith('A') ? `A${e.ev.type}` : `B${e.ev.type}`)
+  // startはafter:null→先頭へ。resultはA[:2]（描画済み）を指す→先頭へ。A2の直後に来るBは無い。
+  assert.deepEqual(kinds, ['Bstart', 'Bresult', 'Astream_event', 'Astream_event', 'Astream_event', 'Bdone'])
+})
+
+test('weave: Bイベントにはuuidが付与され、A行由来のevにもuuidが付く', () => {
+  const A = aLinesFixture()
+  const B = [JSON.stringify({ type: 'result', after: 'a1' })]
+  const { events } = weave(A, B, { fromA: 0 })
+  const user = events.find(e => e.id === 'A0')
+  assert.equal(user.ev.uuid, 'a0')
+  const result = events.find(e => e.id === 'B0')
+  assert.equal(result.ev.type, 'result')
+})
+
+test('weave: ファイル無し（空配列）ならmaxA/maxBは-1', () => {
+  const { maxA, maxB } = weave([], [])
+  assert.equal(maxA, -1)
+  assert.equal(maxB, -1)
+})
+
+test('weave: fromB以降のB行だけ織り込まれる', () => {
+  const A = aLinesFixture()
+  const B = [
+    JSON.stringify({ type: 'start', after: null }),
+    JSON.stringify({ type: 'result', after: 'a1' }),
+    JSON.stringify({ type: 'done', after: 'zz' }),
+  ]
+  const { events } = weave(A, B, { fromA: 0, fromB: 1 })
+  const bIds = events.filter(e => e.id.startsWith('B')).map(e => e.id)
+  assert.deepEqual(bIds, ['B1', 'B2'])
+})
+
+// getSessionEvents() は buildConversation の薄いラッパー（実ファイル経由）。
 
 function mainJsonlPath(id) { return path.join(CLAUDE_PROJECTS_DIR, `${id}.jsonl`) }
 function pocketLogPath(id) { return path.join(config.LOGS_DIR, `${id}.jsonl`) }
@@ -118,8 +196,8 @@ test.afterEach(() => {
 test('pocketログが無ければ本体jsonl全部を返す', () => {
   const id = testSessionId()
   const lines = [
-    { type: 'user', message: { content: 'turn1' } },
-    { type: 'user', message: { content: 'turn2' } },
+    { type: 'user', uuid: 'a0', message: { content: 'turn1' } },
+    { type: 'user', uuid: 'a1', message: { content: 'turn2' } },
   ]
   fs.writeFileSync(mainJsonlPath(id), lines.map(l => JSON.stringify(l)).join('\n') + '\n')
 
@@ -127,28 +205,22 @@ test('pocketログが無ければ本体jsonl全部を返す', () => {
   assert.deepEqual(out.map(e => e.text), ['turn1', 'turn2'])
 })
 
-test('pocketログのlog_start.mainLinesで本体jsonlをsliceする', () => {
+test('buildConversation: A＋B（after付き）を織り込んで返す', () => {
   const id = testSessionId()
-  const lines = [
-    { type: 'user', message: { content: 'turn1' } },
-    { type: 'user', message: { content: 'turn2 (進行中ターン、pocketログ側で配信される)' } },
+  const aLines = aLinesFixture()
+  const bLines = [
+    JSON.stringify({ type: 'start', after: null }),
+    JSON.stringify({ type: 'result', after: 'a1' }),
   ]
-  fs.writeFileSync(mainJsonlPath(id), lines.map(l => JSON.stringify(l)).join('\n') + '\n')
-  // log_start.mainLines=1 → 本体jsonlはturn1までしか含めない
-  fs.writeFileSync(pocketLogPath(id), JSON.stringify({ type: 'log_start', mainLines: 1, epoch: 123, timestamp: 't' }) + '\n')
+  fs.writeFileSync(mainJsonlPath(id), aLines.join('\n') + '\n')
+  fs.writeFileSync(pocketLogPath(id), bLines.join('\n') + '\n')
 
-  const out = getSessionEvents(id)
-  assert.deepEqual(out.map(e => e.text), ['turn1'])
-})
-
-test('pocketログの先頭行がlog_startでない（旧形式）ならmainLines=0扱いで本体jsonlは含めない', () => {
-  const id = testSessionId()
-  const lines = [
-    { type: 'user', message: { content: 'turn1' } },
-  ]
-  fs.writeFileSync(mainJsonlPath(id), lines.map(l => JSON.stringify(l)).join('\n') + '\n')
-  fs.writeFileSync(pocketLogPath(id), JSON.stringify({ type: 'user_input', text: 'old-format live line' }) + '\n')
-
-  const out = getSessionEvents(id)
-  assert.deepEqual(out, [])
+  const conv = buildConversation(id)
+  assert.equal(conv.maxA, 2)
+  assert.equal(conv.maxB, 1)
+  const kinds = conv.events.map(e => e.id.startsWith('A') ? `A${e.ev.type}` : `B${e.ev.type}`)
+  assert.deepEqual(kinds, ['Bstart', 'Auser_input', 'Astream_event', 'Astream_event', 'Astream_event', 'Bresult', 'Astream_event', 'Astream_event', 'Astream_event'])
+  // A行由来のイベントにはA行のuuidが付く
+  const a0 = conv.events.find(e => e.id === 'A0')
+  assert.equal(a0.ev.uuid, 'a0')
 })
