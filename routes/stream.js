@@ -2,8 +2,8 @@ const fs = require('fs')
 const path = require('path')
 const express = require('express')
 const router = express.Router()
-const { getState, loadLogFile, registerSSEClient, unregisterSSEClient } = require('../services/stream')
-const { UUID_RE, CLAUDE_PROJECTS_DIR } = require('../services/history')
+const { getState, registerSSEClient, unregisterSSEClient, classifyCursor } = require('../services/stream')
+const { UUID_RE, CLAUDE_PROJECTS_DIR, buildConversation } = require('../services/history')
 const { readSessionFacts, projectFromCwd } = require('../services/session-facts')
 const { findClaudePid } = require('../services/external-process')
 const { claudeEntriesToEvents } = require('../services/history-convert')
@@ -21,6 +21,50 @@ function sendEvent(res, id, event, dataObj) {
   res.write(line)
 }
 
+// A（本体jsonl）の assistant/user 行の uuid 集合（M再送のアンカー判定用）。
+// stdout の assistant/user イベントは A の行と同じ uuid を持つ（実測）。それ以外の
+// 行種（queue-operation 等）の uuid は stream_event の uuid と衝突し得るため集めない。
+function collectAUuids(sessionId) {
+  const set = new Set()
+  let raw
+  try {
+    raw = fs.readFileSync(mainJsonlPath(sessionId), 'utf8')
+  } catch {
+    return set
+  }
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const entry = JSON.parse(line)
+      if (entry && (entry.type === 'assistant' || entry.type === 'user') && entry.uuid != null) {
+        set.add(entry.uuid)
+      }
+    } catch {}
+  }
+  return set
+}
+
+// ファイルの [start, start+length) バイトだけ読む（全読みしない）。
+function readRange(p, start, length) {
+  let fd = null
+  try {
+    fd = fs.openSync(p, 'r')
+    const buf = Buffer.alloc(length)
+    const read = fs.readSync(fd, buf, 0, length, start)
+    return read === length ? buf : buf.slice(0, read)
+  } catch {
+    return null
+  } finally {
+    try { if (fd !== null) fs.closeSync(fd) } catch {}
+  }
+}
+
+// GET /api/stream?session=<id>&fromA=<n>&fromB=<n>
+// 自分の会話（pocketがspawn）も外部会話も同じ1経路。分岐は「4. の start 合成」と
+// 「6. の pid 監視」だけ。
+//   - fromA/fromB 省略は 0（全量）。
+//   - A ＝ 本体jsonl（非空行番号 a、id: A<n>）／B ＝ pocketログ（非空行番号 b、id: B<n>）／
+//     M ＝ state[id].buffer（現在ターンの stdout 生イベント・永続化しない）。
 router.get('/', (req, res) => {
   const raw = req.query.session
   if (!raw) {
@@ -32,8 +76,8 @@ router.get('/', (req, res) => {
     return
   }
   const sessionId = raw
-  getState(sessionId)
-  const fromLine = Math.max(0, parseInt(req.query.fromLine, 10) || 0)
+  const fromA = Math.max(0, parseInt(req.query.fromA, 10) || 0)
+  const fromB = Math.max(0, parseInt(req.query.fromB, 10) || 0)
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -41,120 +85,140 @@ router.get('/', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no')
 
   const s = getState(sessionId)
-
   // 外部会話: pocketがspawnしていないが /proc 上に claude プロセスが存在する。
-  if (!s.process && findClaudePid(sessionId)) {
-    const facts = readSessionFacts(sessionId)
-    const project = projectFromCwd(facts.cwd, config.projects)
-    const displayModel = facts.modelId ?? facts.model ?? 'default'
+  const external = !s.process && !!findClaudePid(sessionId)
 
-    // 行番号空間: id=本体jsonlの非空行番号（0-origin）。1行が複数イベントに変換されても
-    // 同じ行番号を持ち、クライアントは「行番号 < lastLine」で dedup する（同一行番号の
-    // グループは丸ごと通す）。行番号を消費するのは jsonl 行だけなので、pocketが走らせて
-    // いる会話の行番号空間（pocketログの行）と独立して一貫する。
-    let rawMainLines
-    try {
-      rawMainLines = fs.readFileSync(mainJsonlPath(sessionId), 'utf8').split('\n').filter(l => l.trim())
-    } catch {
-      rawMainLines = []
-    }
-    const entries = rawMainLines.map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+  const heartbeat = setInterval(() => {
+    try { res.write(': ping\n\n') } catch {}
+  }, 20000)
 
-    // fromLine=最後に受信した行番号。それより後の行（=行番号 >= fromLine のグループ）だけ送る。
-    // fromLine=0 は全量。
-    const startLine = fromLine
-    entries.forEach((entry, lineNo) => {
-      if (lineNo < startLine) return
-      const converted = claudeEntriesToEvents([entry])
-      converted.forEach(ev => sendEvent(res, lineNo, 'history', ev))
-    })
-    const maxLine = Math.max(0, entries.length - 1)
-    sendEvent(res, undefined, 'history-meta', { base: 0, maxLine, external: true })
-    sendEvent(res, undefined, undefined, { type: 'start', project, model: displayModel, external: true })
+  const { events, maxA, maxB } = buildConversation(sessionId, { fromA, fromB })
 
-    let lastSize = 0
-    try {
-      lastSize = fs.statSync(mainJsonlPath(sessionId)).size
-    } catch {}
-    // 末尾の不完全行はバイト列のままバッファし、改行が揃ってから toString('utf8') する
-    // （マルチバイト文字の境界で分割されないようにする＝バイト長と文字長の混同防止）。
-    let buffered = Buffer.alloc(0)
-    // 追記分の行番号は「変換済みjsonl行数」の累積カウンタ。起動時点の行数から始める。
-    let nextLineNo = entries.length
-
-    // 新規追加分を検出して配信
-    function processTail() {
-      let rawMain
-      try {
-        rawMain = fs.readFileSync(mainJsonlPath(sessionId))
-      } catch { return }
-      const newBytes = rawMain.slice(lastSize)
-      lastSize = rawMain.length
-      buffered = Buffer.concat([buffered, newBytes])
-      let nlIndex
-      // 最後の不完全行はバッファに残す
-      while ((nlIndex = buffered.indexOf(0x0a)) !== -1) {
-        const lineBuf = buffered.slice(0, nlIndex)
-        buffered = buffered.slice(nlIndex + 1)
-        const line = lineBuf.toString('utf8')
-        if (!line.trim()) continue
-        const lineNo = nextLineNo
-        try {
-          const entry = JSON.parse(line)
-          const converted = claudeEntriesToEvents([entry])
-          // 同一 jsonl 行から変換されたイベント群は1グループ＝同じ行番号を持つ
-          converted.forEach(ev => sendEvent(res, lineNo, 'history', ev))
-        } catch {}
-        nextLineNo++
-      }
-    }
-
-    const pollInterval = setInterval(() => {
-      const pid = findClaudePid(sessionId)
-      if (!pid) {
-        sendEvent(res, undefined, undefined, { type: 'done', exitCode: null, reason: 'external_exit' })
-        _cleanupExternal()
-        return
-      }
-      processTail()
-    }, 2000)
-
-    let watcher = null
-    function _cleanupExternal() {
-      clearInterval(pollInterval)
-      try { watcher.close() } catch {}
-    }
-
-    try {
-      watcher = fs.watch(mainJsonlPath(sessionId), () => processTail())
-    } catch {}
-
-    req.on('close', _cleanupExternal)
+  // 1. カーソルがサーバーの履歴を追い越している（jsonl削除・セッション再利用等）なら
+  //    履歴は送らずリセットだけ伝える。接続は保ち、以降は何も送らない（クライアントが
+  //    カーソルを 0 に戻して張り直す）。
+  if (classifyCursor({ fromA, fromB }, { maxA, maxB }) === 'reset') {
+    sendEvent(res, undefined, 'history-meta', { maxA, maxB, reset: true })
+    req.on('close', () => clearInterval(heartbeat))
     return
   }
 
-  // 暫定実装（A3で新プロトコルへ書き直す）: B（pocketログ）の全量を event: history
-  // （id B<n>）で流し、history-meta は {maxA:-1, maxB} を返す。クライアントの
-  // fromLine/epoch は使わない（全量送り）。外部会話分岐（上）は触らない。
-  const all = loadLogFile(sessionId)
-  const maxB = all.length - 1
+  // 2. 履歴（A+B を after で織り込んだもの）: event: history / id: A<n>|B<n>
+  for (const item of events) {
+    sendEvent(res, item.id, 'history', item.ev)
+  }
 
-  all.forEach((ev, i) => {
-    res.write(`event: history\nid: B${i}\ndata: ${JSON.stringify(ev)}\n\n`)
-  })
-  res.write(`event: history-meta\ndata: ${JSON.stringify({ maxA: -1, maxB })}\n\n`)
+  // 3. M 再送: バッファの中で「uuid が A に存在する assistant/user イベントの最後」より
+  //    後ろだけを対象にする（それより前は履歴再生で既に届いている）。対象のうち
+  //    assistant/user は表示語彙へ変換して event: history（id 無し・クライアントは
+  //    uuid で履歴側と照合）、それ以外の生イベント（書きかけの stream_event 等）は
+  //    そのまま id 無しの無名イベントで送る。
+  if (Array.isArray(s.buffer) && s.buffer.length) {
+    const aUuids = collectAUuids(sessionId)
+    let start = 0
+    for (let i = 0; i < s.buffer.length; i++) {
+      const ev = s.buffer[i]
+      if ((ev.type === 'assistant' || ev.type === 'user') && ev.uuid != null && aUuids.has(ev.uuid)) {
+        start = i + 1
+      }
+    }
+    for (let i = start; i < s.buffer.length; i++) {
+      const ev = s.buffer[i]
+      if (ev.type === 'assistant' || ev.type === 'user') {
+        for (const c of claudeEntriesToEvents([ev])) {
+          if (ev.uuid != null) c.uuid = ev.uuid
+          sendEvent(res, undefined, 'history', c)
+        }
+      } else {
+        sendEvent(res, undefined, undefined, ev)
+      }
+    }
+  }
+
+  // 4. 外部会話は start を合成する（自分の会話の start は B の再生に含まれる）。
+  if (external) {
+    const facts = readSessionFacts(sessionId)
+    const project = projectFromCwd(facts.cwd, config.projects)
+    const displayModel = facts.modelId ?? facts.model ?? 'default'
+    sendEvent(res, undefined, undefined, { type: 'start', project, model: displayModel, external: true })
+  }
+
+  // 5. カーソル境界（クライアントが次に送るべき fromA/fromB の材料）。
+  sendEvent(res, undefined, 'history-meta', { maxA, maxB, external })
+
+  // 6. 以降は源を問わず全部ライブ（無名イベント）。
+  //    registerSSEClient に B の追記（broadcast・id: B<n>）と M の生イベント
+  //    （emitLive・id 無し）が流れる。加えて A の追記を全セッション共通で tail する。
   registerSSEClient(sessionId, res)
 
-  const heartbeat = setInterval(() => {
-    try {
-      res.write(': ping\n\n')
-    } catch {}
-  }, 20000)
+  const aPath = mainJsonlPath(sessionId)
+  let aExists = true
+  let lastSize = 0
+  // 追加行の非空行番号の起点＝既存の非空行数（再生済みの A0..A<maxA> の次）。
+  let nextA = maxA + 1
+  try {
+    lastSize = fs.statSync(aPath).size
+  } catch {
+    aExists = false
+    nextA = 0
+  }
+  // 末尾の不完全行はバイト列のままバッファし、改行が揃ってから toString('utf8') する
+  // （マルチバイト文字の境界で分割されないようにする＝バイト長と文字長の混同防止）。
+  let tailBuf = Buffer.alloc(0)
 
-  req.on('close', () => {
+  function processTail() {
+    let st
+    try { st = fs.statSync(aPath) } catch { return } // A がまだ無い＝ポーリングで待つ
+    if (!aExists) {
+      // 接続後に A が現れた: 全行が新規（nextA も 0 から）
+      aExists = true
+      lastSize = 0
+      nextA = 0
+      try { if (!watcher) watcher = fs.watch(aPath, () => processTail()) } catch {}
+    }
+    if (st.size <= lastSize) return
+    const newBytes = readRange(aPath, lastSize, st.size - lastSize)
+    lastSize = st.size
+    if (!newBytes) return
+    tailBuf = Buffer.concat([tailBuf, newBytes])
+    let nl
+    // 最後の不完全行はバッファに残す
+    while ((nl = tailBuf.indexOf(0x0a)) !== -1) {
+      const lineBuf = tailBuf.slice(0, nl)
+      tailBuf = tailBuf.slice(nl + 1)
+      const line = lineBuf.toString('utf8')
+      if (!line.trim()) continue
+      const lineNo = nextA++
+      try {
+        const entry = JSON.parse(line)
+        for (const ev of claudeEntriesToEvents([entry])) {
+          sendEvent(res, `A${lineNo}`, undefined, ev)
+        }
+      } catch {}
+    }
+  }
+
+  function cleanup() {
     clearInterval(heartbeat)
+    clearInterval(tailPoll)
+    try { watcher.close() } catch {}
     unregisterSSEClient(sessionId, res)
-  })
+  }
+
+  let watcher = null
+  try { watcher = fs.watch(aPath, () => processTail()) } catch {}
+
+  const tailPoll = setInterval(() => {
+    processTail()
+    // 外部会話は pid の消滅を見て終了させる（最終行を送り切ってから done）。
+    if (external && !findClaudePid(sessionId)) {
+      sendEvent(res, undefined, undefined, { type: 'done', exitCode: null, reason: 'external_exit' })
+      cleanup()
+      return
+    }
+  }, 2000)
+
+  req.on('close', cleanup)
 })
 
 module.exports = router
