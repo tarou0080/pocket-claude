@@ -13,7 +13,7 @@ All notable changes to pocket-claude are documented here.
 - **The current turn's raw stdout events are no longer persisted** - They live only in memory (`state[id].buffer`) and are re-sent to newly connecting clients; the full history remains in A (the CLI transcript) and B (facts only).
 
 ### Migration note
-- Old `logs/*.jsonl` files (with a `log_start` first line) are converted in place at startup; no manual action needed. Clients must stop sending `fromLine`/`epoch` and use `fromA`/`fromB` (this repo's bundled `public/index.html` does both).
+- Old `logs/*.jsonl` files (with a `log_start` first line) are converted in place at startup; no manual action needed. Clients must stop sending `fromLine`/`epoch` and use `fromA`/`fromB` (this repo's bundled `public/index.html` is updated in the same release).
 
 ## [v2.14.0] - 2026-09-16
 
