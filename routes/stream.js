@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const express = require('express')
 const router = express.Router()
-const { getState, loadLogFile, registerSSEClient, unregisterSSEClient, classifyCursor } = require('../services/stream')
+const { getState, loadLogFile, registerSSEClient, unregisterSSEClient } = require('../services/stream')
 const { UUID_RE, CLAUDE_PROJECTS_DIR } = require('../services/history')
 const { readSessionFacts, projectFromCwd } = require('../services/session-facts')
 const { findClaudePid } = require('../services/external-process')
@@ -33,6 +33,7 @@ router.get('/', (req, res) => {
   }
   const sessionId = raw
   getState(sessionId)
+  const fromLine = Math.max(0, parseInt(req.query.fromLine, 10) || 0)
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -60,8 +61,8 @@ router.get('/', (req, res) => {
     const entries = rawMainLines.map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
 
     // fromLine=最後に受信した行番号。それより後の行（=行番号 >= fromLine のグループ）だけ送る。
-    // fromLine=0 は全量。（A2暫定: クエリからの fromLine は解釈しない＝常に全量。A3で統一）
-    const startLine = 0
+    // fromLine=0 は全量。
+    const startLine = fromLine
     entries.forEach((entry, lineNo) => {
       if (lineNo < startLine) return
       const converted = claudeEntriesToEvents([entry])
