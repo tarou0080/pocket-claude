@@ -9,7 +9,6 @@ function loadConfig() {
     return {
       port: 3333,
       permissionMode: 'acceptEdits',
-      sessionDir: './sessions',
       logsDir: './logs'
     }
   }
@@ -61,6 +60,5 @@ const config = loadConfig()
 module.exports = {
   ...config,
   projects: loadProjects(),
-  SESSIONS_DIR: path.join(__dirname, '..', config.sessionDir || 'sessions'),
   LOGS_DIR: path.join(__dirname, '..', config.logsDir || 'logs')
 }

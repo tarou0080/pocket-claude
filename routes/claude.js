@@ -5,12 +5,11 @@ const router = express.Router()
 const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
-const { saveSessionSettings, getSessionSettings, resolveCanonicalId } = require('../services/sessions')
+const { readSessionFacts, matchConfigModel, projectFromCwd, sessionExists } = require('../services/session-facts')
+const { findClaudePid } = require('../services/external-process')
 const { UUID_RE } = require('../services/history')
 const { proxyRouteChanged } = require('../services/proxy-route')
 const config = require('../config/index')
-
-const sessionsDir = path.join(__dirname, '..', 'sessions')
 
 // プロジェクト一覧
 router.get('/projects', (_req, res) => {
@@ -22,15 +21,10 @@ router.get('/status', (req, res) => {
   const raw = req.query.session
   if (!raw) return res.status(400).json({ error: 'session required' })
   if (!UUID_RE.test(raw)) return res.status(400).json({ error: 'invalid sessionId' })
-  // 旧pocket IDで問い合わせられたら正規ID（Claude session ID）へ寄せ、応答にも返す。
-  // フロントはこの canonicalId が自分の持つIDと違えばlocalStorageのタブを貼り替える
-  // （逆引きは呼ばない＝サーバーが返す値を信じるだけ）。
-  const sessionId = resolveCanonicalId(raw)
+  const sessionId = raw
   const s = getState(sessionId)
-  const resp = { running: s.turning, canonicalId: sessionId }
-  // CLI側キュー(still_queued)は control_request(interrupt) の応答でのみ取得できる限定的な情報。
-  // 常時ポーリングしてまで取りに行くコストには見合わないため、直近のinterrupt時点のスナップショットを
-  // 参考情報として添えるだけに留める（サーバー真実源の照合対象を広げすぎない）。
+  const externalPid = !s.process ? findClaudePid(sessionId) : null
+  const resp = { running: s.turning || (!!externalPid), external: !!externalPid }
   if (Array.isArray(s.lastStillQueued) && s.lastStillQueued.length) resp.cliStillQueued = s.lastStillQueued
   res.json(resp)
 })
@@ -38,43 +32,29 @@ router.get('/status', (req, res) => {
 // プロンプト送信
 router.post('/send', async (req, res) => {
   const { prompt, sessionId, project, model, effort, thinking, images } = req.body
-  // images: [{ mediaType, data }] の配列（base64）
   const imageData = (Array.isArray(images) && images.length > 0) ? images : null
   if (!imageData && (!prompt || !prompt.trim())) return res.status(400).json({ error: 'prompt required' })
-  // sessionId は未指定なら下で randomUUID() を採番する（既存挙動を維持）。
-  // 指定がある場合のみ形式を検証する（history.js の読み出し経路と同じ規則を書き込み側にも適用）。
   if (sessionId && !UUID_RE.test(sessionId)) {
     return res.status(400).json({ error: 'invalid sessionId' })
   }
-  // 旧pocket IDで送信されても正規ID（Claude session ID）の会話へ届ける
-  const canonicalSessionId = sessionId ? resolveCanonicalId(sessionId) : null
-  // model は --model へそのまま渡る値。config.models を設定している利用者は、
-  // そこに無い値をUIのキュレーションを迂回して送られても弾けるようにする。
-  // config.models が未設定・空の場合は従来どおり素通し（設定していない利用者を壊さない）。
+
   if (model && Array.isArray(config.models) && config.models.length > 0) {
     const allowed = config.models.some(m => m.value === model)
     if (!allowed) return res.status(400).json({ error: 'invalid model' })
   }
 
   const { randomUUID } = require('crypto')
-  const actualSessionId = canonicalSessionId || randomUUID()
+  const actualSessionId = sessionId || randomUUID()
   const actualProject = project || Object.keys(config.projects)[0]
 
   const s = getState(actualSessionId)
 
-  // アイドル中(ターン外)にモデルが変更された場合は、まず control_request(set_model) で
-  // 常駐プロセスへ直接モデルを切り替える（会話文脈・プロセスとも継続、再起動なし）。
-  // ACKが来ない/失敗した場合のみ、従来どおりプロセスを止めて --resume で新モデル再起動する。
-  // ターン中は表示側でモデル選択をロックしているため、ここに来る変更は基本アイドル時のみ。
-  //
-  // ただし set_model はプロセスのenv（ANTHROPIC_BASE_URL等）を変えない。切替前後のモデルが
-  // 異なるプロキシ経路（config.proxyModels、spawner.jsのstartClaudeが参照するのと同じ引き方）
-  // に属する場合、set_modelが成功してもCLI内部のモデル名だけが変わりenvは古い経路を向いたまま
-  // 残ってしまう（例: qwen→opus切替でANTHROPIC_BASE_URLがccrを向いたまま残り、CLIが"opus"と
-  // 報告してもccrのRouter.defaultで実際はqwenへルーティングされ続ける）。
-  // このケースはset_modelを試さず、最初からkill+--resume再起動へ進む（新プロセスは
-  // startClaudeが正しいenvで起動し直す）。
-  if (s.process && !s.turning && (model || null) !== (s.model || null)) {
+  // 外部プロセスが走っている場合は送信しない（pocketが管理していないため）。
+  if (!s.process && findClaudePid(actualSessionId)) {
+    return res.status(409).json({ error: 'external process running' })
+  }
+
+  if (s.process && !s.turning && model !== undefined && (model || null) !== (s.model || null)) {
     const proxyRouteChanges = proxyRouteChanged(config, s.model, model)
 
     let switched = false
@@ -95,29 +75,16 @@ router.post('/send', async (req, res) => {
 
     if (!switched) {
       const oldProc = s.process
-      // spawnerのcloseハンドラ(=s.process=null/doneブロードキャスト)を外す。
-      // タイムアウト先行時に遅れて発火し、再起動後の新プロセスを誤って無効化するレースを防ぐ。
       oldProc.removeAllListeners('close')
       await new Promise(resolve => {
         oldProc.once('close', resolve)
         oldProc.kill('SIGTERM')
-        setTimeout(resolve, 3000) // 終了が来ない場合の保険
+        setTimeout(resolve, 3000)
       })
-      if (s.process === oldProc) s.process = null // 未起動扱いに戻し、startClaude(--resume) へ進ませる
+      if (s.process === oldProc) s.process = null
     }
   }
 
-  // project/model/effort/thinking をセッションの属性として保存する。
-  // 予約投稿・自動再開（レート制限）など、後からこれらの値を渡せない/渡し忘れうる
-  // 呼び出し元がこのセッションへ配送する際に最後の設定へフォールバックできるようにする。
-  saveSessionSettings(actualSessionId, {
-    project: actualProject,
-    model: model || null,
-    effort: effort || null,
-    thinking: thinking !== undefined ? thinking : null,
-  })
-
-  // git pull（プロセスが死んでいて新規起動する場合のみ。生存プロセスへの注入時は従来どおり行わない）
   if (!s.process) {
     const projectDir = config.projects[actualProject]
     if (projectDir) {
@@ -154,18 +121,26 @@ router.post('/stop', async (req, res) => {
   const raw = req.body.session
   if (!raw) return res.status(400).json({ error: 'session required' })
   if (!UUID_RE.test(raw)) return res.status(400).json({ error: 'invalid sessionId' })
-  const sessionId = resolveCanonicalId(raw)
+  const sessionId = raw
+  const s = getState(sessionId)
+  if (!s.process) return res.status(409).json({ error: 'not running' })
   const stopped = await stopClaude(sessionId)
   if (!stopped) return res.status(409).json({ error: 'not running' })
   res.json({ ok: true })
 })
 
-// セッションの最終使用設定を取得（履歴からの復帰時、端末の既定値ではなく
-// そのセッションで最後に使われていたmodel/effort/thinkingを引き継ぐための読み取り専用エンドポイント）
+// セッションの最終使用設定を取得（履歴からの復帰時に使う）
 router.get('/session-settings/:sessionId', (req, res) => {
   const { sessionId } = req.params
   if (!UUID_RE.test(sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
-  res.json(getSessionSettings(resolveCanonicalId(sessionId)))
+  if (!sessionExists(sessionId)) return res.json({ project: null, model: null, modelResolved: null, effort: null })
+  const facts = readSessionFacts(sessionId)
+  res.json({
+    project: projectFromCwd(facts.cwd, config.projects),
+    model: matchConfigModel(facts, config.models),
+    modelResolved: facts.model,
+    effort: facts.effort,
+  })
 })
 
 // セッションリセット
@@ -173,31 +148,30 @@ router.post('/reset', (req, res) => {
   const raw = req.body.session
   if (!raw) return res.status(400).json({ error: 'session required' })
   if (!UUID_RE.test(raw)) return res.status(400).json({ error: 'invalid sessionId' })
-  const sessionId = resolveCanonicalId(raw)
+  const sessionId = raw
   const s = getState(sessionId)
   if (s.process) return res.status(409).json({ error: 'Claude is running.' })
+  if (findClaudePid(sessionId)) return res.status(409).json({ error: 'external process running' })
   s.buffer = []
   fs.unlink(logFile(sessionId), () => {})
-  fs.unlink(path.join(sessionsDir, `${sessionId}.json`), () => {})
   res.json({ ok: true, sessionId })
 })
 
 // 自動再開スケジュール登録
 router.post('/schedule-resume/:sessionId', (req, res) => {
   if (!UUID_RE.test(req.params.sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
-  const sessionId = resolveCanonicalId(req.params.sessionId)
+  const sessionId = req.params.sessionId
   const { resetAt, prompt, project, model, effort, thinking } = req.body
   if (!sessionId || !resetAt) return res.status(400).json({ error: 'sessionId, resetAt required' })
   console.log(`[schedule-resume] POST sessionId=${sessionId} autoResume=${!!prompt} resetAt=${resetAt}`)
   scheduleResume(sessionId, resetAt, prompt, project, model, effort, thinking)
-  // 計算後の実際のキック時刻(fireAt)を返し、クライアントがカードに表示できるようにする
   res.json(getSchedule(sessionId) || { ok: true })
 })
 
 // 自動再開スケジュールキャンセル
 router.delete('/schedule-resume/:sessionId', (req, res) => {
   if (!UUID_RE.test(req.params.sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
-  const sessionId = resolveCanonicalId(req.params.sessionId)
+  const sessionId = req.params.sessionId
   console.log(`[schedule-resume] DELETE sessionId=${sessionId}`)
   cancelResume(sessionId)
   res.json({ ok: true })
@@ -206,16 +180,13 @@ router.delete('/schedule-resume/:sessionId', (req, res) => {
 // 自動再開スケジュール確認
 router.get('/schedule-resume/:sessionId', (req, res) => {
   if (!UUID_RE.test(req.params.sessionId)) return res.status(400).json({ error: 'invalid sessionId' })
-  const sessionId = resolveCanonicalId(req.params.sessionId)
+  const sessionId = req.params.sessionId
   const s = getSchedule(sessionId)
   console.log(`[schedule-resume] GET sessionId=${sessionId} → resetAt=${s?.resetAt || 'null'} autoResume=${s ? !!s.prompt : 'null'}`)
   res.json(s || { resetAt: null })
 })
 
 // フロントエンドからのデバッグログ受信
-// このルート専用の上限（config.maxBodySizeMbとは別枠・小さめ固定値）。
-// 全体のボディ上限は既定で無制限(maxBodySizeMb:0)になりうるため、
-// journaldへ無制限に書き込めてしまわないようここだけ明示的に制限する。
 const CLIENT_LOG_MAX_BYTES = 64 * 1024
 router.post('/client-log', (req, res) => {
   const bodyStr = JSON.stringify(req.body || {})

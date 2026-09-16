@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
 const config = require('../config/index')
-const { getSessionProject } = require('./sessions')
+const { readSessionFacts, projectFromCwd } = require('./session-facts')
 const { writeJsonAtomic } = require('./persist')
 
 const POSTS_FILE = path.join(__dirname, '..', 'scheduled-posts.json')
@@ -14,10 +14,15 @@ const POSTS_FILE = path.join(__dirname, '..', 'scheduled-posts.json')
 // failed は自動掃除しない。ユーザーが編集(再スケジュール)/再送/削除するまで残す。
 const posts = new Map()
 
-// project 解決の優先順位: 明示指定 → セッションに紐づく保存値 → 既定プロジェクト。
-// 保存済みの project:null レコード（旧バグの副作用）もここで救済される。
+// project 解決の優先順位: 明示指定 → 本体jsonlの cwd から逆引き → 既定プロジェクト。
 function resolveProject(explicitProject, sessionId) {
-  return explicitProject || getSessionProject(sessionId) || Object.keys(config.projects)[0] || null
+  if (explicitProject) return explicitProject
+  const facts = readSessionFacts(sessionId)
+  if (facts.cwd) {
+    const byCwd = projectFromCwd(facts.cwd, config.projects)
+    if (byCwd) return byCwd
+  }
+  return Object.keys(config.projects)[0] || null
 }
 
 function savePosts() {

@@ -5,7 +5,6 @@ const path = require('path')
 const config = require('../config/index')
 const { broadcast, getState, ensurePocketLog } = require('./stream')
 const { gitPull } = require('./git')
-const { loadSessionMeta, markStarted } = require('./sessions')
 const { CLAUDE_PROJECTS_DIR } = require('./history')
 const { parseResetTime } = require('./reset-time')
 const { getProxyEnv, getToolFlags } = require('./proxy-route')
@@ -55,8 +54,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   const projectDir = projects[project] || projects[Object.keys(projects)[0]]
   const s = getState(sessionId)
 
-  const meta = loadSessionMeta(sessionId)
-  const hasRun = !!opts.forceResume || !!meta.started ||
+  const hasRun = !!opts.forceResume ||
     fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`))
   const idArgs = hasRun ? ['--resume', sessionId] : ['--session-id', sessionId]
   const usedSessionId = !hasRun
@@ -125,9 +123,6 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   })
   s.process = proc
   proc.stdin.on('error', () => {})
-
-  // 初回spawnが起動できた＝以後このIDは --resume で開く（--session-id 再指定は拒否される）。
-  if (usedSessionId) markStarted(sessionId)
 
   // "already in use" を stderr で検知したら、--resume で一度だけ再試行する（fail-loud）。
   let sawIdInUse = false
@@ -215,7 +210,6 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
     // なので無限ループしない）。
     if (usedSessionId && sawIdInUse && !opts.forceResume) {
       console.warn(`[spawn] --session-id ${sessionId} rejected (already in use) -> retrying once with --resume`)
-      markStarted(sessionId)
       startClaude(sessionId, prompt, model, project, effort, thinking, imageData, { forceResume: true })
       return
     }

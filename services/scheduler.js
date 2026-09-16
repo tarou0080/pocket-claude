@@ -50,17 +50,15 @@ async function doResume(sessionId) {
 
   const { broadcast } = require('./stream')
   const { deliverPrompt, gitPull } = require('./spawner')
-  const { getSessionSettings } = require('./sessions')
+  const { readSessionFacts, projectFromCwd, matchConfigModel } = require('./session-facts')
   const config = require('../config/index')
 
-  // レコードの値 → セッション保存値 → 既定 の順で解決する。
-  // この登録エントリが古いバグの副作用でmodel/effort/thinking無しのまま保存されていても、
-  // そのタブが最後に使っていた設定へフォールバックできるようにする（予約投稿と同じ考え方）。
-  const settings = getSessionSettings(sessionId)
-  const project = s.project || settings.project
-  const model = s.model || settings.model
-  const effort = s.effort || settings.effort
-  const thinking = s.thinking != null ? s.thinking : settings.thinking
+  // レコードの値 → 本体jsonlの事実 → 既定 の順で解決する。
+  const facts = readSessionFacts(sessionId)
+  const project = s.project || projectFromCwd(facts.cwd, config.projects)
+  const model = s.model || matchConfigModel(facts, config.models)
+  const effort = s.effort || facts.effort
+  const thinking = s.thinking != null ? s.thinking : null
 
   const projectDir = config.projects[project]
   if (projectDir) {

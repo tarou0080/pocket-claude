@@ -28,26 +28,10 @@ const retentionDays = readCleanupPeriodDays()
 // ディレクトリ初期化
 initDirectories(retentionDays)
 
-// logs/*.jsonl・sessions/*.json の日数GC（v2.12.3、v2.13.0でsessionsにも拡大）: 起動時に
+// logs/*.jsonl の日数GC（v2.12.3、v2.13.0）: 起動時に
 // 加えて日次でも走らせる（長期稼働で保持日数超のファイルが溜まらないようにするだけ・
 // 破棄条件は services/directories.js の sweepRetention 参照）。
 setInterval(() => sweepRetention(retentionDays), 24 * 60 * 60 * 1000).unref()
-
-// 起動時マイグレーション（v2.12.0・schema version 1）: pocket ID と Claude session ID の
-// 二重身分を廃止する。冪等（sessions/.schema.json）・変換前に tar.gz 退避・全件を起動ログへ出力。
-// 子プロセスが誰もファイルを掴んでいない起動フェーズでのみ実行する（配信開始前）。
-const { runStartupMigration } = require('./services/migrate')
-if (process.argv.includes('--migrate-dry-run')) {
-  console.log(JSON.stringify(runStartupMigration({ dryRun: true }), null, 2))
-  process.exit(0)
-}
-// PC_SKIP_STARTUP_MIGRATION=1 で起動時マイグレーションを見送る（検証・トラブル時の逃げ道）。
-// 通常運用では設定しない＝schema未達なら初回起動で1回だけ走り、以後は冪等にskipされる。
-if (process.env.PC_SKIP_STARTUP_MIGRATION === '1') {
-  console.log('[migrate] skipped (PC_SKIP_STARTUP_MIGRATION=1)')
-} else {
-  runStartupMigration()
-}
 
 // 起動時: 未完了ログを修復（start あり・done なし → 強制 done を追記）
 // サーバーが実行中に再起動した場合、UIが「生成中」で詰まるのを防ぐ

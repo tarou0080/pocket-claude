@@ -1,7 +1,6 @@
 const fs = require('fs')
 const path = require('path')
 const { claudeEntriesToEvents } = require('./history-convert')
-const { resolveCanonicalId } = require('./sessions')
 const { CLAUDE_PROJECTS_DIR } = require('./claude-dir')
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -61,9 +60,6 @@ function getSessionMessages(sessionId) {
   if (!UUID_RE.test(sessionId)) {
     throw new Error('invalid sessionId')
   }
-  // 旧pocket IDのタブから開かれても正規ID（Claude session ID）の会話を返す
-  sessionId = resolveCanonicalId(sessionId)
-
   // セキュリティ: CLAUDE_PROJECTS_DIRの存在確認
   if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
     console.error('[SECURITY] CLAUDE_PROJECTS_DIR does not exist:', CLAUDE_PROJECTS_DIR)
@@ -126,8 +122,6 @@ function getSessionEvents(sessionId) {
   if (!UUID_RE.test(sessionId)) {
     throw new Error('invalid sessionId')
   }
-  sessionId = resolveCanonicalId(sessionId)
-
   const config = require('../config/index')
 
   const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)

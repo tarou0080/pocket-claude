@@ -9,7 +9,6 @@ const {
   getAllPosts,
   getPostsBySession
 } = require('../services/scheduled-posts')
-const { resolveCanonicalId } = require('../services/sessions')
 const { UUID_RE } = require('../services/history')
 
 // 予約投稿作成
@@ -19,7 +18,8 @@ router.post('/', (req, res) => {
   if (!scheduledAt || !prompt || !sessionId) {
     return res.status(400).json({ error: 'scheduledAt, prompt, sessionId are required' })
   }
-  if (UUID_RE.test(sessionId)) sessionId = resolveCanonicalId(sessionId)
+  if (UUID_RE.test(sessionId)) sessionId = sessionId
+  else return res.status(400).json({ error: 'invalid sessionId' })
   const id = createPost({ scheduledAt, prompt, sessionId, project, model, effort, thinking })
   res.json({ id })
 })
@@ -32,7 +32,7 @@ router.get('/', (req, res) => {
 // 特定セッションの予約投稿取得
 router.get('/session/:sessionId', (req, res) => {
   const sessionId = UUID_RE.test(req.params.sessionId)
-    ? resolveCanonicalId(req.params.sessionId)
+    ? req.params.sessionId
     : req.params.sessionId
   res.json(getPostsBySession(sessionId))
 })
@@ -64,7 +64,6 @@ router.post('/:id/resend', async (req, res) => {
   if (!existed) return res.status(404).json({ error: 'Not found' })
   await resendPost(req.params.id)
   const after = getPost(req.params.id)
-  // after が null = 配送成功して削除された（従来どおり一覧から消える）
   res.json({ success: true, post: after })
 })
 
