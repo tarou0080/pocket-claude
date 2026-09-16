@@ -3,7 +3,7 @@ const { randomUUID } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
-const { broadcast, getState, ensurePocketLog } = require('./stream')
+const { broadcast, emitLive, noteUuid, getState } = require('./stream')
 const { gitPull } = require('./git')
 const { CLAUDE_PROJECTS_DIR } = require('./history')
 const { parseResetTime } = require('./reset-time')
@@ -61,6 +61,9 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   // spawn時のモデルを記録。/api/send がアイドル時のモデル変更を検知し、
   // 異なれば --resume で再起動して新モデルを適用するために使う。
   s.model = model || null
+  // Bのafter起点をリセット（v2.15.0）。次の最初の broadcast で A の最後の
+  // user/assistant 行のuuidから再初期化される（=会話がAのどこから続くかをBが自ら運ぶ）。
+  s.lastUuid = undefined
 
   // permissionMode の妥当性は CLI が正（一覧をここで複製しない・v2.13.0）。無効値は
   // claude CLI が起動時に stderr で拒否し、それがそのままタブへ出る（fail-loud）。
@@ -113,9 +116,6 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   })
 
   console.log(`[spawn] project=${project} cwd=${projectDir}`)
-  // spawn直前にlog_start境界を確定させる（stdin書き込み前の_sendMessage側の呼び出しは
-  // 冪等な安全網。ここが本来の境界確定点＝CLIがまだ本体jsonlへ何も書いていない時点）。
-  ensurePocketLog(sessionId)
   const proc = spawn('claude', args, {
     cwd: projectDir,
     env: { ...process.env, ...(proxyEnv || {}) },
@@ -188,9 +188,22 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
               console.log(`[rate-limit] saved resetAt=${resetAt.toISOString()}`)
             }
           }
+          broadcast(sessionId, parsed)
+          return
         }
 
-        broadcast(sessionId, parsed)
+        // 事実と生イベントの振り分け（v2.15.0）: Bへ永続化する事実は broadcast、
+        // 現在ターンの生イベント（stream_event等）は emitLive（bufferのみ）。
+        // assistant/user は A の行と同じ uuid を持つ（実測）ため、先に noteUuid してから
+        // emitLive する＝次の broadcast の after が直前のA行を指す。
+        if (parsed.type === 'result' || (parsed.type === 'system' && parsed.subtype === 'init')) {
+          broadcast(sessionId, parsed)
+        } else if (parsed.type === 'assistant' || parsed.type === 'user') {
+          noteUuid(sessionId, parsed.uuid)
+          emitLive(sessionId, parsed)
+        } else {
+          emitLive(sessionId, parsed)
+        }
       } catch {
         broadcast(sessionId, { type: 'raw', text: line })
       }
@@ -225,10 +238,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
 }
 
 // stdin に user メッセージを JSON で送信。書き込みの成否をbooleanで返す
-// （呼び出し元が「送信できたか」を見て broadcast/ログの要否を判断するため）。
-// ensurePocketLog(sessionId) を stdin 書き込み「直前」に呼ぶ（v2.12.2 log_start境界）:
-// CLIはstdin受信後ms単位で本体jsonlへuser行を書くため、送ってから数えると現在ターンが
-// 境界(mainLines)内に入ってしまい、次の復元で二重に描画される。
+// （呼び出し元が「送信できたか」を見て後続処理の要否を判断するため）。
 function _sendMessage(sessionId, proc, prompt, imageData) {
   if (!proc || !proc.stdin || proc.stdin.destroyed) return false
 
@@ -260,7 +270,6 @@ function _sendMessage(sessionId, proc, prompt, imageData) {
   }
 
   try {
-    ensurePocketLog(sessionId)
     proc.stdin.write(JSON.stringify(msg) + '\n')
     return true
   } catch {
@@ -305,16 +314,15 @@ async function stopClaude(sessionId, opts = {}) {
   return true
 }
 
-// 実行中プロセスへのプロンプト注入（割り込み送信）。
-// user_input の broadcast は _sendMessage() が実際に書き込めたことを確認してから行う
-// （書き込み前に出すと、失敗時も画面にはユーザー発言があるのにClaudeのコンテキストには
-// 届いていない、という食い違いが生じるため）。
 function injectPrompt(sessionId, prompt, imageData) {
   const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
   s.lastStillQueued = null
   const sent = _sendMessage(sessionId, s.process, prompt, imageData)
-  if (sent) broadcast(sessionId, { type: 'user_input', text: prompt })
+  if (sent) {
+    s.turning = true
+    s.buffer = []
+  }
   return sent
 }
 
@@ -328,7 +336,7 @@ function injectPrompt(sessionId, prompt, imageData) {
 //   4. 呼び出し元へ結果(injected/started/failed)を返す
 // git pull は本関数の責務に含めない（既存の各呼び出し元の配置・条件をそのまま踏襲する）。
 function deliverPrompt(sessionId, prompt, opts = {}) {
-  const { imageData = null, project = null, model = null, effort = null, thinking = null, silent = false } = opts
+  const { imageData = null, project = null, model = null, effort = null, thinking = null } = opts
   const s = getState(sessionId)
 
   if (s.process) {
@@ -349,9 +357,12 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
 
   try {
     startClaude(sessionId, prompt, model, project, effort, thinking, imageData)
-    // user_input の broadcast は startClaude() が例外を投げずに起動できたことを確認してから行う
-    // （失敗時に画面だけユーザー発言が残りClaudeのコンテキストには無い、という食い違いを避ける）。
-    if (!silent) broadcast(sessionId, { type: 'user_input', text: prompt })
+    // ターン開始の合図は呼び出し元（routes/claude.js 等）が見る state.turning。
+    // 画面側のユーザー発言はA（本体jsonl）のuser行から復元されるため、user_input を
+    // Bへ書く必要は無い（v2.15.0）。
+    const s = getState(sessionId)
+    s.turning = true
+    s.buffer = []
     return { status: 'started' }
   } catch (e) {
     console.error(`[deliverPrompt] startClaude threw sessionId=${sessionId} ${e.message}`)

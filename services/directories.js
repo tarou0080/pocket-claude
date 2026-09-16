@@ -1,13 +1,18 @@
 const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
-const { readCleanupPeriodDays } = require('./claude-dir')
+const { readCleanupPeriodDays, CLAUDE_PROJECTS_DIR } = require('./claude-dir')
+const { migrateLegacyLogs } = require('./log-migrate')
 
 // 起動時のディレクトリ初期化（logs/ が無ければ作る）。
 // v2.14.0: セッションメタデータを保持しなくなったため初期化対象は logs/（pocketの
 // ライブログ）だけ。
+// v2.15.0: 旧形式（log_start先頭）のpocketログを after 形式へ一括変換してから
+// GCに回す（migrate対象がGCで消されるのを防ぐため変換が先）。
 function initDirectories(maxAgeDays = readCleanupPeriodDays()) {
   fs.mkdirSync(config.LOGS_DIR, { recursive: true })
+  const migrated = migrateLegacyLogs(config.LOGS_DIR, CLAUDE_PROJECTS_DIR)
+  if (migrated.length) console.log(`[log-migrate] converted ${migrated.length} legacy log(s)`)
   sweepRetention(maxAgeDays)
 }
 

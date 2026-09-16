@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const express = require('express')
 const router = express.Router()
-const { getState, loadLogFile, registerSSEClient, unregisterSSEClient, getLineBase, classifyCursor, EPOCH } = require('../services/stream')
+const { getState, loadLogFile, registerSSEClient, unregisterSSEClient, classifyCursor } = require('../services/stream')
 const { UUID_RE, CLAUDE_PROJECTS_DIR } = require('../services/history')
 const { readSessionFacts, projectFromCwd } = require('../services/session-facts')
 const { findClaudePid } = require('../services/external-process')
@@ -34,17 +34,6 @@ router.get('/', (req, res) => {
   const sessionId = raw
   getState(sessionId)
 
-  let fromLine = Math.max(0, parseInt(req.query.fromLine, 10) || 0)
-  const lastEventIdHeader = req.headers['last-event-id']
-  let reqEpoch
-  if (!req.query.fromLine && lastEventIdHeader) {
-    const parsed = parseInt(lastEventIdHeader, 10)
-    if (!isNaN(parsed)) fromLine = parsed + 1
-  } else {
-    const parsedEpoch = parseInt(req.query.epoch, 10)
-    reqEpoch = isNaN(parsedEpoch) ? undefined : parsedEpoch
-  }
-
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
@@ -71,8 +60,8 @@ router.get('/', (req, res) => {
     const entries = rawMainLines.map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
 
     // fromLine=最後に受信した行番号。それより後の行（=行番号 >= fromLine のグループ）だけ送る。
-    // fromLine=0 は全量。
-    const startLine = fromLine
+    // fromLine=0 は全量。（A2暫定: クエリからの fromLine は解釈しない＝常に全量。A3で統一）
+    const startLine = 0
     entries.forEach((entry, lineNo) => {
       if (lineNo < startLine) return
       const converted = claudeEntriesToEvents([entry])
@@ -143,20 +132,16 @@ router.get('/', (req, res) => {
     return
   }
 
+  // 暫定実装（A3で新プロトコルへ書き直す）: B（pocketログ）の全量を event: history
+  // （id B<n>）で流し、history-meta は {maxA:-1, maxB} を返す。クライアントの
+  // fromLine/epoch は使わない（全量送り）。外部会話分岐（上）は触らない。
   const all = loadLogFile(sessionId)
-  const base = getLineBase(sessionId, all.length)
-  const maxLine = base + all.length - 1
+  const maxB = all.length - 1
 
-  const status = classifyCursor({ epoch: reqEpoch, fromLine }, { epoch: EPOCH, base, maxLine })
-  if (status === 'reset') {
-    res.write(`event: history-meta\ndata: ${JSON.stringify({ epoch: EPOCH, base, maxLine, reset: true })}\n\n`)
-  } else {
-    all.forEach((ev, i) => {
-      const id = base + i
-      if (id >= fromLine) res.write(`event: history\nid: ${id}\ndata: ${JSON.stringify(ev)}\n\n`)
-    })
-    res.write(`event: history-meta\ndata: ${JSON.stringify({ epoch: EPOCH, base, maxLine })}\n\n`)
-  }
+  all.forEach((ev, i) => {
+    res.write(`event: history\nid: B${i}\ndata: ${JSON.stringify(ev)}\n\n`)
+  })
+  res.write(`event: history-meta\ndata: ${JSON.stringify({ maxA: -1, maxB })}\n\n`)
   registerSSEClient(sessionId, res)
 
   const heartbeat = setInterval(() => {

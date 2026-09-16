@@ -1,34 +1,16 @@
 const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
+const { CLAUDE_PROJECTS_DIR } = require('./claude-dir')
 
 // 1セッションあたりのメモリ内バッファ上限。常駐プロセス＋長時間セッションで
-// buffer が単調増加しメモリを食い潰すのを防ぐ。超過分は古いものから捨てる
-// （完全な履歴はログファイルに残るため、再接続時の復元はそちらが担う）
+// buffer が単調増加しメモリを食い潰すのを防ぐ。超過分は古いものから捨てる。
+// v2.15.0: buffer（M）は「現在ターンの stdout 生イベント」だけを持つ。永続化しない
+// （完全な履歴は A＝本体jsonl と B＝pocketログ が担う）。
 const MAX_BUFFER = 5000
-
-// プロセス世代（v2.12.2）。サーバー起動のたびに変わる定数。行番号空間（lineCounts）は
-// サーバー再起動で0から振り直されるため、クライアントが古いepochのfromLineを送ってきた
-// ら「その行番号空間はもう存在しない」と判定できる（IMAP UIDVALIDITY相当）。
-const EPOCH = Date.now()
 
 // sessionIDごとの実行状態（メモリ）
 const state = {}
-
-// 行番号カウンタ（セッションIDごとのログファイル行インデックス）
-const lineCounts = {}
-
-// 次の行インデックスを返し、カウンタをインクリメントする。
-// 初回呼び出し時はファイルの現在行数で初期化する（サーバー再起動後も継続できる）。
-function nextLineId(sessionId) {
-  if (lineCounts[sessionId] === undefined) {
-    const events = loadLogFile(sessionId)
-    lineCounts[sessionId] = events.length
-  }
-  const id = lineCounts[sessionId]
-  lineCounts[sessionId]++
-  return id
-}
 
 // 状態の覗き見（getState と違い、無ければ作らない）。
 // 「このセッションは今動いているか」を候補分だけ問い合わせる用途で、
@@ -46,7 +28,12 @@ function getState(sessionId) {
       buffer: [],
       sseClients: [],
       pendingPrompt: null,
-      pendingModel: null
+      pendingModel: null,
+      // 直前のA行の uuid（broadcast が after を付けるための材料）。
+      // undefined＝未初期化（spawn直後等）。broadcast 時にAから初期化する。
+      lastUuid: undefined,
+      // B（pocketログ）の追記済み非空行数。未初期化なら broadcast 時にファイルから数える。
+      bLines: undefined
     }
   }
   return state[sessionId]
@@ -57,25 +44,43 @@ function logFile(sessionId) {
   return path.join(config.LOGS_DIR, `${sessionId}.jsonl`)
 }
 
-// 全クライアントに配信（バッファ＋ファイルにも積む）
+// A（本体jsonl）の非空行をパースし、最後の user/assistant 行の uuid を返す。
+// A 無し・該当行無しは null。
+function lastAUuid(sessionId) {
+  let raw
+  try {
+    raw = fs.readFileSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`), 'utf8')
+  } catch {
+    return null
+  }
+  let uuid = null
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    let entry
+    try { entry = JSON.parse(line) } catch { continue }
+    if (entry && (entry.type === 'user' || entry.type === 'assistant') && entry.uuid != null) {
+      uuid = entry.uuid
+    }
+  }
+  return uuid
+}
+
+// 全クライアントに配信（事実のみ。Bへ appendFileSync し、id: B<n> で送る）。
+// v2.15.0: Bの各行は after: <uuid|null>（＝直前のA行のuuid）を自ら持つ。s.lastUuid が
+// 未初期化（spawn直後・サーバー再起動直後）ならAから初期化する。
 function broadcast(sessionId, event) {
-  // 安全網（v2.12.2）: pocketログの寿命＝claudeプロセスの寿命になったため、本来は
-  // spawner.js が spawn直前／stdin書き込み直前に明示的にensurePocketLogを呼んで
-  // log_start境界を確定させる。呼び漏れた経路があっても、ここで最低限ファイルが
-  // 作られる（mainLinesの境界だけは呼び漏れると不正確になり得る＝二重描画の恐れは残るが、
-  // 行番号空間が壊れることは無い）。
-  ensurePocketLog(sessionId)
   const s = getState(sessionId)
-  if (event.type === 'user_input') s.turning = true
-  else if (event.type === 'result' || event.type === 'done' || event.type === 'error') s.turning = false
-  s.buffer.push(event)
-  if (s.buffer.length > MAX_BUFFER) s.buffer.splice(0, s.buffer.length - MAX_BUFFER)
-  // 行IDを取得してからファイルに追記する（id=そのイベントが占める行インデックス）。
+  if (event.type === 'result' || event.type === 'done' || event.type === 'error') s.turning = false
+  if (s.lastUuid === undefined) s.lastUuid = lastAUuid(sessionId)
+  const ev = Object.assign({}, event, { after: s.lastUuid === undefined ? null : s.lastUuid })
+  // 行番号 b ＝追記前のB非空行数。セッションごとにメモリで数え、未初期化ならファイルから。
+  if (s.bLines === undefined) s.bLines = loadLogFile(sessionId).length
+  const b = s.bLines
   // appendFileSync で同期化することで、history 読み出し（readFileSync）時に
   // 必ず最新行まで反映されている状態を保証する（read-then-subscribe の取りこぼし/重複排除）
-  const id = nextLineId(sessionId)
-  fs.appendFileSync(logFile(sessionId), JSON.stringify(event) + '\n')
-  const line = `id: ${id}\ndata: ${JSON.stringify(event)}\n\n`
+  fs.appendFileSync(logFile(sessionId), JSON.stringify(ev) + '\n')
+  s.bLines++
+  const line = `id: B${b}\ndata: ${JSON.stringify(ev)}\n\n`
   s.sseClients.forEach(res => {
     try {
       res.write(line)
@@ -83,7 +88,31 @@ function broadcast(sessionId, event) {
   })
 }
 
-// ログファイルからバッファを復元
+// 現在ターンの stdout 生イベントを配信（v2.15.0）。
+// M（s.buffer）へ push（上限 MAX_BUFFER・古い方を捨てる）し、id 無しの data: 行で
+// 全 SSE クライアントへ送る。Bには書かない（完全な履歴はAが担う）。
+function emitLive(sessionId, event) {
+  const s = getState(sessionId)
+  s.buffer.push(event)
+  if (s.buffer.length > MAX_BUFFER) s.buffer.splice(0, s.buffer.length - MAX_BUFFER)
+  const line = `data: ${JSON.stringify(event)}\n\n`
+  s.sseClients.forEach(res => {
+    try {
+      res.write(line)
+    } catch {}
+  })
+}
+
+// 直前のA行 uuid の追跡更新（v2.15.0）。spawner.js が stdout の assistant/user イベントを
+// 受けたときに呼ぶ。次の broadcast の after はこの値になる。uuid が空文字列なら
+// 「uuidを持たないイベント」なので更新しない（直前のA行を失わない）。
+function noteUuid(sessionId, uuid) {
+  if (uuid === '') return
+  const s = getState(sessionId)
+  s.lastUuid = uuid
+}
+
+// ログファイルからイベント配列を復元
 function loadLogFile(sessionId) {
   try {
     return fs.readFileSync(logFile(sessionId), 'utf8')
@@ -112,73 +141,29 @@ function deleteState(sessionId) {
   delete state[sessionId]
 }
 
-// pocketログファイルが無ければ作る（v2.12.2）。log_start 行＝「このpocketログの行0は
-// 本体jsonlの何行目(mainLines)から続きか」という境界情報。getSessionEvents はこれを見て
-// 本体jsonlのどこまでを再生済みとして読み飛ばすかを決める（cutCurrentTurnのテキスト
-// 照合に代わる仕組み）。broadcast と同じ経路（nextLineId採番→appendFileSync→SSE配信）で
-// 直接書く：broadcast() を呼ぶと broadcast 冒頭の ensurePocketLog 安全網と相互再帰するため、
-// ここでは broadcast を呼ばない。
-function ensurePocketLog(sessionId) {
-  if (fs.existsSync(logFile(sessionId))) return
-  const { CLAUDE_PROJECTS_DIR } = require('./history')
-  let mainLines = 0
-  try {
-    mainLines = fs.readFileSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`), 'utf8')
-      .split('\n')
-      .filter(l => l.trim())
-      .length
-  } catch {}
-  const event = { type: 'log_start', mainLines, epoch: EPOCH, timestamp: new Date().toISOString() }
-  const s = getState(sessionId)
-  const id = nextLineId(sessionId)
-  fs.appendFileSync(logFile(sessionId), JSON.stringify(event) + '\n')
-  const line = `id: ${id}\ndata: ${JSON.stringify(event)}\n\n`
-  s.sseClients.forEach(res => {
-    try { res.write(line) } catch {}
-  })
-}
-
-// カーソル（クライアントが送ってきた {epoch, fromLine}）がサーバーの現在状態
-// {epoch, base, maxLine} に対して有効か判定する純関数（v2.12.2）。
-//  - fromLine===0 は「何も持っていない、全部くれ」＝常に ok（epoch不一致でも reset にしない）
-//  - epoch指定あり かつ 現epochと不一致 → reset（サーバー再起動を跨いだ古いカーソル）
-//  - 0 < fromLine < base → reset（該当行はpocketログ有限化で既に失われている）
-//  - fromLine > maxLine + 1 → reset（未来の行番号＝再起動後の行番号巻き戻り等でサーバーの
-//    行数を追い越している。従来はクライアント側の getLastLine > maxLine 比較で検出していた
-//    ものをサーバー側の判定へ寄せた）
+// カーソル（クライアントが送ってきた {fromA, fromB}）がサーバーの現在状態
+// {maxA, maxB} に対して有効か判定する純関数（v2.15.0）。
+//  - from=0 は「何も持っていない、全部くれ」＝常に ok
+//  - from > max+1 → reset（未来の行番号＝サーバーの行数を追い越している）
+//  - それ以外は ok（from <= max+1 ならその位置からの続きが取れる）
 function classifyCursor(cursor, meta) {
-  const { fromLine } = cursor
-  if (fromLine === 0) return 'ok'
-  const { epoch: reqEpoch } = cursor
-  const { epoch, base, maxLine } = meta
-  if (reqEpoch != null && reqEpoch !== epoch) return 'reset'
-  if (fromLine > 0 && fromLine < base) return 'reset'
-  if (fromLine > maxLine + 1) return 'reset'
+  const { fromA, fromB } = cursor
+  const { maxA, maxB } = meta
+  if (fromA > maxA + 1) return 'reset'
+  if (fromB > maxB + 1) return 'reset'
   return 'ok'
 }
 
-// GET /api/stream 用: 現在のログファイルの行0が、セッション全体の行番号空間で
-// 何行目に当たるかを返す（v2.12.3時点：pocketログは30日GCのみで破棄されないため
-// base は常に0になる。行番号空間の定義としては維持しておき、将来ログを作り直す
-// 経路（有限化の再導入等）が入ったときの受け皿とする）。未初期化（サーバー再起動
-// 直後など、このセッションでまだ一度も broadcast/nextLineId が走っていない）場合は
-// nextLineId と同じ基準（ファイル長）で初期化し、base=0 として返す。
-function getLineBase(sessionId, fileLength) {
-  if (lineCounts[sessionId] === undefined) lineCounts[sessionId] = fileLength
-  return lineCounts[sessionId] - fileLength
-}
-
 module.exports = {
-  EPOCH,
   getState,
   peekState,
   broadcast,
+  emitLive,
+  noteUuid,
   loadLogFile,
   registerSSEClient,
   unregisterSSEClient,
   deleteState,
-  ensurePocketLog,
   classifyCursor,
-  getLineBase,
   logFile,
 }
