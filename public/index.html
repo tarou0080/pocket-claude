@@ -3177,18 +3177,6 @@ async function loadHistoryIntoPane(sessionId, onProgress, { isExternal = false }
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-  // 外部会話: サーバーは変換済み非空行数を X-Main-Lines で返す。SSE を張る前に
-  // lastLine を X-Main-Lines - 1 へ進めておくことで、直後に張る SSE の
-  // fromLine = lastLine + 1 = X-Main-Lines が「まだ受信していない行番号」と一致し、
-  // ここで描いた分が SSE の history 再生で二重に描かれるのを防ぐ。
-  const mainLinesHeader = res.headers.get('X-Main-Lines')
-  if (isExternal && mainLinesHeader != null && ts) {
-    const mainLines = parseInt(mainLinesHeader, 10) || 0
-    if (ts.lastLine < mainLines - 1) {
-      ts.lastLine = mainLines - 1
-    }
-  }
-
   // X-Uncompressed-Length は展開後（reader が返すのと同じ単位）のバイト数。
   // Content-Length は gzip 時は圧縮後バイト数になり reader の展開後バイト数と
   // 単位が食い違うため使わない。
@@ -3215,6 +3203,18 @@ async function loadHistoryIntoPane(sessionId, onProgress, { isExternal = false }
 
   const ts = tabState[sessionId]
   if (!ts) throw new Error(`tabState missing for ${sessionId}`)
+  // 外部会話: サーバーは変換済み非空行数を X-Main-Lines で返す。SSE を張る前に
+  // lastLine を X-Main-Lines - 1 へ進めておくことで、直後に張る SSE の
+  // fromLine = lastLine + 1 = X-Main-Lines が「まだ受信していない行番号」と一致し、
+  // ここで描いた分が SSE の history 再生で二重に描かれるのを防ぐ。
+  const mainLinesHeader = res.headers.get('X-Main-Lines')
+  if (isExternal && mainLinesHeader != null) {
+    const mainLines = parseInt(mainLinesHeader, 10) || 0
+    if (ts.lastLine < mainLines - 1) {
+      ts.lastLine = mainLines - 1
+    }
+  }
+
   ts.pane.innerHTML = ''
   ts.currentTextEl = null
   ts._rawText = ''

@@ -129,6 +129,7 @@ router.get('/', (req, res) => {
       processTail()
     }, 2000)
 
+    let watcher = null
     function _cleanupExternal() {
       clearInterval(pollInterval)
       try { watcher.close() } catch {}
