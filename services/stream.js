@@ -95,7 +95,8 @@ function emitLive(sessionId, event) {
   const s = getState(sessionId)
   s.buffer.push(event)
   if (s.buffer.length > MAX_BUFFER) s.buffer.splice(0, s.buffer.length - MAX_BUFFER)
-  const line = `data: ${JSON.stringify(event)}\n\n`
+  // 空の `id:` で lastEventId を '' に戻す（id 付きイベントとの区別。routes/stream.js sendEvent と同じ）
+  const line = `id:\ndata: ${JSON.stringify(event)}\n\n`
   s.sseClients.forEach(res => {
     try {
       res.write(line)

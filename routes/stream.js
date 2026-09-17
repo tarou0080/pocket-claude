@@ -13,9 +13,10 @@ function mainJsonlPath(sessionId) {
   return path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
 }
 
+// id 無しのイベントは空の `id:` を送る。EventSource は直前の id を持ち越す（lastEventId）ので、
+// 空 id を明示して '' へ戻さないとクライアントが id 付きと区別できない（v2.15.0 票B verify D2）。
 function sendEvent(res, id, event, dataObj) {
-  let line = ''
-  if (id !== undefined) line += `id: ${id}\n`
+  let line = id !== undefined ? `id: ${id}\n` : 'id:\n'
   if (event) line += `event: ${event}\n`
   line += `data: ${JSON.stringify(dataObj)}\n\n`
   res.write(line)
@@ -191,8 +192,9 @@ router.get('/', (req, res) => {
       const lineNo = nextA++
       try {
         const entry = JSON.parse(line)
+        // buildConversation と同じく uuid を付ける（M から描いた分とクライアントが照合する）
         for (const ev of claudeEntriesToEvents([entry])) {
-          sendEvent(res, `A${lineNo}`, 'history', ev)
+          sendEvent(res, `A${lineNo}`, 'history', Object.assign({ uuid: entry.uuid }, ev))
         }
       } catch {}
     }

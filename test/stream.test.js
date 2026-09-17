@@ -112,7 +112,7 @@ test('broadcastはA無しでafter=null、2行目以降はメモリ内で採番�
 
 // emitLive() は B に書かず、buffer に積んで id 無しで配信する。
 
-test('emitLiveはBに書かずbufferに積み、id無しで配信する', () => {
+test('emitLiveはBに書かずbufferに積み、空idで配信する', () => {
   const id = testSessionId('emitlive-1')
   usedIds.push(id)
 
@@ -126,7 +126,7 @@ test('emitLiveはBに書かずbufferに積み、id無しで配信する', () => 
   assert.equal(s.buffer.length, 1)
   assert.equal(s.buffer[0].type, 'stream_event')
   assert.equal(res.writes.length, 1)
-  assert.ok(!res.writes[0].includes('id:'))
+  assert.ok(res.writes[0].startsWith('id:\ndata:'))  // 空idで lastEventId を '' に戻す
   assert.ok(res.writes[0].startsWith('data: '))
 })
 
