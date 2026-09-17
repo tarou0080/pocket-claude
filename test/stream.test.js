@@ -127,7 +127,6 @@ test('emitLiveはBに書かずbufferに積み、空idで配信する', () => {
   assert.equal(s.buffer[0].type, 'stream_event')
   assert.equal(res.writes.length, 1)
   assert.ok(res.writes[0].startsWith('id:\ndata:'))  // 空idで lastEventId を '' に戻す
-  assert.ok(res.writes[0].startsWith('data: '))
 })
 
 // noteUuid() は次の broadcast の after を更新する。
