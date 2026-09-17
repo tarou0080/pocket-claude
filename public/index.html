@@ -2064,6 +2064,7 @@ function ensureTabState(session) {
     b: 0,  // 受信済みBカーソル（pocketログ側。同上）
     _seenUuids: [],  // M再送で描いた uuid（上限200・IndexedDBへ同梱保存）
     _provisional: null,  // 仮領域div（M由来の描画先。id付きイベントで確定）
+    _provisionalOpen: false,  // 仮領域が開いているか（div は最初の描画で遅延生成）
     _metaSeen: false,  // history-meta 受信済みフラグ（以降のhistoryはライブ扱い）
     model: session.model || appSettings.defaultModel || '',
     effort: session.effort !== undefined ? session.effort : (appSettings.effort || ''),
@@ -3236,6 +3237,7 @@ async function loadHistoryIntoPane(sessionId, onProgress) {
   ts._currentBlockType = null
   ts._thinkingEl = null
   ts._provisional = null
+  ts._provisionalOpen = false
   ts._initialLoaded = true
   ts.autoScroll = false
 
@@ -3299,9 +3301,11 @@ async function connectSSEStream(sessionId) {
   const preTs = tabState[sessionId]
   // 張り直しのたびに未確定の仮領域（M由来の書きかけ）を捨てる。サーバーが M を
   // 再送してくるので残すと二重になる。
-  if (preTs && preTs._provisional) {
-    try { preTs._provisional.remove() } catch {}
-    preTs._provisional = null
+  if (preTs) {
+    discardProvisional(preTs)
+    // history-meta 前の再生（A/B の履歴・M 再送）は isLive=false で描く。前回接続の
+    // フラグを持ち越すと M 再送がライブ扱いになり状態を触ってしまう。
+    preTs._metaSeen = false
   }
   if (preTs && !preTs.pane.firstChild && (preTs.a || 0) === 0 && (preTs.b || 0) === 0) {
     try {
@@ -3369,19 +3373,32 @@ async function connectSSEStream(sessionId) {
       // 行番号空間に属さないため dedup に入れない（EventSource は直前の lastEventId を
       // 持ち越すため、ここで id 判定すると消える）。描画先は仮領域へ（M巻き戻し対応）。
       if (e.lastEventId === '' || e.lastEventId == null) {
+        if (ev.type === 'start' || ev.type === 'done') {
+          // 外部会話の start 合成／pid 消失の done。M ではなく「もう再送されない」事実なので
+          // 仮領域に入れない（張り直しで捨てると「エージェント終了」が消える）。
+          advanceProvisionalTarget(sessionId, true)
+          handleEvent(sessionId, ev, true)
+          return
+        }
         advanceProvisionalTarget(sessionId)
         handleEvent(sessionId, ev, true)
+        // 設計4(b): stdout 由来の raw assistant/user（A の行と同じ uuid を持つ）は
+        // 描いてから uuid を記憶し、仮領域を確定する。後から A tail で同じ uuid の行が
+        // id:A<n> で届いたときは描かずカーソルだけ進める（＝A tail と M の二重を uuid で消す）。
+        if ((ev.type === 'assistant' || ev.type === 'user') && ev.uuid) {
+          rememberUuid(sessionId, ev.uuid)
+          advanceProvisionalTarget(sessionId, true)
+        }
         return
       }
       const m = /^(A|B)(\d+)$/.exec(e.lastEventId)
       if (!m) return
-      // dedup: 既に通したid（カーソル-1以下）は捨てる。「<」比較で同一idグループを
-      // 丸ごと通す（1つのA行が複数イベントに変換される。idは飛ぶので n+1 で追随）。
+      // dedup: 既に通したid（カーソル-1以下）は捨てる。カーソルは「次に欲しい行」＝
+      // 通した id の n+1 なので、同一 id グループ（1つのA行が複数イベントに変換される）
+      // の2件目以降を通すには n+1 < カーソル で捨てる（n < だと2件目以降が消える）。
       const which = m[1]
       const n = parseInt(m[2], 10)
-      const c = getCursor(sessionId)
-      const pos = which === 'A' ? c.a : c.b
-      if (n < pos) return
+      if (isPassedId(sessionId, which, n)) return
       advanceCursor(sessionId, which, n)
       advanceProvisionalTarget(sessionId, true)  // id付き＝確定描画へ
       handleEvent(sessionId, ev, true)
@@ -3399,24 +3416,30 @@ async function connectSSEStream(sessionId) {
         if (m) {
           const which = m[1]
           const n = parseInt(m[2], 10)
-          const c = getCursor(sessionId)
-          const pos = which === 'A' ? c.a : c.b
-          if (n < pos) return
+          if (isPassedId(sessionId, which, n)) return
           advanceCursor(sessionId, which, n)
           advanceProvisionalTarget(sessionId, true)
+          // 設計4(c): A 行の uuid を既に M から描いていれば描かない（カーソルは進めた）。
+          // この判定は id 付き経路だけで行う（id 無し経路で止めると M 再送が描かれない）。
+          if (which === 'A' && ev.uuid && hasSeenUuid(sessionId, ev.uuid)) return
           // ライブ区間（history-meta 以降）の history もライブとして扱う（user_inputの
           // _doneShown リセット等が効くように）。meta 前の履歴再生は isLive=false。
           const isLive = !!tabState[sessionId]?._metaSeen
           handleEvent(sessionId, ev, isLive)
         }
+      } else if (ev.uuid) {
+        // id 無し・uuid 付きの event: history ＝ M 再送のうち確定済みブロック
+        // （stdout の assistant/user は出たが A への書き込みが未着）。
+        // 既に描いた uuid（ライブで raw assistant/user から記憶済み・pane に確定済み）
+        // なら二重になるので描かない。未描画なら pane へ確定描画してから記憶する。
+        if (hasSeenUuid(sessionId, ev.uuid)) return
+        advanceProvisionalTarget(sessionId, true)
+        handleEvent(sessionId, ev, false)
+        rememberUuid(sessionId, ev.uuid)
       } else {
-        // id 無しの event: history ＝ M再送の変換済みイベント（uuid 付き）または
-        // 外部会話の start 合成。仮領域へ描き、uuid は_seenUuidsへ記録して
-        // 後続の id:A<n> 再送との二重描画を防ぐ。
+        // id 無し・uuid 無しの history（想定外の M 再送）は書きかけ扱いで仮領域へ
         advanceProvisionalTarget(sessionId)
-        if (ev.uuid && tabState[sessionId]) rememberUuid(sessionId, ev.uuid)
-        const isLive = !!tabState[sessionId]?._metaSeen
-        handleEvent(sessionId, ev, isLive)
+        handleEvent(sessionId, ev, false)
       }
       // history 受信後、最初の1件で自動スクロール（初回接続時の復元完了スクロール）
       if (!firstHistoryReceived && currentSessionId === sessionId) {
@@ -3443,11 +3466,11 @@ async function connectSSEStream(sessionId) {
       if (reset === true || (ts && ((ts.a || 0) > maxA + 1 || (ts.b || 0) > maxB + 1))) {
         // stale。破棄して全文取り直し。
         if (ts) {
+          discardProvisional(ts)
           ts.pane.innerHTML = ''
           ts.a = 0
           ts.b = 0
           ts._seenUuids = []
-          ts._provisional = null
         }
         deleteConv(sessionId)
         if (currentES) { currentES.close(); currentES = null }
@@ -3578,30 +3601,70 @@ function resolveToolContent(content, toolUseResult) {
 // id 無しイベント（M再送・M生イベント）は「書きかけ」として div.pc-provisional 内へ
 // 描く。その後 id:A<n>/B<n> 付きイベント or uuid 付き event:history が来たら仮領域を
 // 確定（中身をpane直下へ移してdivを外す＝見た目は変わらない）。
-// SSEを張り直すときは connectSSEStream 冒頭で未確定の仮領域を捨てる（サーバーがMを
-// 再送するので二重にならない）。仮領域内の描画は saveConvNow が保存しない。
+// SSEを張り直すときは connectSSEStream 冒頭で未確定の仮領域を捨てる（discardProvisional。
+// サーバーがMを再送するので二重にならない）。仮領域内の描画は saveConvNow が保存しない。
+// 描画関数（addLine/appendText/addToolLine）は drawTarget(ts) で仮領域の有無を見る。
+// div は最初の描画時に drawTarget が遅延生成する（描かない id 無しイベント＝system status
+// 等のたびに空の div が pane に残らないように）。
 function advanceProvisionalTarget(sessionId, finalizeOnly = false) {
   const ts = tabState[sessionId]
   if (!ts) return
+  if (!finalizeOnly) { ts._provisionalOpen = true; return }  // id無しイベントは仮領域へ描く
+  ts._provisionalOpen = false
   const div = ts._provisional
+  ts._provisional = null
   if (div && div.isConnected) {
-    // 既存の仮領域がある。
-    if (!finalizeOnly) return  // id無しイベントはその中へ描き続ける
     // 確定: 仮領域の中身をpane直下へ移してから仮領域divを外す（見た目は変わらない）
     const pane = ts.pane
     while (div.firstChild) pane.insertBefore(div.firstChild, div)
     div.remove()
-    ts._provisional = null
-    return
   }
-  if (finalizeOnly) { ts._provisional = null; return }
-  const wrap = document.createElement('div')
-  wrap.className = 'pc-provisional'
-  ts.pane.appendChild(wrap)
-  ts._provisional = wrap
 }
 
-// M再送で描いた uuid を記録する（上限200件・古い方から捨てる）。
+// 未確定の仮領域を捨てる（SSE 張り直し・stale guard）。仮領域の中を指していた
+// 書きかけ参照（currentTextEl 等）は外れた要素を指すので一緒に捨てる——サーバーが
+// M を再送して content_block_start から描き直す。
+function discardProvisional(ts) {
+  if (ts._provisional) {
+    try { ts._provisional.remove() } catch {}
+    ts._provisional = null
+  }
+  ts._provisionalOpen = false
+  ts.currentTextEl = null
+  ts._rawText = ''
+  ts._currentToolEl = null
+  ts._currentToolInput = ''
+  ts._currentBlockType = null
+  ts._thinkingEl = null
+}
+
+// 描画先: 仮領域が開いていればその中、無ければ pane。addLine/appendText/addToolLine が使う。
+function drawTarget(ts) {
+  if (!ts._provisionalOpen) return ts.pane
+  let div = ts._provisional
+  if (!div || !div.isConnected) {
+    div = document.createElement('div')
+    div.className = 'pc-provisional'
+    ts.pane.appendChild(div)
+    ts._provisional = div
+  }
+  return div
+}
+
+// id:A<n>/B<n> の dedup。カーソルは「次に欲しい行」なので、通した id と同じ n は
+// n+1 === カーソル で通る（同一 id グループの2件目以降）。n+1 < カーソル は再送＝捨てる。
+function isPassedId(sessionId, which, n) {
+  const c = getCursor(sessionId)
+  const pos = which === 'A' ? c.a : c.b
+  return n + 1 < pos
+}
+
+function hasSeenUuid(sessionId, uuid) {
+  const ts = tabState[sessionId]
+  return !!(ts && uuid && Array.isArray(ts._seenUuids) && ts._seenUuids.includes(uuid))
+}
+
+// M（stdout 由来）で描いた uuid を記録する（上限200件・古い方から捨てる）。
 // 後で id:A<n> で同じuuidが来たときに描画をスキップするため。
 function rememberUuid(sessionId, uuid) {
   const ts = tabState[sessionId]
@@ -3623,10 +3686,8 @@ function handleEvent(sessionId, ev, isLive = true) {
   if (!ts) return
   const isActive = sessionId === currentSessionId
 
-  // M再送で既に描いた uuid（_seenUuids）が、後から id:A<n> で同じuuidとして届いた
-  // 場合は描かずにカーソルだけ進める（カーソル進行は SSE リスナー側で済んでいる）。
-  // M再送・生イベント（id無し）は dedup 対象外（rememberUuid 記録側で制御する）。
-  if (ev.uuid && Array.isArray(ts._seenUuids) && ts._seenUuids.includes(ev.uuid)) return
+  // uuid による二重排除はここでは行わない（SSE リスナーの id:A<n> 経路だけで判定する。
+  // ここで止めると M 再送・raw assistant/user の初回描画まで止まる＝票B verify D4）。
 
   // 再試行中の表示は「次に何か届いた時点」で役目を終える。api_retry 以外のライブイベントが
   // 来たら畳む（＝APIが応答を再開した合図。tool_result等の中間イベントでも構わない）。
@@ -3969,7 +4030,7 @@ function appendText(ts, text) {
   if (!ts.currentTextEl) {
     ts.currentTextEl = document.createElement('div')
     ts.currentTextEl.className = 'line line-text'
-    ts.pane.appendChild(ts.currentTextEl)
+    drawTarget(ts).appendChild(ts.currentTextEl)
     ts._rawText = ''
   }
   ts._rawText += text
@@ -4027,7 +4088,7 @@ function addLine(ts, text, cls) {
   const div = document.createElement('div')
   div.className = `line ${cls}`
   div.textContent = text
-  ts.pane.appendChild(div)
+  drawTarget(ts).appendChild(div)
   scrollToBottom(ts)
   return div
 }
@@ -4069,8 +4130,9 @@ function addToolLine(ts, toolName, toolId) {
   const resultDiv = document.createElement('div')
   resultDiv.className = 'tool-result'
 
-  ts.pane.appendChild(div)
-  ts.pane.appendChild(resultDiv)
+  const target = drawTarget(ts)
+  target.appendChild(div)
+  target.appendChild(resultDiv)
 
   div._resultDiv = resultDiv
   scrollToBottom(ts)

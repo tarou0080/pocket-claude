@@ -176,6 +176,7 @@ router.get('/', (req, res) => {
       lastSize = 0
       nextA = 0
       try { if (!watcher) watcher = fs.watch(aPath, () => processTail()) } catch {}
+      try { if (dirWatcher) { dirWatcher.close(); dirWatcher = null } } catch {}
     }
     if (st.size <= lastSize) return
     const newBytes = readRange(aPath, lastSize, st.size - lastSize)
@@ -204,11 +205,24 @@ router.get('/', (req, res) => {
     clearInterval(heartbeat)
     clearInterval(tailPoll)
     try { watcher.close() } catch {}
+    try { dirWatcher.close() } catch {}
     unregisterSSEClient(sessionId, res)
   }
 
   let watcher = null
-  try { watcher = fs.watch(aPath, () => processTail()) } catch {}
+  let dirWatcher = null
+  if (aExists) {
+    try { watcher = fs.watch(aPath, () => processTail()) } catch {}
+  } else {
+    // 新規会話は最初のプロンプトで A が生まれる。2秒ポーリングだけだと CLI の user 行
+    // （＝画面の「> プロンプト」）より先に M の thinking/deltas が届いて順序が狂うので、
+    // 親ディレクトリを watch して生成を即拾う（実測: 新規会話で thinking が先に描かれた）。
+    try {
+      dirWatcher = fs.watch(path.dirname(aPath), (_evt, name) => {
+        if (name === path.basename(aPath)) processTail()
+      })
+    } catch {}
+  }
 
   const tailPoll = setInterval(() => {
     processTail()
@@ -216,6 +230,11 @@ router.get('/', (req, res) => {
     if (external && !findClaudePid(sessionId)) {
       sendEvent(res, undefined, undefined, { type: 'done', exitCode: null, reason: 'external_exit' })
       cleanup()
+      // 接続を閉じてクライアントに張り直させる。閉じずに残すと watcher も SSE 登録も
+      // 外れた「何も流れない接続」が生き続け、この後 pocket から送った続き（start・
+      // user 行・応答）が一切届かない（実測 2026-09-17: 終了後の送信が画面に出なかった）。
+      // 張り直し後は external=false の通常経路（B の broadcast＋A tail）に乗る。
+      res.end()
       return
     }
   }, 2000)
