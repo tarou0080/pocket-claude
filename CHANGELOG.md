@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.15.1] - 2026-09-21
+
+### Fixed
+- **Effort option `Auto` renamed to `CLI default`** - The label was wrong. Neither the `claude` CLI nor the API has a mode that picks the effort level per prompt; with this option pocket-claude simply passes no effort, and the CLI resolves it as `effortLevel`/`modelSettings` in `~/.claude/settings.json`, else the model default (`high` on Opus 5 / Sonnet 5). README now states this. Stored value (`''`) is unchanged, so existing tabs and saved settings are unaffected; front-end only, no restart needed.
+
 ## [v2.15.0] - 2026-09-17
 
 ### Changed

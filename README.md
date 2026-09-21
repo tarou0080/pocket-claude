@@ -222,7 +222,8 @@ Add it in `config.json` (applied on restart; this file is not committed):
 
 Open the **⚙** panel in the header to adjust:
 
-- **Effort** — Global default reasoning effort (`Auto` / `Low` / `Medium` / `High`) applied to all sessions. The header's effort dots (**●●●**) instead cycle *only the current tab's* effort without changing the default.
+- **Effort** — Global default reasoning effort (`CLI default` / `Low` / `Medium` / `High` / `xHigh`) applied to all sessions. The header's effort dots (**●●●**) instead cycle *only the current tab's* effort without changing the default.
+  `CLI default` means pocket-claude does **not** pass an effort level at all; the `claude` CLI then resolves it exactly as it would in a terminal — `effortLevel` / `modelSettings` in `~/.claude/settings.json` if set, otherwise the model's own default (`high` on Opus 5 and Sonnet 5). It is a fixed level, not a per-prompt automatic choice: no such "auto effort" mode exists in the CLI or the API (what varies per prompt is the amount of thinking *within* the chosen level).
 - **Theme** — Switch between the bundled UI themes (Blue Dark / Purple Dark). Add your own by editing `public/themes.js`.
 - **Font size** — Adjust conversation text size.
 - **Language** — Japanese / English.

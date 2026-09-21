@@ -222,7 +222,8 @@ npm start
 
 ヘッダーの **⚙** パネルから以下を調整できます：
 
-- **Effort（思考量）** — 全セッションに適用されるグローバル既定の思考量（`Auto` / `Low` / `Medium` / `High`）。ヘッダーの Effort ドット（**●●●**）は、既定を変えずに*現在のタブだけ*の Effort をサイクル切り替えします。
+- **Effort（思考量）** — 全セッションに適用されるグローバル既定の思考量（`CLI default` / `Low` / `Medium` / `High` / `xHigh`）。ヘッダーの Effort ドット（**●●●**）は、既定を変えずに*現在のタブだけ*の Effort をサイクル切り替えします。
+  `CLI default` は pocket-claude が effort を**渡さない**という意味です。`claude` CLI が端末で起動したときと同じ順序で解決します — `~/.claude/settings.json` の `effortLevel` / `modelSettings` があればそれ、無ければモデル既定（Opus 5・Sonnet 5 は `high`）。固定のレベルであって、プロンプトごとに自動で選ぶものではありません（CLI にも API にもそのような「auto effort」は存在せず、プロンプトごとに変わるのは選んだレベルの*範囲内*での思考量です）。
 - **テーマ** — 同梱の UI テーマ（Blue Dark / Purple Dark）を切り替え。`public/themes.js` を編集すれば独自テーマを追加できます。
 - **フォントサイズ** — 会話テキストのサイズを調整。
 - **言語** — 日本語 / 英語。

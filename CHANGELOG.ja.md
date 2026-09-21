@@ -4,6 +4,11 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v2.15.1] - 2026-09-21
+
+### 修正
+- **Effort の選択肢 `Auto` を `CLI default` に改名** — 表記が誤りでした。`claude` CLI にも API にも、プロンプトごとに effort レベルを自動で選ぶモードは存在しません。この選択肢では pocket-claude は effort を渡さず、CLI が `~/.claude/settings.json` の `effortLevel`/`modelSettings`、無ければモデル既定（Opus 5 / Sonnet 5 は `high`）に解決します。README に明記しました。保存値（`''`）は変えていないので既存タブ・保存済み設定には影響なし。フロントのみの変更で再起動不要。
+
 ## [v2.15.0] - 2026-09-17
 
 ### 変更
