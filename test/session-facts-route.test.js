@@ -6,6 +6,15 @@ const path = require('path')
 const express = require('express')
 const { randomUUID } = require('crypto')
 const claudeRoutes = require('../routes/claude')
+const config = require('../config/index')
+
+// 解決先の models/projects は稼働中の config.json に依存させず、テストで注入する
+// （本番の config.json からモデルを撤去したらテストが落ちた・2026-09-21）。
+function withConfig(t, patch) {
+  const prev = {}
+  for (const k of Object.keys(patch)) { prev[k] = config[k]; config[k] = patch[k] }
+  t.after(() => { for (const k of Object.keys(prev)) config[k] = prev[k] })
+}
 
 // GET /api/session-settings/:sessionId は 本体jsonlから導出した事実を返す。
 // テスト用に一時 jsonl を作り、fact の読み取りと model/effort/project の解決を確認する。
@@ -37,20 +46,24 @@ test('不正な形式のsessionIdは400', async (t) => {
 })
 
 test('本体jsonlから project/model/effort を解決して返す', async (t) => {
+  withConfig(t, {
+    models: [{ value: 'test-provider,@test/model-x', label: 'Test X' }],
+    projects: { home: '/tmp/pocket-test-home' },
+  })
   const base = withServer(t)
   const id = randomUUID()
   t.after(() => cleanupMainJsonl(id))
   writeMainJsonl(id, [
-    { type: 'user', cwd: '/home/johnadmin' },
-    { type: 'assistant', message: { model: '@cf/moonshotai/kimi-k2.7-code' }, effort: 'medium' },
+    { type: 'user', cwd: '/tmp/pocket-test-home' },
+    { type: 'assistant', message: { model: '@test/model-x' }, effort: 'medium' },
   ])
 
   const res = await fetch(`${base}/api/session-settings/${id}`)
   assert.equal(res.status, 200)
   const body = await res.json()
   assert.equal(body.project, 'home')
-  assert.equal(body.model, 'cloudflare-paid,@cf/moonshotai/kimi-k2.7-code')
-  assert.equal(body.modelResolved, '@cf/moonshotai/kimi-k2.7-code')
+  assert.equal(body.model, 'test-provider,@test/model-x')
+  assert.equal(body.modelResolved, '@test/model-x')
   assert.equal(body.effort, 'medium')
 })
 
