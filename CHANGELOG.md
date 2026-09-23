@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.15.2] - 2026-09-24
+
+### Fixed
+- **Every item in the settings modal now waits for `Save ✕`** - The header-confirm flow from v2.10.0 only covered the tool lists and the body-size limit; device settings (default model, visible models, effort, thinking, resume prompt / resume-by-default, font sizes, theme, language) were written to `localStorage` on every click, so changing them never turned `✕` into `Save ✕` and there was no way to undo. Now any change since the modal was opened shows `Save ✕` / `Cancel`: changes preview immediately, `Save ✕` commits them (effort is applied to all tabs and thinking to the current tab at that point; resume-by-default is sent to the server in the same PATCH), and `Cancel` restores the values from when the modal was opened, including the look. Reverting a change by hand returns the header to `✕`. Front-end only, no restart needed.
+
 ## [v2.15.1] - 2026-09-21
 
 ### Fixed

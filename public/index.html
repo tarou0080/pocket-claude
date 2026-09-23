@@ -1377,7 +1377,10 @@ async function loadBodyLimit() {
     // サーバーの resumeDefaultOn をローカル設定に反映（サーバーを正とする）
     if (typeof data.resumeDefaultOn === 'boolean') {
       appSettings.resumeDefaultOn = data.resumeDefaultOn
-      saveSettings(appSettings)
+      // サーバー値の取り込みはユーザーの変更ではない=控えにも入れて「変更あり」扱いにしない
+      if (settingsBaseline) settingsBaseline.resumeDefaultOn = data.resumeDefaultOn
+      // モーダルを開いている間は appSettings が下書きなので、保存済みの控えの方を書く
+      saveSettings(settingsBaseline || appSettings)
       const chk = document.getElementById('resume-default-on-chk')
       if (chk) chk.checked = data.resumeDefaultOn
     }
@@ -1431,9 +1434,65 @@ function bodyLimitIsDirty() {
   return String(input.value).trim() !== String(bodyLimitState.server)
 }
 
-// 設定モーダル全体で未保存の変更があるか(ツール構成 + ボディサイズ上限)
+// 端末側の設定(appSettings)は、モーダルを開いた時点の値を控えておき、モーダル内の操作では
+// 画面にだけ反映して localStorage へは書かない。確定は「保存 ✕」、破棄は「キャンセル」の1経路。
+// Thinking は「今のタブ」の値を表示・変更するため appSettings と別に下書きを持つ(undefined=未操作)。
+let settingsBaseline = null
+let thinkingDraft
+
+function currentThinking() {
+  const v = (currentSessionId && tabState[currentSessionId])
+    ? tabState[currentSessionId].thinking
+    : appSettings.thinking
+  return v === true ? 'on' : v === false ? 'off' : (v || 'none')
+}
+
+function localSettingsIsDirty() {
+  if (!settingsBaseline) return false
+  if (thinkingDraft !== undefined && thinkingDraft !== currentThinking()) return true
+  // 表示モデルは外して付け直すと末尾に回る=順序は意味を持たないので集合として比べる
+  const norm = s => JSON.stringify({ ...s, enabledModels: [...(s.enabledModels || [])].sort() })
+  return norm(appSettings) !== norm(settingsBaseline)
+}
+
+// モーダル内の操作から呼ぶ(保存はしない・ヘッダーの状態だけ更新する)
+function markSettingsChanged() {
+  updateSettingsHeaderState()
+}
+
+// 下書きを捨てて開いた時点の端末設定へ戻し、見た目(フォント・テーマ・モデル欄・言語)も戻す
+function restoreSettingsBaseline() {
+  if (!settingsBaseline) return
+  appSettings = JSON.parse(JSON.stringify(settingsBaseline))
+  thinkingDraft = undefined
+  applyFontSizes()
+  applyTheme()
+  rebuildModelSelect()
+  loadProjects()
+}
+
+// 端末側の下書きを確定する(localStorage へ書き、Effort/Thinking は各セッションへ反映)
+function commitLocalSettings() {
+  if (settingsBaseline && appSettings.effort !== settingsBaseline.effort) {
+    const allSessions = loadSessions()
+    saveSessions(allSessions.map(s => ({ ...s, effort: appSettings.effort })))
+    Object.keys(tabState).forEach(sid => { if (tabState[sid]) tabState[sid].effort = appSettings.effort })
+    updateEffortIndicator()
+  }
+  if (thinkingDraft !== undefined) {
+    if (currentSessionId && tabState[currentSessionId]) {
+      tabState[currentSessionId].thinking = thinkingDraft
+      updateSession(currentSessionId, { thinking: thinkingDraft })
+    }
+    appSettings.thinking = thinkingDraft
+    thinkingDraft = undefined
+  }
+  saveSettings(appSettings)
+}
+
+// 設定モーダル全体で未保存の変更があるか(ツール構成 + ボディサイズ上限 + 端末側の設定)
 function settingsIsDirty() {
-  return toolsIsDirty() || bodyLimitIsDirty()
+  return toolsIsDirty() || bodyLimitIsDirty() || localSettingsIsDirty()
 }
 
 // 未保存の変更有無に応じて設定モーダルのヘッダーを切り替える。
@@ -1549,8 +1608,12 @@ async function saveSettingsDraftAndClose() {
   if (dirtyDirect) patch.toolsDirect = toolsState.draft.toolsDirect
   if (dirtyProxy) patch.toolsProxy = toolsState.draft.toolsProxy
   if (dirtyBodyLimit) patch.maxBodySizeMb = bodyLimitVal
+  // 自動再開の既定はブラウザ不在時にサーバーが使うので、確定時にサーバーへも送る
+  if (settingsBaseline && appSettings.resumeDefaultOn !== settingsBaseline.resumeDefaultOn) {
+    patch.resumeDefaultOn = appSettings.resumeDefaultOn
+  }
 
-  if (Object.keys(patch).length === 0) { closeSettings(); return }
+  if (Object.keys(patch).length === 0) { commitLocalSettings(); closeSettings(); return }
 
   try {
     const res = await fetch('/api/server-config', {
@@ -1562,6 +1625,7 @@ async function saveSettingsDraftAndClose() {
     if (dirtyDirect) toolsState.toolsDirect = toolsState.draft.toolsDirect
     if (dirtyProxy) toolsState.toolsProxy = toolsState.draft.toolsProxy
     if (dirtyBodyLimit) bodyLimitState.server = bodyLimitVal
+    commitLocalSettings()
     closeSettings()
   } catch {
     if (status) status.textContent = t('toolsSaveError')
@@ -1569,8 +1633,9 @@ async function saveSettingsDraftAndClose() {
   }
 }
 
-// キャンセル: draftをサーバー値へ戻して(=破棄して)閉じる
+// キャンセル: draftをサーバー値・開いた時点の端末設定へ戻して(=破棄して)閉じる
 function cancelSettingsDraftAndClose() {
+  restoreSettingsBaseline()
   toolsState.draft.toolsDirect = toolsState.toolsDirect
   toolsState.draft.toolsProxy = toolsState.toolsProxy
   const bodyLimitInput = document.getElementById('body-limit-input')
@@ -1581,6 +1646,8 @@ function cancelSettingsDraftAndClose() {
 }
 
 function openSettings() {
+  settingsBaseline = JSON.parse(JSON.stringify(appSettings))
+  thinkingDraft = undefined
   settingsModal.classList.add('open')
   settingsBtn.classList.add('active')
   renderSettingsModal()
@@ -1589,6 +1656,8 @@ function openSettings() {
 }
 
 function closeSettings() {
+  settingsBaseline = null
+  thinkingDraft = undefined
   settingsModal.classList.remove('open')
   settingsBtn.classList.remove('active')
 }
@@ -1717,7 +1786,6 @@ function renderSettingsModal() {
     btn.classList.toggle('active', btn.dataset.val === (appSettings.lang || 'ja'))
     btn.onclick = () => {
       appSettings.lang = btn.dataset.val
-      saveSettings(appSettings)
       renderSettingsModal()
       loadProjects()
     }
@@ -1751,8 +1819,8 @@ function renderSettingsModal() {
           appSettings.defaultModel = appSettings.enabledModels[0]
         renderSettingsModal()
       }
-      saveSettings(appSettings)
       rebuildModelSelect()
+      markSettingsChanged()
     })
 
     const name = document.createElement('span')
@@ -1768,8 +1836,8 @@ function renderSettingsModal() {
     radio.addEventListener('change', () => {
       if (radio.checked) {
         appSettings.defaultModel = m.value
-        saveSettings(appSettings)
         rebuildModelSelect()
+        markSettingsChanged()
         // ラベル更新
         modelList.querySelectorAll('.model-row-default-label').forEach(l => l.textContent = '')
         row.querySelector('.model-row-default-label').textContent = 'default'
@@ -1796,13 +1864,9 @@ function renderSettingsModal() {
     row.className = 'effort-option' + (curEffort === opt.value ? ' selected' : '')
     row.addEventListener('click', () => {
       // グローバルデフォルト更新
+      // 全セッションへの一括反映は「保存 ✕」で確定したとき(commitLocalSettings)
       appSettings.effort = opt.value
-      saveSettings(appSettings)
-      // 全セッションのeffortを一括更新
-      const allSessions = loadSessions()
-      saveSessions(allSessions.map(s => ({ ...s, effort: opt.value })))
-      Object.keys(tabState).forEach(sid => { if (tabState[sid]) tabState[sid].effort = opt.value })
-      updateEffortIndicator()
+      markSettingsChanged()
       effortList.querySelectorAll('.effort-option').forEach(r => r.classList.remove('selected'))
       row.classList.add('selected')
     })
@@ -1825,46 +1889,30 @@ function renderSettingsModal() {
   })
 
   // Thinking selector
-  const normThinking = v => (v === true ? 'on' : v === false ? 'off' : (v || 'none'))
-  const curThinking = normThinking((currentSessionId && tabState[currentSessionId])
-    ? tabState[currentSessionId].thinking
-    : appSettings.thinking)
+  const curThinking = thinkingDraft !== undefined ? thinkingDraft : currentThinking()
   document.getElementById('thinking-selector').querySelectorAll('.seg-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.val === curThinking)
     btn.onclick = () => {
       const val = btn.dataset.val
       btn.closest('.seg-control').querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn))
-      if (currentSessionId && tabState[currentSessionId]) {
-        tabState[currentSessionId].thinking = val
-        updateSession(currentSessionId, { thinking: val })
-        appSettings.thinking = val
-        saveSettings(appSettings)
-      } else {
-        appSettings.thinking = val
-        saveSettings(appSettings)
-      }
+      // タブへの反映は「保存 ✕」で確定したとき(commitLocalSettings)
+      thinkingDraft = val
+      markSettingsChanged()
     }
   })
 
   // Resume prompt
   const resumeInput = document.getElementById('resume-prompt-input')
   resumeInput.value = appSettings.resumePrompt || '続けてください'
-  resumeInput.oninput = (e) => { appSettings.resumePrompt = e.target.value; saveSettings(appSettings) }
+  resumeInput.oninput = (e) => { appSettings.resumePrompt = e.target.value; markSettingsChanged() }
 
   // Resume default ON checkbox
   const resumeDefaultOnChk = document.getElementById('resume-default-on-chk')
   resumeDefaultOnChk.checked = appSettings.resumeDefaultOn ?? false
-  resumeDefaultOnChk.onchange = async (e) => {
+  // サーバー側への同期（ブラウザ不在時の自動再開に必要）は「保存 ✕」のPATCHに含める
+  resumeDefaultOnChk.onchange = (e) => {
     appSettings.resumeDefaultOn = e.target.checked
-    saveSettings(appSettings)
-    // サーバー側の resumeDefaultOn も同期（ブラウザ不在時の自動再開に必要）
-    try {
-      await fetch('/api/server-config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resumeDefaultOn: e.target.checked }),
-      })
-    } catch {}
+    markSettingsChanged()
   }
 
   // Theme list
@@ -1876,8 +1924,8 @@ function renderSettingsModal() {
       row.className = 'effort-option' + (appSettings.theme === key ? ' selected' : '')
       row.addEventListener('click', () => {
         appSettings.theme = key
-        saveSettings(appSettings)
         applyTheme()
+        markSettingsChanged()
         themeList.querySelectorAll('.effort-option').forEach(r => r.classList.remove('selected'))
         row.classList.add('selected')
       })
@@ -1951,43 +1999,43 @@ modelSel.addEventListener('change', () => {
 document.getElementById('prompt-font-dec').addEventListener('click', () => {
   if (appSettings.promptFontSize <= 10) return
   appSettings.promptFontSize--
-  saveSettings(appSettings)
   applyFontSizes()
+  markSettingsChanged()
   document.getElementById('prompt-font-val').textContent = appSettings.promptFontSize + 'px'
 })
 document.getElementById('prompt-font-inc').addEventListener('click', () => {
   if (appSettings.promptFontSize >= 24) return
   appSettings.promptFontSize++
-  saveSettings(appSettings)
   applyFontSizes()
+  markSettingsChanged()
   document.getElementById('prompt-font-val').textContent = appSettings.promptFontSize + 'px'
 })
 document.getElementById('output-font-dec').addEventListener('click', () => {
   if (appSettings.outputFontSize <= 10) return
   appSettings.outputFontSize--
-  saveSettings(appSettings)
   applyFontSizes()
+  markSettingsChanged()
   document.getElementById('output-font-val').textContent = appSettings.outputFontSize + 'px'
 })
 document.getElementById('output-font-inc').addEventListener('click', () => {
   if (appSettings.outputFontSize >= 24) return
   appSettings.outputFontSize++
-  saveSettings(appSettings)
   applyFontSizes()
+  markSettingsChanged()
   document.getElementById('output-font-val').textContent = appSettings.outputFontSize + 'px'
 })
 document.getElementById('code-font-dec').addEventListener('click', () => {
   if (appSettings.codeFontSize <= 10) return
   appSettings.codeFontSize--
-  saveSettings(appSettings)
   applyFontSizes()
+  markSettingsChanged()
   document.getElementById('code-font-val').textContent = appSettings.codeFontSize + 'px'
 })
 document.getElementById('code-font-inc').addEventListener('click', () => {
   if (appSettings.codeFontSize >= 24) return
   appSettings.codeFontSize++
-  saveSettings(appSettings)
   applyFontSizes()
+  markSettingsChanged()
   document.getElementById('code-font-val').textContent = appSettings.codeFontSize + 'px'
 })
 
