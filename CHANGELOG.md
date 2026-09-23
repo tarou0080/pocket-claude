@@ -4,6 +4,13 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.15.3] - 2026-09-24
+
+### Fixed
+- **Conversations in projects other than the first now work end to end** - The CLI stores each conversation under a directory derived from its working directory, but pocket-claude only ever looked in the one derived from `$HOME`. Conversations started in any other project never appeared in history, and since v2.15.0 (where the body is streamed from the CLI transcript) they could not be streamed, restored, or resumed correctly either. Transcripts are now located in every registered project's directory (history, replay, live tail, session settings), and the new-vs-resume decision looks where the CLI itself will look (the spawn cwd). The history panel now lists the current tab's project only and shows its name in the title; `GET /api/history?project=<name>` filters, and each entry carries `project`.
+- **Directory names follow the CLI's rule** - Every non-alphanumeric character becomes `-` (previously only `/`), so homes such as `/home/john.doe` resolve correctly; names over 200 characters are matched by the CLI's hashed prefix.
+- **Tests no longer depend on the running `config.json` or write into `~/.claude`.**
+
 ## [v2.15.2] - 2026-09-24
 
 ### Fixed

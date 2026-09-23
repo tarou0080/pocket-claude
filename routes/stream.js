@@ -3,15 +3,13 @@ const path = require('path')
 const express = require('express')
 const router = express.Router()
 const { getState, registerSSEClient, unregisterSSEClient, classifyCursor } = require('../services/stream')
-const { UUID_RE, CLAUDE_PROJECTS_DIR, buildConversation } = require('../services/history')
+const { UUID_RE, buildConversation } = require('../services/history')
+const { findTranscript, projectDirs } = require('../services/claude-dir')
 const { readSessionFacts, projectFromCwd } = require('../services/session-facts')
 const { findClaudePid } = require('../services/external-process')
 const { claudeEntriesToEvents } = require('../services/history-convert')
 const config = require('../config/index')
 
-function mainJsonlPath(sessionId) {
-  return path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
-}
 
 // id 無しのイベントは空の `id:` を送る。EventSource は直前の id を持ち越す（lastEventId）ので、
 // 空 id を明示して '' へ戻さないとクライアントが id 付きと区別できない（v2.15.0 票B verify D2）。
@@ -29,7 +27,7 @@ function collectAUuids(sessionId) {
   const set = new Set()
   let raw
   try {
-    raw = fs.readFileSync(mainJsonlPath(sessionId), 'utf8')
+    raw = fs.readFileSync(findTranscript(sessionId), 'utf8')
   } catch {
     return set
   }
@@ -152,31 +150,41 @@ router.get('/', (req, res) => {
   //    （emitLive・id 無し）が流れる。加えて A の追記を全セッション共通で tail する。
   registerSSEClient(sessionId, res)
 
-  const aPath = mainJsonlPath(sessionId)
-  let aExists = true
+  // 新規会話の A はまだ無く、どのプロジェクトの置き場に生まれるかは spawn 時の cwd 次第。
+  // 無いうちは全プロジェクトの置き場を見張り、現れた場所で確定する。
+  let aPath = findTranscript(sessionId)
+  const aName = `${sessionId}.jsonl`
+  let aExists = aPath !== null
   let lastSize = 0
   // 追加行の非空行番号の起点＝既存の非空行数（再生済みの A0..A<maxA> の次）。
   let nextA = maxA + 1
-  try {
-    lastSize = fs.statSync(aPath).size
-  } catch {
-    aExists = false
-    nextA = 0
+  if (aExists) {
+    try {
+      lastSize = fs.statSync(aPath).size
+    } catch {
+      aExists = false
+    }
   }
+  if (!aExists) nextA = 0
   // 末尾の不完全行はバイト列のままバッファし、改行が揃ってから toString('utf8') する
   // （マルチバイト文字の境界で分割されないようにする＝バイト長と文字長の混同防止）。
   let tailBuf = Buffer.alloc(0)
 
   function processTail() {
+    if (!aExists) {
+      aPath = findTranscript(sessionId)
+      if (!aPath) return // A がまだ無い＝ポーリング／ディレクトリ監視で待つ
+    }
     let st
-    try { st = fs.statSync(aPath) } catch { return } // A がまだ無い＝ポーリングで待つ
+    try { st = fs.statSync(aPath) } catch { return }
     if (!aExists) {
       // 接続後に A が現れた: 全行が新規（nextA も 0 から）
       aExists = true
       lastSize = 0
       nextA = 0
       try { if (!watcher) watcher = fs.watch(aPath, () => processTail()) } catch {}
-      try { if (dirWatcher) { dirWatcher.close(); dirWatcher = null } } catch {}
+      for (const w of dirWatchers) { try { w.close() } catch {} }
+      dirWatchers = []
     }
     if (st.size <= lastSize) return
     const newBytes = readRange(aPath, lastSize, st.size - lastSize)
@@ -205,23 +213,25 @@ router.get('/', (req, res) => {
     clearInterval(heartbeat)
     clearInterval(tailPoll)
     try { watcher.close() } catch {}
-    try { dirWatcher.close() } catch {}
+    for (const w of dirWatchers) { try { w.close() } catch {} }
     unregisterSSEClient(sessionId, res)
   }
 
   let watcher = null
-  let dirWatcher = null
+  let dirWatchers = []
   if (aExists) {
     try { watcher = fs.watch(aPath, () => processTail()) } catch {}
   } else {
     // 新規会話は最初のプロンプトで A が生まれる。2秒ポーリングだけだと CLI の user 行
     // （＝画面の「> プロンプト」）より先に M の thinking/deltas が届いて順序が狂うので、
     // 親ディレクトリを watch して生成を即拾う（実測: 新規会話で thinking が先に描かれた）。
-    try {
-      dirWatcher = fs.watch(path.dirname(aPath), (_evt, name) => {
-        if (name === path.basename(aPath)) processTail()
-      })
-    } catch {}
+    for (const dir of projectDirs()) {
+      try {
+        dirWatchers.push(fs.watch(dir, (_evt, name) => {
+          if (name === aName) processTail()
+        }))
+      } catch {} // 置き場がまだ無いプロジェクト（未使用）は2秒ポーリングが拾う
+    }
   }
 
   const tailPoll = setInterval(() => {

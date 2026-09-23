@@ -5,7 +5,7 @@ const path = require('path')
 const config = require('../config/index')
 const { broadcast, emitLive, noteUuid, getState } = require('./stream')
 const { gitPull } = require('./git')
-const { CLAUDE_PROJECTS_DIR } = require('./history')
+const { projectDirFor } = require('./claude-dir')
 const { parseResetTime } = require('./reset-time')
 const { getProxyEnv, getToolFlags } = require('./proxy-route')
 const { saveToolsCatalog } = require('./tools-catalog')
@@ -47,7 +47,8 @@ function sendControlMessage(proc, subtype, extra = {}, timeoutMs = CONTROL_TIMEO
 // ID統一（v2.12.0）: pocket session ID === Claude session ID。
 //  - 初回spawn        : `--session-id <sessionId>` で使うIDを外から固定する
 //  - 2回目以降(再開)   : `--resume <sessionId>`（既存IDへ --session-id 再指定は "already in use" で拒否される）
-// 「初回か再開か」は本体jsonlの存在で判定する。
+// 「初回か再開か」は本体jsonlの存在で判定する。見るのは spawn する cwd の会話置き場＝CLI が
+// --resume で探す場所と同じ（別プロジェクトに同じIDの会話があっても、この cwd では再開できない）。
 // opts.forceResume: "already in use" フォールバック時に true（--resume を強制）
 function startClaude(sessionId, prompt, model, project, effort, thinking, imageData, opts = {}) {
   const projects = config.projects
@@ -55,7 +56,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   const s = getState(sessionId)
 
   const hasRun = !!opts.forceResume ||
-    fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`))
+    fs.existsSync(path.join(projectDirFor(projectDir), `${sessionId}.jsonl`))
   const idArgs = hasRun ? ['--resume', sessionId] : ['--session-id', sessionId]
   const usedSessionId = !hasRun
   // spawn時のモデルを記録。/api/send がアイドル時のモデル変更を検知し、

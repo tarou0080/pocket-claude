@@ -1,61 +1,79 @@
 const fs = require('fs')
 const path = require('path')
 const { claudeEntriesToEvents } = require('./history-convert')
-const { CLAUDE_PROJECTS_DIR } = require('./claude-dir')
+const { CLAUDE_PROJECTS_DIR, projectDirFor, projectDirs, findTranscript } = require('./claude-dir')
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// セッション一覧取得
-function listSessions() {
-  let files
-  try {
-    files = fs.readdirSync(CLAUDE_PROJECTS_DIR).filter(f => f.endsWith('.jsonl'))
-  } catch {
-    return []
+// セッション一覧取得。project 指定時はそのプロジェクトの会話だけ、省略時は登録済み全プロジェクト。
+// CLI は cwd ごとに別ディレクトリへ会話を書くので、プロジェクト＝走査するディレクトリ。
+function listSessions(project) {
+  const config = require('../config/index')
+  let targets
+  if (project !== undefined) {
+    const cwd = config.projects[project]
+    if (!cwd) return []
+    targets = [[project, projectDirFor(cwd)]]
+  } else {
+    targets = Object.entries(config.projects).map(([name, cwd]) => [name, projectDirFor(cwd)])
   }
 
   const sessions = []
-  for (const file of files) {
-    const sessionId = file.replace('.jsonl', '')
-    if (!UUID_RE.test(sessionId)) continue
-    const filePath = path.join(CLAUDE_PROJECTS_DIR, file)
-    let stat, title = '', updatedAt = '', msgCount = 0, model = null
+  const seen = new Set()
+  for (const [projectName, dir] of targets) {
+    let files
     try {
-      stat = fs.statSync(filePath)
-      updatedAt = stat.mtime.toISOString()
+      files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl'))
     } catch {
       continue
     }
-    try {
-      const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim())
-      for (const line of lines) {
-        try {
-          const d = JSON.parse(line)
-          if (d.type === 'user') {
-            msgCount++
-            if (!title) {
-              const content = d.message?.content
-              if (typeof content === 'string') title = content
-              else if (Array.isArray(content)) {
-                const textBlock = content.find(c => c.type === 'text')
-                if (textBlock) title = textBlock.text
-              }
-            }
-          } else if (d.type === 'assistant') {
-            msgCount++
-            if (d.message && typeof d.message.model === 'string') {
-              model = d.message.model
-            }
-          }
-        } catch {}
-      }
-    } catch {}
-    if (!title) title = `(${sessionId.slice(0, 8)})`
-    sessions.push({ sessionId, title: title.slice(0, 80), updatedAt, msgCount, model })
+    for (const file of files) {
+      const s = readSessionMeta(dir, file, projectName)
+      if (s && !seen.has(s.sessionId)) { seen.add(s.sessionId); sessions.push(s) }
+    }
   }
 
   sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   return sessions
+}
+
+function readSessionMeta(dir, file, project) {
+  const sessionId = file.replace('.jsonl', '')
+  if (!UUID_RE.test(sessionId)) return null
+  const filePath = path.join(dir, file)
+  let stat, title = '', updatedAt = '', msgCount = 0, model = null
+  try {
+    stat = fs.statSync(filePath)
+    updatedAt = stat.mtime.toISOString()
+  } catch {
+    return null
+  }
+  try {
+    const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim())
+    for (const line of lines) {
+      try {
+        const d = JSON.parse(line)
+        if (d.type === 'user') {
+          msgCount++
+          if (!title) {
+            const content = d.message?.content
+            if (typeof content === 'string') title = content
+            else if (Array.isArray(content)) {
+              const textBlock = content.find(c => c.type === 'text')
+              if (textBlock) title = textBlock.text
+            }
+          }
+        } else if (d.type === 'assistant') {
+          msgCount++
+          if (d.message && typeof d.message.model === 'string') {
+            model = d.message.model
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+  if (!title) title = `(${sessionId.slice(0, 8)})`
+  return { sessionId, title: title.slice(0, 80), updatedAt, msgCount, model, project }
 }
 
 // 特定セッションの会話内容取得（Path Traversal対策付き）
@@ -63,19 +81,13 @@ function getSessionMessages(sessionId) {
   if (!UUID_RE.test(sessionId)) {
     throw new Error('invalid sessionId')
   }
-  // セキュリティ: CLAUDE_PROJECTS_DIRの存在確認
-  if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
-    console.error('[SECURITY] CLAUDE_PROJECTS_DIR does not exist:', CLAUDE_PROJECTS_DIR)
-    throw new Error('history directory not found')
-  }
+  const filePath = findTranscript(sessionId)
+  if (!filePath) throw new Error('session not found')
 
-  const filePath = path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`)
-
-  // セキュリティ: パストラバーサル対策（解決後のパスがディレクトリ内か確認）
+  // セキュリティ: パストラバーサル対策（解決後のパスが登録済みプロジェクトの会話置き場内か確認）
   const resolved = path.resolve(filePath)
-  const allowedDir = path.resolve(CLAUDE_PROJECTS_DIR)
-  if (!resolved.startsWith(allowedDir + path.sep)) {
-    console.warn('[SECURITY] Path traversal attempt:', { sessionId, resolved, allowedDir })
+  if (!projectDirs().some(d => resolved.startsWith(path.resolve(d) + path.sep))) {
+    console.warn('[SECURITY] Path traversal attempt:', { sessionId, resolved })
     throw new Error('invalid path')
   }
 
@@ -129,7 +141,7 @@ function buildConversation(sessionId, { fromA = 0, fromB = 0 } = {}) {
   let mainRawLines = []
   let pocketRawLines = []
   try {
-    mainRawLines = fs.readFileSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`), 'utf8').split('\n')
+    mainRawLines = fs.readFileSync(findTranscript(sessionId), 'utf8').split('\n')
   } catch {}
   try {
     pocketRawLines = fs.readFileSync(path.join(config.LOGS_DIR, `${sessionId}.jsonl`), 'utf8').split('\n')

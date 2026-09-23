@@ -3,10 +3,11 @@ const zlib = require('zlib')
 const router = express.Router()
 const { listSessions, getSessionMessages, buildConversation, slimEventsForReplay } = require('../services/history')
 
-// セッション一覧
-router.get('/', (_req, res) => {
+// セッション一覧。?project=<name> でそのプロジェクトの会話だけ（省略時は全プロジェクト）
+router.get('/', (req, res) => {
   try {
-    const sessions = listSessions()
+    const project = typeof req.query.project === 'string' ? req.query.project : undefined
+    const sessions = listSessions(project)
     res.json(sessions)
   } catch (err) {
     console.error('[ERROR] Failed to list sessions:', err)

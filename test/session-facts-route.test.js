@@ -4,9 +4,17 @@ const http = require('http')
 const fs = require('fs')
 const path = require('path')
 const express = require('express')
+const os = require('os')
 const { randomUUID } = require('crypto')
+
+// 本体jsonlは本番の ~/.claude でなく一時ディレクトリへ書く（CLAUDE_CONFIG_DIR をモジュール読込前に向ける）
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-facts-route-'))
+process.env.CLAUDE_CONFIG_DIR = path.join(tmpRoot, 'claude')
+test.after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }))
 const claudeRoutes = require('../routes/claude')
 const config = require('../config/index')
+const { projectDirFor } = require('../services/claude-dir')
+const HOME_CWD = path.join(tmpRoot, 'home')
 
 // 解決先の models/projects は稼働中の config.json に依存させず、テストで注入する
 // （本番の config.json からモデルを撤去したらテストが落ちた・2026-09-21）。
@@ -30,12 +38,13 @@ function withServer(t) {
 }
 
 function writeMainJsonl(id, lines) {
-  const dir = require('../services/claude-dir').CLAUDE_PROJECTS_DIR
+  const dir = projectDirFor(HOME_CWD)
+  fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, `${id}.jsonl`), lines.map(l => JSON.stringify(l)).join('\n') + '\n')
 }
 
 function cleanupMainJsonl(id) {
-  const dir = require('../services/claude-dir').CLAUDE_PROJECTS_DIR
+  const dir = projectDirFor(HOME_CWD)
   try { fs.unlinkSync(path.join(dir, `${id}.jsonl`)) } catch {}
 }
 
@@ -48,13 +57,13 @@ test('不正な形式のsessionIdは400', async (t) => {
 test('本体jsonlから project/model/effort を解決して返す', async (t) => {
   withConfig(t, {
     models: [{ value: 'test-provider,@test/model-x', label: 'Test X' }],
-    projects: { home: '/tmp/pocket-test-home' },
+    projects: { home: HOME_CWD },
   })
   const base = withServer(t)
   const id = randomUUID()
   t.after(() => cleanupMainJsonl(id))
   writeMainJsonl(id, [
-    { type: 'user', cwd: '/tmp/pocket-test-home' },
+    { type: 'user', cwd: HOME_CWD },
     { type: 'assistant', message: { model: '@test/model-x' }, effort: 'medium' },
   ])
 

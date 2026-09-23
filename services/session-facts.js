@@ -7,7 +7,7 @@
 const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
-const { CLAUDE_PROJECTS_DIR } = require('./claude-dir')
+const { findTranscript } = require('./claude-dir')
 const { UUID_RE } = require('./history')
 
 // 指定された会話jsonlから事実を読み取る。
@@ -16,7 +16,8 @@ const { UUID_RE } = require('./history')
 //   - modelId: attachment.type==='model' 行の identity.modelId（多くのjsonlに無い→null）
 //   - model/effort: 最後の type:assistant 行の message.model / effort
 function readSessionFacts(id) {
-  const filePath = path.join(CLAUDE_PROJECTS_DIR, `${id}.jsonl`)
+  const filePath = UUID_RE.test(id) ? findTranscript(id) : null
+  if (!filePath) return { cwd: null, modelId: null, model: null, effort: null }
   return _readSessionFacts(filePath)
 }
 
@@ -95,7 +96,7 @@ function projectFromCwd(cwd, projects) {
 
 // sessionId があって、かつ本体jsonlが見つからないことを確認できる場合のみ true。
 function sessionExists(id) {
-  return UUID_RE.test(id) && fs.existsSync(path.join(CLAUDE_PROJECTS_DIR, `${id}.jsonl`))
+  return UUID_RE.test(id) && findTranscript(id) !== null
 }
 
 module.exports = { readSessionFacts, _readSessionFacts, matchConfigModel, projectFromCwd, sessionExists }

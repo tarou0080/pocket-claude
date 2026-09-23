@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const config = require('../config/index')
-const { CLAUDE_PROJECTS_DIR } = require('./claude-dir')
+const { findTranscript } = require('./claude-dir')
 
 // 1セッションあたりのメモリ内バッファ上限。常駐プロセス＋長時間セッションで
 // buffer が単調増加しメモリを食い潰すのを防ぐ。超過分は古いものから捨てる。
@@ -49,7 +49,9 @@ function logFile(sessionId) {
 function lastAUuid(sessionId) {
   let raw
   try {
-    raw = fs.readFileSync(path.join(CLAUDE_PROJECTS_DIR, `${sessionId}.jsonl`), 'utf8')
+    const p = findTranscript(sessionId)
+    if (!p) return null
+    raw = fs.readFileSync(p, 'utf8')
   } catch {
     return null
   }
