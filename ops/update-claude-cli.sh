@@ -15,9 +15,15 @@
 #      据え置かれる。npm 後に install.cjs を明示実行し、実体の追従を保証する。
 #   ③ 実体(claude --version)が最新と一致しない場合は WARNING でなく ERROR 扱いにし、
 #      「エイリアスが旧モデルへ格下げされている」状態を検知できるようにする。
+# 2026-09-24 修正: claude も絶対パスで呼ぶ。cron の PATH(/usr/bin:/bin) には
+#   /usr/local/bin が無く、`claude --version` が command not found で空になっていた。
+#   日次化(7/25)以降の cron 実行は全回が「active CLI  != latest」の誤 ERROR で、
+#   BEFORE=AFTER=空のため更新後の pocket-claude 再起動も一度も走っていなかった。
+#   版が読めないことは「最新でない」と別の ERROR として出す。
 
 NODE_BIN=/usr/local/bin/node
 NPM_BIN=/usr/local/bin/npm
+CLAUDE_BIN=/usr/local/bin/claude
 PKG_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code
 
 LOG_DIR="${HOME}/logs"
@@ -27,7 +33,7 @@ mkdir -p "$LOG_DIR"
 
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Claude CLI update started (node $($NODE_BIN -v 2>/dev/null)) ===" >> "$LOG_FILE"
 
-BEFORE=$(claude --version 2>/dev/null | awk '{print $1}')
+BEFORE=$($CLAUDE_BIN --version 2>/dev/null | awk '{print $1}')
 LATEST=$($NPM_BIN view @anthropic-ai/claude-code version 2>/dev/null)
 
 sudo "$NPM_BIN" install -g @anthropic-ai/claude-code@latest >> "$LOG_FILE" 2>&1
@@ -39,10 +45,12 @@ if [ -f "$PKG_DIR/install.cjs" ]; then
     echo "WARNING: postinstall (install.cjs) failed." >> "$LOG_FILE"
 fi
 
-AFTER=$(claude --version 2>/dev/null | awk '{print $1}')
+AFTER=$($CLAUDE_BIN --version 2>/dev/null | awk '{print $1}')
 
 if [ "$NPM_RC" -ne 0 ]; then
   echo "ERROR: npm install failed (exit $NPM_RC). Still on ${AFTER:-unknown} (latest is ${LATEST:-unknown})." >> "$LOG_FILE"
+elif [ -z "$AFTER" ]; then
+  echo "ERROR: cannot read active CLI version ($CLAUDE_BIN --version returned nothing)." >> "$LOG_FILE"
 elif [ -n "$LATEST" ] && [ "$AFTER" != "$LATEST" ]; then
   # npm は成功したのに実体が最新でない = モデルエイリアスが旧世代へ格下げされる状態。
   echo "ERROR: npm reported success but active CLI $AFTER != latest $LATEST (aliases may resolve to legacy models)." >> "$LOG_FILE"
