@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.16.2] - 2026-09-24
+
+### Fixed
+- **A changed auto-compact window now reaches idle sessions** - The CLI reads `autoCompactWindow` only at startup, so a session whose process was already waiting kept the old value after you saved a new one (resuming it from history just re-attaches to that process). On the next send, if the idle process was started with a different value than the current setting, that session alone is restarted with `--resume` (the same path a model switch across proxy routes already uses), so the new value applies from that turn and the `✓` line shows it. Other tabs and sessions in the middle of a turn are untouched. Scheduled posts and auto-resume still inject into a live process as before; the next manual send applies the change.
+
 ## [v2.16.1] - 2026-09-24
 
 ### Changed

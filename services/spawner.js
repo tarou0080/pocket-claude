@@ -94,6 +94,9 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   // 未設定なら渡さない＝CLI 既定（~/.claude/settings.json → モデル既定）に委ねる。
   const autoCompactWindow = validAutoCompactWindow(config.autoCompactWindow)
   if (autoCompactWindow) settings.autoCompactWindow = autoCompactWindow
+  // このプロセスが受け取った値を控える。CLI は起動時にしか読まないため、設定が変わった後の
+  // 送信で /api/send がこれと比べ、違えば --resume で起動し直す（routes/claude.js）。
+  s.autoCompactWindow = autoCompactWindow
 
   const args = [
     ...idArgs,

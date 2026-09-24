@@ -9,6 +9,7 @@ const { readSessionFacts, matchConfigModel, projectFromCwd, sessionExists } = re
 const { findClaudePid } = require('../services/external-process')
 const { UUID_RE } = require('../services/history')
 const { proxyRouteChanged } = require('../services/proxy-route')
+const { validAutoCompactWindow } = require('../services/auto-compact')
 const config = require('../config/index')
 
 // プロジェクト一覧
@@ -54,6 +55,7 @@ router.post('/send', async (req, res) => {
     return res.status(409).json({ error: 'external process running' })
   }
 
+  let restart = false
   if (s.process && !s.turning && model !== undefined && (model || null) !== (s.model || null)) {
     const proxyRouteChanges = proxyRouteChanged(config, s.model, model)
 
@@ -73,16 +75,27 @@ router.post('/send', async (req, res) => {
       console.log(`[send] model switch ${s.model || 'default'} → ${model || 'default'} sessionId=${actualSessionId} : proxy route changes, skipping set_model -> kill+resume restart`)
     }
 
-    if (!switched) {
-      const oldProc = s.process
-      oldProc.removeAllListeners('close')
-      await new Promise(resolve => {
-        oldProc.once('close', resolve)
-        oldProc.kill('SIGTERM')
-        setTimeout(resolve, 3000)
-      })
-      if (s.process === oldProc) s.process = null
-    }
+    if (!switched) restart = true
+  }
+
+  // 自動圧縮の開始サイズは CLI が起動時にしか読まない（制御リクエスト apply_flag_settings は
+  // ACK するが走行中に効かない＝実測）。待機中のプロセスが今の設定と違う値で起動していれば、
+  // その会話だけ起動し直して次のターンから効かせる（保存時に全会話を巻き込まない）。
+  const wantAutoCompact = validAutoCompactWindow(config.autoCompactWindow)
+  if (s.process && !s.turning && !restart && (s.autoCompactWindow ?? null) !== wantAutoCompact) {
+    console.log(`[send] autoCompactWindow ${s.autoCompactWindow ?? 'default'} → ${wantAutoCompact ?? 'default'} sessionId=${actualSessionId} : kill+resume restart`)
+    restart = true
+  }
+
+  if (restart) {
+    const oldProc = s.process
+    oldProc.removeAllListeners('close')
+    await new Promise(resolve => {
+      oldProc.once('close', resolve)
+      oldProc.kill('SIGTERM')
+      setTimeout(resolve, 3000)
+    })
+    if (s.process === oldProc) s.process = null
   }
 
   if (!s.process) {
