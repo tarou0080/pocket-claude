@@ -224,7 +224,7 @@ npm start
 
 - **Effort（思考量）** — 全セッションに適用されるグローバル既定の思考量（`CLI default` / `Low` / `Medium` / `High` / `xHigh`）。ヘッダーの Effort ドット（**●●●**）は、既定を変えずに*現在のタブだけ*の Effort をサイクル切り替えします。
   `CLI default` は pocket-claude が effort を**渡さない**という意味です。`claude` CLI が端末で起動したときと同じ順序で解決します — `~/.claude/settings.json` の `effortLevel` / `modelSettings` があればそれ、無ければモデル既定（Opus 5・Sonnet 5 は `high`）。固定のレベルであって、プロンプトごとに自動で選ぶものではありません（CLI にも API にもそのような「auto effort」は存在せず、プロンプトごとに変わるのは選んだレベルの*範囲内*での思考量です）。
-- **自動圧縮の開始サイズ** — `claude` CLI が会話を自動で要約・圧縮する大きさ（`CLI既定` / `100K`〜`1M`）。各セッションの起動時に CLI の設定 `autoCompactWindow` として渡すため、保存後に起動した会話から効きます（予約投稿・自動再開を含む）。モデルのコンテキスト窓より大きい値は CLI が窓に切り詰めます。`CLI既定` は何も渡しません（CLI が `~/.claude/settings.json`、無ければモデル既定を使う）。各ターンの `✓` 行に開始点が出ます（例: `✓ 4% (39K / 1000K) · 自動圧縮 約267Kで開始`。CLI は窓の約33K手前で開始します）。サーバー側（`config.json` の `autoCompactWindow`）に保存されます。
+- **自動圧縮の開始サイズ** — `claude` CLI が会話を自動で要約・圧縮する大きさ（`CLI既定` / `100K`〜`1M`）。各セッションの起動時に CLI の設定 `autoCompactWindow` として渡すため、保存後に起動した会話から効きます（予約投稿・自動再開を含む）。モデルのコンテキスト窓より大きい値は CLI が窓に切り詰めます。`CLI既定` は何も渡しません（CLI が `~/.claude/settings.json`、無ければモデル既定を使う）。各ターンの `✓` 行に開始点が出ます（例: `✓ 4% (39K / 1000K) · auto-compact ~267K`。CLI は窓の約33K手前で開始します）。サーバー側（`config.json` の `autoCompactWindow`）に保存されます。
 - **テーマ** — 同梱の UI テーマ（Blue Dark / Purple Dark）を切り替え。`public/themes.js` を編集すれば独自テーマを追加できます。
 - **フォントサイズ** — 会話テキストのサイズを調整。
 - **言語** — 日本語 / 英語。

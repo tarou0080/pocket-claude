@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.16.1] - 2026-09-24
+
+### Changed
+- **The `✓` line's auto-compact note is always in English** - `· auto-compact ~267K` / `· auto-compact: CLI default`, in the CLI's own term (`autocompact`), like the rest of the line (`K`, `%`). Front-end only.
+
 ## [v2.16.0] - 2026-09-24
 
 ### Added

@@ -1173,8 +1173,6 @@ const STRINGS = {
     autoCompactLabel:     '自動圧縮の開始サイズ',
     autoCompactDesc:      '会話がこの大きさに近づくとCLIが自動で要約・圧縮します（約33K手前で開始）。変更は次に起動する会話から効きます',
     autoCompactDefault:   'CLI既定',
-    autoCompactLine:      '自動圧縮',
-    autoCompactAt:        '約{n}で開始',
     projectNoteLocked:    '⚠ セッション開始済みのため変更できません。新しいタブで開始してください。★ は新規セッションのデフォルトを設定します。',
     projectNoteUnlocked:  '最初のメッセージを送る前のみ変更できます',
     projectNamePh:        'プロジェクト名 (例: myapp)',
@@ -1219,8 +1217,6 @@ const STRINGS = {
     autoCompactLabel:     'Auto-compact window',
     autoCompactDesc:      'The CLI summarizes the conversation as it nears this size (starts ~33K before). Applies to sessions started after saving.',
     autoCompactDefault:   'CLI default',
-    autoCompactLine:      'auto-compact',
-    autoCompactAt:        'at ~{n}',
     projectLabel:         'Projects',
     projectNoteLocked:    'Session already started. ★ changes the default for new sessions.',
     projectNoteUnlocked:  'Can only be changed before the first message.',
@@ -2120,13 +2116,15 @@ const CTX_MAX = 200000
 // 100K〜1M・Opus/Haiku で一定だった）。CLI はこの値を stream に出さないため手元に持つ＝
 // CLI 更新で変わりうるので表示は「約」。変わったらここ1か所を直す。
 const AUTOCOMPACT_BUFFER = 33000
-// ✓行の末尾「 · 自動圧縮 約267Kで開始」。設定が無い会話（CLI既定）は開始点を pocket 側で
-// 確かめられない（Haiku 既定では /context に予備の行が出ない）ので数字を出さず「CLI既定」と書く。
+// ✓行の末尾「 · auto-compact ~267K」。✓行の他の語（K・%）と同じく言語で切り替えない。
+// 語は CLI 自身の呼び名（/context の "Autocompact buffer"・設定 autoCompactWindow）に合わせる。
+// 設定が無い会話（CLI既定）は開始点を pocket 側で確かめられない（Haiku 既定では /context に
+// 予備の行が出ない）ので数字を出さず「CLI default」と書く。
 function autoCompactSuffix(ts, ctxMax) {
   if (ts._autoCompact === undefined) return ''
-  if (!ts._autoCompact) return ` · ${t('autoCompactLine')} ${t('autoCompactDefault')}`
+  if (!ts._autoCompact) return ' · auto-compact: CLI default'
   const start = Math.max(0, Math.min(ts._autoCompact, ctxMax) - AUTOCOMPACT_BUFFER)
-  return ` · ${t('autoCompactLine')} ${t('autoCompactAt').replace('{n}', fmtTokens(start))}`
+  return ` · auto-compact ~${fmtTokens(start)}`
 }
 let currentSessionId = null
 let currentES = null
