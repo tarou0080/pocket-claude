@@ -4,6 +4,13 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.16.0] - 2026-09-24
+
+### Added
+- **Auto-compact window setting** - The settings modal has a new `Auto-compact window` choice (`CLI default` / `100K`–`1M`, same steps as the CLI's own setting). It is stored in `config.json` as `autoCompactWindow` (`GET`/`PATCH /api/server-config`) and passed to every spawned session via `--settings` as the CLI's `autoCompactWindow`, so browserless paths (scheduled posts, auto-resume) honor it too. It takes effect for sessions started after saving; running sessions keep the value they were started with (the CLI's `apply_flag_settings` control request acknowledges this key but does not apply it to a running session). Values above the model's window are capped by the CLI. Also sent to proxy models: it only affects the CLI's own compaction decision, nothing is sent to the API.
+- **`✓` line shows where auto-compaction starts** - e.g. `✓ 4% (39K / 1000K) · auto-compact at ~267K`. The server attaches the value the session was started with to each `result` event (`autoCompactWindow`, `null` = CLI default), so the line is right after a reload and after the setting changes mid-conversation. The start point is `min(window, context window) - 33K` (the CLI's autocompact buffer as measured with `/context`; the CLI does not report it, hence "~"). Sessions on `CLI default` show `auto-compact CLI default` without a number, because the CLI's default start point cannot be observed from outside (Haiku's `/context` shows no buffer at all).
+- **Model dropdown shows each model's context window** - e.g. `Opus 5.5 · 1M`, `Haiku 4.5 · 200K`, learned per device from `result.modelUsage[].contextWindow` the first time a model is used (stored in `localStorage` as `pc-model-context`). Nothing is hard-coded, in line with the resolved-name labels.
+
 ## [v2.15.3] - 2026-09-24
 
 ### Fixed

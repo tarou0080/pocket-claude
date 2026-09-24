@@ -998,6 +998,12 @@
           <button class="seg-btn" data-val="off"></button>
         </div>
       </div>
+      <!-- Auto-compact window (server) -->
+      <div>
+        <div class="settings-section-title" id="stitle-autocompact"></div>
+        <div id="autocompact-desc" style="font-size:12px;color:var(--text-muted);margin-bottom:6px;"></div>
+        <select id="autocompact-select" style="background:var(--surface3);color:var(--text);border:1px solid var(--border-input);border-radius:6px;padding:6px 8px;font-size:13px;outline:none;"></select>
+      </div>
       <!-- Rate Limit Resume Prompt -->
       <div>
         <div class="settings-section-title" id="stitle-resume"></div>
@@ -1164,6 +1170,11 @@ const STRINGS = {
     bodyLimitDesc:        '',
     bodyLimitUnit:        'MB（0で無制限）',
     bodyLimitError:       '保存に失敗しました',
+    autoCompactLabel:     '自動圧縮の開始サイズ',
+    autoCompactDesc:      '会話がこの大きさに近づくとCLIが自動で要約・圧縮します（約33K手前で開始）。変更は次に起動する会話から効きます',
+    autoCompactDefault:   'CLI既定',
+    autoCompactLine:      '自動圧縮',
+    autoCompactAt:        '約{n}で開始',
     projectNoteLocked:    '⚠ セッション開始済みのため変更できません。新しいタブで開始してください。★ は新規セッションのデフォルトを設定します。',
     projectNoteUnlocked:  '最初のメッセージを送る前のみ変更できます',
     projectNamePh:        'プロジェクト名 (例: myapp)',
@@ -1205,6 +1216,11 @@ const STRINGS = {
     bodyLimitDesc:        '',
     bodyLimitUnit:        'MB (0 = unlimited)',
     bodyLimitError:       'Failed to save',
+    autoCompactLabel:     'Auto-compact window',
+    autoCompactDesc:      'The CLI summarizes the conversation as it nears this size (starts ~33K before). Applies to sessions started after saving.',
+    autoCompactDefault:   'CLI default',
+    autoCompactLine:      'auto-compact',
+    autoCompactAt:        'at ~{n}',
     projectLabel:         'Projects',
     projectNoteLocked:    'Session already started. ★ changes the default for new sessions.',
     projectNoteUnlocked:  'Can only be changed before the first message.',
@@ -1263,10 +1279,28 @@ function prettyModel(id) {
   const ver = parts.join('.')
   return ver ? tierName + ' ' + ver : tierName
 }
+// トークン数の短い表記（1000000→1M・200000→200K・77824→78K）
+function fmtTokens(n) {
+  if (n >= 1000000 && n % 100000 === 0) return (n / 1000000) + 'M'
+  return n >= 1000 ? Math.round(n / 1000) + 'K' : String(n)
+}
+// モデル選択値 → CLI が result.modelUsage で返したコンテキスト窓（実測）。プルダウンに「· 1M」と出す。
+// 手書きの値は持たない（ラベルと同じく、CLI の事実を学習するだけ）。未使用のモデルには付かない。
+function loadModelContext() {
+  try { return JSON.parse(localStorage.getItem('pc-model-context') || '{}') } catch { return {} }
+}
+let modelContext = loadModelContext()
+function learnModelContext(value, win) {
+  if (!win || modelContext[value] === win) return
+  modelContext[value] = win
+  localStorage.setItem('pc-model-context', JSON.stringify(modelContext))
+  rebuildModelSelect()
+}
 // プルダウン/設定に出すラベル。実解決名を学習済みならそれを、未学習なら素のティア名を出す。
 function optionLabel(m) {
   const resolved = resolvedModels[m.value]
-  const suffix = m.note || ''
+  const win = modelContext[m.value]
+  const suffix = (m.note || '') + (win ? ' · ' + fmtTokens(win) : '')
   const curated = m.name || m.label || m.value
   if (m.value === '') {
     return (resolved ? 'Default (' + prettyModel(resolved) + ')' : curated) + suffix
@@ -1384,6 +1418,9 @@ async function loadBodyLimit() {
       const chk = document.getElementById('resume-default-on-chk')
       if (chk) chk.checked = data.resumeDefaultOn
     }
+    autoCompactState.server = Number.isInteger(data.autoCompactWindow) ? data.autoCompactWindow : null
+    const acSel = document.getElementById('autocompact-select')
+    if (acSel) { acSel.innerHTML = ''; renderAutoCompactSelect() }
     toolsState.toolsDirect = Array.isArray(data.toolsDirect) ? data.toolsDirect : null
     toolsState.toolsProxy = Array.isArray(data.toolsProxy) ? data.toolsProxy : null
     // ドラフトはサーバー値から作り直す(=モーダルを開き直すと未保存状態はリセットされる)
@@ -1408,6 +1445,36 @@ let toolsState = {
 
 // ボディサイズ上限の保存値(サーバーを正とする)。draft側は#body-limit-inputの現在値そのもの。
 let bodyLimitState = { server: 0 }
+
+// 自動圧縮の開始サイズ(サーバー設定・null=CLI既定)。draft側は#autocompact-selectの現在値そのもの。
+// 選択肢は CLI 本体の設定画面と同じ 100K〜1M・100K刻み。モデルの窓を超える値は CLI が切り詰める。
+let autoCompactState = { server: null }
+const AUTO_COMPACT_CHOICES = [100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 1000000]
+
+function renderAutoCompactSelect() {
+  const sel = document.getElementById('autocompact-select')
+  if (!sel) return
+  const cur = sel.options.length ? sel.value : String(autoCompactState.server ?? '')
+  sel.innerHTML = ''
+  const values = [...AUTO_COMPACT_CHOICES]
+  // config.json を手で書いた等で選択肢外の値でも、そのまま選べる形で出す
+  if (autoCompactState.server && !values.includes(autoCompactState.server)) values.push(autoCompactState.server)
+  const add = (v, label) => { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o) }
+  add('', t('autoCompactDefault'))
+  values.sort((a, b) => a - b).forEach(v => add(String(v), fmtTokens(v)))
+  sel.value = cur
+  sel.onchange = () => updateSettingsHeaderState()
+}
+
+function autoCompactDraft() {
+  const sel = document.getElementById('autocompact-select')
+  if (!sel || !sel.options.length) return autoCompactState.server
+  return sel.value === '' ? null : parseInt(sel.value, 10)
+}
+
+function autoCompactIsDirty() {
+  return autoCompactDraft() !== autoCompactState.server
+}
 
 // チェック状態がカタログ全体と一致する場合はnull(=絞らない/制限なし)に正規化する。
 // これにより「全部チェック」は「全部に戻す」ボタンと同じ結果(null)になり、将来ツールが
@@ -1492,7 +1559,7 @@ function commitLocalSettings() {
 
 // 設定モーダル全体で未保存の変更があるか(ツール構成 + ボディサイズ上限 + 端末側の設定)
 function settingsIsDirty() {
-  return toolsIsDirty() || bodyLimitIsDirty() || localSettingsIsDirty()
+  return toolsIsDirty() || bodyLimitIsDirty() || autoCompactIsDirty() || localSettingsIsDirty()
 }
 
 // 未保存の変更有無に応じて設定モーダルのヘッダーを切り替える。
@@ -1608,6 +1675,8 @@ async function saveSettingsDraftAndClose() {
   if (dirtyDirect) patch.toolsDirect = toolsState.draft.toolsDirect
   if (dirtyProxy) patch.toolsProxy = toolsState.draft.toolsProxy
   if (dirtyBodyLimit) patch.maxBodySizeMb = bodyLimitVal
+  const dirtyAutoCompact = autoCompactIsDirty()
+  if (dirtyAutoCompact) patch.autoCompactWindow = autoCompactDraft()
   // 自動再開の既定はブラウザ不在時にサーバーが使うので、確定時にサーバーへも送る
   if (settingsBaseline && appSettings.resumeDefaultOn !== settingsBaseline.resumeDefaultOn) {
     patch.resumeDefaultOn = appSettings.resumeDefaultOn
@@ -1625,6 +1694,7 @@ async function saveSettingsDraftAndClose() {
     if (dirtyDirect) toolsState.toolsDirect = toolsState.draft.toolsDirect
     if (dirtyProxy) toolsState.toolsProxy = toolsState.draft.toolsProxy
     if (dirtyBodyLimit) bodyLimitState.server = bodyLimitVal
+    if (dirtyAutoCompact) autoCompactState.server = patch.autoCompactWindow
     commitLocalSettings()
     closeSettings()
   } catch {
@@ -1640,6 +1710,8 @@ function cancelSettingsDraftAndClose() {
   toolsState.draft.toolsProxy = toolsState.toolsProxy
   const bodyLimitInput = document.getElementById('body-limit-input')
   if (bodyLimitInput) bodyLimitInput.value = bodyLimitState.server
+  const acSel = document.getElementById('autocompact-select')
+  if (acSel) acSel.value = String(autoCompactState.server ?? '')
   const bodyLimitStatus = document.getElementById('body-limit-status')
   if (bodyLimitStatus) bodyLimitStatus.textContent = ''
   closeSettings()
@@ -1760,6 +1832,9 @@ function renderSettingsModal() {
   document.getElementById('stitle-body-limit').textContent  = t('bodyLimitLabel')
   document.getElementById('body-limit-desc').textContent    = t('bodyLimitDesc')
   document.getElementById('body-limit-unit').textContent    = t('bodyLimitUnit')
+  document.getElementById('stitle-autocompact').textContent = t('autoCompactLabel')
+  document.getElementById('autocompact-desc').textContent   = t('autoCompactDesc')
+  renderAutoCompactSelect()
   document.getElementById('stitle-project').textContent     = t('projectLabel')
   document.getElementById('stitle-tools-advanced').textContent = t('toolsAdvancedLabel')
   document.getElementById('tools-advanced-note').textContent   = t('toolsAdvancedNote')
@@ -2041,6 +2116,18 @@ document.getElementById('code-font-inc').addEventListener('click', () => {
 
 const tabState = {}   // sessionId -> { isRunning, currentTextEl, _rawText, _ctxTokens, pane, autoScroll }
 const CTX_MAX = 200000
+// CLI が自動圧縮の開始点より手前に取る予備（/context の「Autocompact buffer」実測 33K。
+// 100K〜1M・Opus/Haiku で一定だった）。CLI はこの値を stream に出さないため手元に持つ＝
+// CLI 更新で変わりうるので表示は「約」。変わったらここ1か所を直す。
+const AUTOCOMPACT_BUFFER = 33000
+// ✓行の末尾「 · 自動圧縮 約267Kで開始」。設定が無い会話（CLI既定）は開始点を pocket 側で
+// 確かめられない（Haiku 既定では /context に予備の行が出ない）ので数字を出さず「CLI既定」と書く。
+function autoCompactSuffix(ts, ctxMax) {
+  if (ts._autoCompact === undefined) return ''
+  if (!ts._autoCompact) return ` · ${t('autoCompactLine')} ${t('autoCompactDefault')}`
+  const start = Math.max(0, Math.min(ts._autoCompact, ctxMax) - AUTOCOMPACT_BUFFER)
+  return ` · ${t('autoCompactLine')} ${t('autoCompactAt').replace('{n}', fmtTokens(start))}`
+}
 let currentSessionId = null
 let currentES = null
 let _projectsCache = {}
@@ -3918,8 +4005,14 @@ function handleEvent(sessionId, ev, isLive = true) {
         // contextWindow をモデルごとに取得（モデル切り替え・将来の1Mモデル対応）
         if (hasModelUsage) {
           const windows = Object.values(ev.modelUsage).map(m => m.contextWindow).filter(Boolean)
-          if (windows.length) ts._ctxMax = Math.max(...windows)
+          if (windows.length) {
+            ts._ctxMax = Math.max(...windows)
+            learnModelContext(ts.model || '', ts._ctxMax)
+          }
         }
+        // サーバーが result に添える「このプロセスが起動時に受け取った自動圧縮の開始点」（null=CLI既定）。
+        // 添えていない旧ログの result では前の値を保つ（undefined と null を区別する）。
+        if (ev.autoCompactWindow !== undefined) ts._autoCompact = ev.autoCompactWindow
         // result.usage.iterations[-1] が存在する場合、最終APIコールの正確なトークン数で上書き。
         // stream_eventの積算値は稀にorphan message_deltaでズレるため、ここで補正する。
         // result.usage（ターン全体の累積）は使わない（ツール多用時に膨張するため）
@@ -3945,7 +4038,7 @@ function handleEvent(sessionId, ev, isLive = true) {
         }
         ts._prevCtxTokens = ts._ctxTokens
         const pct = Math.round(ts._ctxTokens / ctxMax * 100)
-        const resultEl = addLine(ts, `✓ ${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})`, 'line-done')
+        const resultEl = addLine(ts, `✓ ${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})${autoCompactSuffix(ts, ctxMax)}`, 'line-done')
         if (pct >= 50) resultEl.classList.add('warn')
       }
       break

@@ -4,6 +4,7 @@ const path = require('path')
 const router = express.Router()
 const { writeJsonAtomic } = require('../services/persist')
 const { loadToolsCatalog } = require('../services/tools-catalog')
+const { validAutoCompactWindow } = require('../services/auto-compact')
 
 const CONFIG_FILE = path.join(__dirname, '..', 'config.json')
 
@@ -28,6 +29,7 @@ router.get('/', (_req, res) => {
     resumeDefaultOn: typeof cfg.resumeDefaultOn === 'boolean' ? cfg.resumeDefaultOn : false,
     toolsDirect: Array.isArray(cfg.toolsDirect) ? cfg.toolsDirect : null,
     toolsProxy: Array.isArray(cfg.toolsProxy) ? cfg.toolsProxy : null,
+    autoCompactWindow: validAutoCompactWindow(cfg.autoCompactWindow),
     toolCatalog: loadToolsCatalog(),
     hasProxyModels: !!(cfg.proxyModels && Object.keys(cfg.proxyModels).length > 0),
   })
@@ -35,7 +37,7 @@ router.get('/', (_req, res) => {
 
 // PATCH /api/server-config — 設定値を更新
 router.patch('/', (req, res) => {
-  const { maxBodySizeMb, resumeDefaultOn, toolsDirect, toolsProxy } = req.body
+  const { maxBodySizeMb, resumeDefaultOn, toolsDirect, toolsProxy, autoCompactWindow } = req.body
   if (maxBodySizeMb !== undefined) {
     if (typeof maxBodySizeMb !== 'number' || maxBodySizeMb < 0 || !Number.isFinite(maxBodySizeMb)) {
       return res.status(400).json({ error: 'maxBodySizeMb must be a non-negative number (0 = unlimited)' })
@@ -53,6 +55,11 @@ router.patch('/', (req, res) => {
     return res.status(400).json({ error: 'toolsProxy must be null or an array of strings' })
   }
 
+  // null=CLI既定に戻す。値は正の整数トークン数（窓を超える値は CLI が切り詰める）
+  if (autoCompactWindow !== undefined && autoCompactWindow !== null && !validAutoCompactWindow(autoCompactWindow)) {
+    return res.status(400).json({ error: 'autoCompactWindow must be null or a positive integer (tokens)' })
+  }
+
   const cfg = readConfigFile()
   if (maxBodySizeMb !== undefined) cfg.maxBodySizeMb = maxBodySizeMb
   if (resumeDefaultOn !== undefined) cfg.resumeDefaultOn = resumeDefaultOn
@@ -63,6 +70,10 @@ router.patch('/', (req, res) => {
   if (toolsProxy !== undefined) {
     if (toolsProxy === null) delete cfg.toolsProxy
     else cfg.toolsProxy = toolsProxy
+  }
+  if (autoCompactWindow !== undefined) {
+    if (autoCompactWindow === null) delete cfg.autoCompactWindow
+    else cfg.autoCompactWindow = autoCompactWindow
   }
 
   const ok = writeJsonAtomic(CONFIG_FILE, cfg, { pretty: true })
@@ -75,12 +86,14 @@ router.patch('/', (req, res) => {
   if (resumeDefaultOn !== undefined) config.resumeDefaultOn = resumeDefaultOn
   if (toolsDirect !== undefined) config.toolsDirect = cfg.toolsDirect ?? null
   if (toolsProxy !== undefined) config.toolsProxy = cfg.toolsProxy ?? null
+  if (autoCompactWindow !== undefined) config.autoCompactWindow = cfg.autoCompactWindow ?? null
   res.json({
     ok: true,
     maxBodySizeMb: cfg.maxBodySizeMb,
     resumeDefaultOn: cfg.resumeDefaultOn ?? false,
     toolsDirect: cfg.toolsDirect ?? null,
     toolsProxy: cfg.toolsProxy ?? null,
+    autoCompactWindow: cfg.autoCompactWindow ?? null,
   })
 })
 

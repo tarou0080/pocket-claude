@@ -8,6 +8,7 @@ const { gitPull } = require('./git')
 const { projectDirFor } = require('./claude-dir')
 const { parseResetTime } = require('./reset-time')
 const { getProxyEnv, getToolFlags } = require('./proxy-route')
+const { validAutoCompactWindow } = require('./auto-compact')
 const { saveToolsCatalog } = require('./tools-catalog')
 
 // stdin へ送る control_request の応答を待つ標準タイムアウト。
@@ -88,6 +89,11 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
     if (thinking === 'on' || thinking === true) settings.alwaysThinkingEnabled = true
     else if (thinking === 'off' || thinking === false) settings.alwaysThinkingEnabled = false
   }
+  // 自動圧縮の開始点（CLI の autoCompactWindow・トークン数）。effort と違いプロキシ経由でも渡す:
+  // API へは送られず CLI 内の判定にだけ使われ、モデルの窓を超える値は CLI が窓へ切り詰める（実測）。
+  // 未設定なら渡さない＝CLI 既定（~/.claude/settings.json → モデル既定）に委ねる。
+  const autoCompactWindow = validAutoCompactWindow(config.autoCompactWindow)
+  if (autoCompactWindow) settings.autoCompactWindow = autoCompactWindow
 
   const args = [
     ...idArgs,
@@ -113,6 +119,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
     sessionId,
     project,
     model: model || 'default',
+    autoCompactWindow,
     timestamp: new Date().toISOString(),
   })
 
@@ -198,6 +205,9 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
         // assistant/user は A の行と同じ uuid を持つ（実測）ため、先に noteUuid してから
         // emitLive する＝次の broadcast の after が直前のA行を指す。
         if (parsed.type === 'result' || (parsed.type === 'system' && parsed.subtype === 'init')) {
+          // ✓行に「自動圧縮の開始点」を出すため、このプロセスが起動時に受け取った値を result に添える。
+          // start だけに載せるとリロード（IndexedDB復元）後の最初の✓行で値が分からなくなる。
+          if (parsed.type === 'result') parsed.autoCompactWindow = autoCompactWindow
           broadcast(sessionId, parsed)
         } else if (parsed.type === 'assistant' || parsed.type === 'user') {
           noteUuid(sessionId, parsed.uuid)
