@@ -7,6 +7,11 @@ const os = require('os')
 const express = require('express')
 const { randomUUID } = require('crypto')
 
+// 本番の ~/.claude に触れない（CLAUDE_CONFIG_DIR を一時ディレクトリへ向ける。services の require より前に置く）。
+const claudeTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-stream-route-claude-'))
+process.env.CLAUDE_CONFIG_DIR = claudeTmp
+test.after(() => fs.rmSync(claudeTmp, { recursive: true, force: true }))
+
 // GET /api/stream（v2.15.0 新プロトコル）のテスト。
 // config.LOGS_DIR は require 時に確定するが、実体は各関数が呼び出し時に参照する
 // ため、テストではモジュールオブジェクトの LOGS_DIR を差し替えるだけでよい
@@ -19,6 +24,7 @@ config.LOGS_DIR = TMP
 const streamRoutes = require('../routes/stream')
 const { getState } = require('../services/stream')
 const { CLAUDE_PROJECTS_DIR } = require('../services/history')
+fs.mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true })
 
 test.after(() => {
   config.LOGS_DIR = originalLogsDir

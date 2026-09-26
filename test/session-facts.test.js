@@ -3,8 +3,14 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+// 本番の ~/.claude に触れない（CLAUDE_CONFIG_DIR を一時ディレクトリへ向ける。services の require より前に置く）。
+const claudeTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-session-facts-claude-'))
+process.env.CLAUDE_CONFIG_DIR = claudeTmp
+test.after(() => fs.rmSync(claudeTmp, { recursive: true, force: true }))
+
 const { _readSessionFacts, matchConfigModel, projectFromCwd, sessionExists } = require('../services/session-facts')
 const { CLAUDE_PROJECTS_DIR } = require('../services/claude-dir')
+fs.mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true })
 
 function writeJsonl(dir, id, lines) {
   fs.writeFileSync(path.join(dir, `${id}.jsonl`), lines.map(l => JSON.stringify(l)).join('\n') + '\n')
@@ -80,6 +86,7 @@ test('projectFromCwd: prefix は path.sep で区切った子だけ', () => {
 
 test('sessionExists: UUID jsonl が存在すれば true', () => {
   const id = 'e56b58ee-5eb9-4b9d-8771-f4f80cfa3062'
+  writeJsonl(CLAUDE_PROJECTS_DIR, id, [{ type: 'user' }])
   assert.ok(sessionExists(id))
 })
 

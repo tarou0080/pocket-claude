@@ -2,8 +2,15 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 const { randomUUID } = require('crypto')
+// 本番の ~/.claude に触れない（CLAUDE_CONFIG_DIR を一時ディレクトリへ向ける。services の require より前に置く）。
+const claudeTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-history-claude-'))
+process.env.CLAUDE_CONFIG_DIR = claudeTmp
+test.after(() => fs.rmSync(claudeTmp, { recursive: true, force: true }))
+
 const { slimEventsForReplay, getSessionEvents, buildConversation, weave, CLAUDE_PROJECTS_DIR } = require('../services/history')
+fs.mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true })
 const config = require('../config/index')
 
 // slimEventsForReplay() は履歴再生専用にイベント列を整理する純粋関数。

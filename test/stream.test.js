@@ -3,8 +3,14 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+// 本番の ~/.claude に触れない（CLAUDE_CONFIG_DIR を一時ディレクトリへ向ける。services の require より前に置く）。
+const claudeTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-stream-claude-'))
+process.env.CLAUDE_CONFIG_DIR = claudeTmp
+test.after(() => fs.rmSync(claudeTmp, { recursive: true, force: true }))
+
 const { broadcast, emitLive, noteUuid, loadLogFile, logFile, classifyCursor, getState } = require('../services/stream')
 const { CLAUDE_PROJECTS_DIR } = require('../services/history')
+fs.mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true })
 
 // v2.15.0 のテスト。services/stream.js は LOGS_DIR のパス注入に対応していない
 // （tmpdir override が無い）ため、実際の config.LOGS_DIR にテスト専用のユニークIDで
