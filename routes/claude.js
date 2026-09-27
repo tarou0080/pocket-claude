@@ -3,7 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const router = express.Router()
 const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
-const { getState, broadcast, logFile } = require('../services/stream')
+const { getState, broadcast, logFile, turningSessions } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
 const { readSessionFacts, projectFromCwd, sessionExists } = require('../services/session-facts')
 const { sessionModel } = require('../services/models')
@@ -29,6 +29,12 @@ router.get('/status', (req, res) => {
   const resp = { running: s.turning || (!!externalPid), external: !!externalPid }
   if (Array.isArray(s.lastStillQueued) && s.lastStillQueued.length) resp.cliStillQueued = s.lastStillQueued
   res.json(resp)
+})
+
+// 再起動してよいかの判断材料（ops/update-claude-cli.sh が読む）。
+// running=ターン実行中の件数。再起動するとそのターンの作業は失われる。
+router.get('/busy', (_req, res) => {
+  res.json({ running: turningSessions().length })
 })
 
 // プロンプト送信

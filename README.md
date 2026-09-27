@@ -198,6 +198,8 @@ To keep it current automatically, add a cron job (adjust for your platform):
 0 3 * * 1 npm install -g @anthropic-ai/claude-code@latest >> ~/claude-cli-update.log 2>&1
 ```
 
+Running sessions keep using the old CLI until pocket-claude restarts, and a restart discards any turn in progress. If you restart automatically, check that `GET /api/busy` (`{"running": <turns in progress>}`) returns 0 first; see [`ops/update-claude-cli.sh`](ops/update-claude-cli.sh) for an example.
+
 ### Pinning a specific (or older) model
 
 If you want a specific model rather than "latest in tier" — to stay on an older model, or to add one that isn't in the default list — set the dropdown option's `value` to an exact model ID. The value is passed verbatim as `claude --model <value>`.

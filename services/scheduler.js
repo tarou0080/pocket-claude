@@ -3,6 +3,8 @@ const path = require('path')
 const { writeJsonAtomic } = require('./persist')
 
 const SCHEDULES_FILE = path.join(__dirname, '..', 'schedules.json')
+// 保存先は読み込んだファイルに揃える（テストが一時ファイルで loadSchedules しても本番を書き換えない）
+let schedulesFile = SCHEDULES_FILE
 
 // resetAt ちょうどに発火すると API のリセット境界 race condition で即 429 になるため、
 // 実際のキックは resetAt から 3分後にする（旧 60秒 から拡大）。
@@ -40,7 +42,7 @@ function saveSchedules() {
       thinking: s.thinking
     }
   })
-  return writeJsonAtomic(SCHEDULES_FILE, data)
+  return writeJsonAtomic(schedulesFile, data)
 }
 
 async function doResume(sessionId) {
@@ -144,31 +146,40 @@ function getSchedule(sessionId) {
   }
 }
 
-function loadSchedules() {
+// 再起動を跨いで予約を引き継ぐ。再開する(prompt有り)予約は、停止中に予定を過ぎていても捨てずに
+// 起動後に発火させる——リセット直後（バッファの3分間）の再起動で黙って消えていた（2026-09-27 CLI更新の再起動）。
+// エントリが残っている＝利用者はまだ続きを送っていない（送信時にクライアントが DELETE する）ので、遅れても送るのが正しい。
+// 状態記録のみ(prompt無し)の予約はカード表示用なので、リセット時刻を過ぎていれば従来どおり破棄する。
+function loadSchedules(file = SCHEDULES_FILE) {
+  schedulesFile = file
+  let data
   try {
-    const data = JSON.parse(fs.readFileSync(SCHEDULES_FILE, 'utf8'))
-    const now = Date.now()
-    for (const [sessionId, s] of Object.entries(data)) {
-      const resetTime = new Date(s.resetAt).getTime()
-      if (resetTime > now) {
-        // 再起動後も同じバッファ・ずらしロジックで発火時刻を再計算する
-        const baseFireAt = Math.max(now, resetTime) + RESUME_BUFFER_MS
-        const fireAt = s.prompt ? computeFireAt(baseFireAt, sessionId) : baseFireAt
-        const entry = { ...s, fireAt }
-        const delay = Math.max(0, fireAt - now)
-        if (s.prompt) {
-          entry.timerId = setTimeout(() => doResume(sessionId), delay)
-        } else {
-          entry.timerId = setTimeout(() => expireEntry(sessionId), delay)
-        }
-        schedules.set(sessionId, entry)
-      }
-      // 過去のスケジュールは破棄
+    data = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch {
+    return
+  }
+  const now = Date.now()
+  let dropped = 0
+  for (const [sessionId, s] of Object.entries(data)) {
+    const resetTime = new Date(s.resetAt).getTime()
+    if (!s.prompt && !(resetTime > now)) { dropped++; continue }
+    // 再起動後も同じバッファ・ずらしロジックで発火時刻を再計算する（過ぎていれば起動のバッファ後）
+    const baseFireAt = Math.max(now, resetTime) + RESUME_BUFFER_MS
+    const fireAt = s.prompt ? computeFireAt(baseFireAt, sessionId) : baseFireAt
+    const entry = { ...s, fireAt }
+    const delay = Math.max(0, fireAt - now)
+    if (s.prompt) {
+      entry.timerId = setTimeout(() => doResume(sessionId), delay)
+      if (!(resetTime > now)) console.log(`[scheduler] overdue resume kept sessionId=${sessionId} resetAt=${s.resetAt} fireAt=${new Date(fireAt).toISOString()}`)
+    } else {
+      entry.timerId = setTimeout(() => expireEntry(sessionId), delay)
     }
-    if (schedules.size > 0) {
-      console.log(`[scheduler] Loaded ${schedules.size} pending schedule(s)`)
-    }
-  } catch {}
+    schedules.set(sessionId, entry)
+  }
+  if (dropped > 0) saveSchedules()
+  if (schedules.size > 0) {
+    console.log(`[scheduler] Loaded ${schedules.size} pending schedule(s)`)
+  }
 }
 
 module.exports = {

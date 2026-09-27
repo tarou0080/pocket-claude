@@ -198,6 +198,8 @@ npm start
 0 3 * * 1 npm install -g @anthropic-ai/claude-code@latest >> ~/claude-cli-update.log 2>&1
 ```
 
+新しい CLI は pocket-claude を再起動するまで実行中の会話には使われません。ただし再起動はターン実行中の作業を捨てます。自動で再起動する場合は、先に `GET /api/busy`（`{"running": ターン実行中の件数}`）が 0 であることを確かめてください。例は [`ops/update-claude-cli.sh`](ops/update-claude-cli.sh) を参照してください。
+
 ### 特定（または古い）モデルにピン留めする
 
 「ティアの最新」ではなく特定のモデルを使いたい場合 — 古いモデルに留まりたい、既定リストに無いモデルを足したい — は、プルダウンの選択肢の `value` に正確なモデルIDを設定します。この値は `claude --model <value>` にそのまま渡されます。

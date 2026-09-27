@@ -4,6 +4,15 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.19.0] - 2026-09-28
+
+### Fixed
+- **Auto-resume after a weekly limit was scheduled a day early** - The date in "resets Sep 28, 3am (Asia/Tokyo)" was ignored and the resume was set for the next 3am, i.e. while still limited. Dated messages are now parsed with their date (rolling over to next year when needed).
+- **A restart right after the reset time silently dropped auto-resumes** - On startup, schedules whose reset time had passed were discarded, even though the resume fires 3 minutes after the reset. Overdue resumes are now kept and fire 3 minutes after startup.
+
+### Added
+- **`GET /api/busy`** - Returns `{"running": n}`, the number of turns in progress, so maintenance jobs (e.g. CLI updates) can avoid restarting mid-turn. `ops/update-claude-cli.sh` now defers the restart to a later run while a turn is running.
+
 ## [v2.18.0] - 2026-09-28
 
 ### Fixed

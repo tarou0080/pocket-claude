@@ -19,6 +19,12 @@ function peekState(sessionId) {
   return state[sessionId] || null
 }
 
+// ターン実行中のセッションID一覧。サービス再起動は実行中のターンを捨てるので、
+// 外部の保守作業（CLI自動更新）が「今再起動してよいか」を判断する材料にする。
+function turningSessions() {
+  return Object.keys(state).filter(id => state[id].turning)
+}
+
 // 状態取得
 function getState(sessionId) {
   if (!state[sessionId]) {
@@ -160,6 +166,7 @@ function classifyCursor(cursor, meta) {
 module.exports = {
   getState,
   peekState,
+  turningSessions,
   broadcast,
   emitLive,
   noteUuid,
