@@ -787,6 +787,10 @@
   .line-retry   { color: var(--orange); }
   .line-thinking { color: var(--purple); font-style: italic; }
 
+  /* ── 取り込み待ち（ターン中に送った文） ── */
+  .queued-panel { border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; margin: 4px 0; background: var(--surface2); color: var(--text-muted); font-size: 13px; }
+  .queued-panel div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
   /* ── レート制限パネル ── */
   .rl-panel { border: 1px solid var(--red); border-radius: 6px; padding: 8px 12px; margin: 4px 0; background: var(--red-bg); }
   .rl-panel-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -2188,6 +2192,8 @@ function ensureTabState(session) {
     b: 0,  // 受信済みBカーソル（pocketログ側。同上）
     _seenUuids: [],  // M再送で描いた uuid（上限200・IndexedDBへ同梱保存）
     _provisional: null,  // 仮領域div（M由来の描画先。id付きイベントで確定）
+    _queued: [],  // ターン中に送り、まだ会話に現れていない本文（取り込み待ち表示用・メモリのみ）
+    _queuedEl: null,  // 取り込み待ちカード（#status-slot に前面タブのみ取付け）
     _provisionalOpen: false,  // 仮領域が開いているか（div は最初の描画で遅延生成）
     _metaSeen: false,  // history-meta 受信済みフラグ（以降のhistoryはライブ扱い）
     model: session.model || appSettings.defaultModel || '',
@@ -2401,10 +2407,12 @@ async function switchTab(sessionId) {
   if (prevTs && prevTs.rl && prevTs.rl.el && prevTs.rl.el.isConnected) {
     statusSlot.removeChild(prevTs.rl.el)
   }
+  if (prevTs && prevTs._queuedEl && prevTs._queuedEl.isConnected) prevTs._queuedEl.remove()
   currentSessionId = sessionId
   localStorage.setItem('currentSessionId', sessionId)
   updateSession(sessionId, { lastUsed: Date.now() })
   const switchTs = tabState[sessionId]
+  if (switchTs && switchTs._queuedEl && !switchTs._queuedEl.isConnected) statusSlot.appendChild(switchTs._queuedEl)
   applyTabSettings(sessionId)
   updateUI()
   await restoreConvCache(sessionId)  // IndexedDBキャッシュから会話を復元（フレッシュ時のみ）
@@ -2769,6 +2777,55 @@ function startRateLimitCountdown(sessionId) {
   }
   tick()
   ts.rl.countdownId = setInterval(tick, 1000)
+}
+
+// ── 取り込み待ち ──
+// ターン中に送った文は CLI の待ち行列に入り、実行中のツールが終わってモデルが読んだ時点で
+// 初めて会話ファイル（A）に現れる（それまで画面に出す源が無い）。その間「送った文が消えた」と
+// 見えないよう、状態スロットに本文の先頭を出す。会話に同じ本文の user_input が現れるか、
+// ターンが終わったら消す（ターン終了時に未読のものは CLI が次のターンの発言として書く）。
+// メモリのみ＝リロードで消えるが、本文は読まれた時点で会話に出るので失われない。
+function renderQueuedPanel(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+  if (!ts._queued.length) {
+    if (ts._queuedEl) { ts._queuedEl.remove(); ts._queuedEl = null }
+    return
+  }
+  if (!ts._queuedEl) {
+    ts._queuedEl = document.createElement('div')
+    ts._queuedEl.className = 'queued-panel'
+  }
+  ts._queuedEl.replaceChildren(...ts._queued.map(text => {
+    const row = document.createElement('div')
+    row.textContent = `⏳ 取り込み待ち: ${text.replace(/\s+/g, ' ').trim() || '(画像)'}`
+    return row
+  }))
+  if (currentSessionId === sessionId && !ts._queuedEl.isConnected) statusSlot.appendChild(ts._queuedEl)
+  updateLayout()
+}
+
+function addQueuedPrompt(sessionId, text) {
+  const ts = tabState[sessionId]
+  if (!ts) return
+  ts._queued.push(text || '')
+  renderQueuedPanel(sessionId)
+}
+
+function resolveQueuedPrompt(sessionId, text) {
+  const ts = tabState[sessionId]
+  if (!ts || !ts._queued.length) return
+  const i = ts._queued.indexOf(text)
+  if (i < 0) return
+  ts._queued.splice(i, 1)
+  renderQueuedPanel(sessionId)
+}
+
+function clearQueuedPrompts(sessionId) {
+  const ts = tabState[sessionId]
+  if (!ts || !ts._queued.length) return
+  ts._queued = []
+  renderQueuedPanel(sessionId)
 }
 
 function clearRateLimitPanel(sessionId) {
@@ -3794,6 +3851,10 @@ function handleEvent(sessionId, ev, isLive = true) {
   if (!ts) return
   const isActive = sessionId === currentSessionId
 
+  // ターンが閉じた＝取り込み待ちはもう同じターンには入らない（未読分は CLI が次ターンの
+  // 発言として書き、user_input で会話に出る）。履歴再生の過去の終端では消さない。
+  if (isLive && (ev.type === 'result' || ev.type === 'done' || ev.type === 'error')) clearQueuedPrompts(sessionId)
+
   // uuid による二重排除はここでは行わない（SSE リスナーの id:A<n> 経路だけで判定する。
   // ここで止めると M 再送・raw assistant/user の初回描画まで止まる＝票B verify D4）。
 
@@ -3827,6 +3888,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       // 実際に届いた。isLiveに関わらず有効にする（アプリを閉じている間に届いていた
       // 場合、次に開いたときの履歴再生(isLive=false)で確定させる必要があるため）。
       // 上のisLiveガード群（a15bb89）はライブ専用の状態変更が対象で、これは別物。
+      if (ev.text) resolveQueuedPrompt(sessionId, ev.text)
       if (ev.text && getPendingSend(sessionId) === ev.text) {
         setPendingSend(sessionId, null)
         if (ts.draftPrompt === ev.text) setDraft(sessionId, '', { immediate: true })
@@ -4694,6 +4756,7 @@ async function send() {
   // 失敗判定はHTTPステータスとレスポンスボディの両方を見る（サーバーが配送失敗を502＋
   // {ok:false, reason}で返す経路と、将来200でok:falseを返す経路の両方に対応するため）。
   let failMessage = null
+  let queued = false
   // 「配送されなかったと確定できる」応答（502/opaqueredirect等）だけがtrue。fetch自体の
   // 例外（catch節）は送信できたかどうか不明なためpendingSendを消さない（下記参照）。
   let deliveryConfirmedFailed = false
@@ -4724,6 +4787,8 @@ async function send() {
       if (!res.ok || (body && body.ok === false)) {
         failMessage = (body && (body.reason || body.error)) || `Server error (${res.status})`
         deliveryConfirmedFailed = true
+      } else if (body && body.queued) {
+        queued = true
       }
     }
   } catch (e) {
@@ -4747,6 +4812,7 @@ async function send() {
   } else {
     // 確定(1): サーバーが成功応答を返した＝配送済み
     setPendingSend(sendSession, null)
+    if (queued) addQueuedPrompt(sendSession, prompt)
   }
   updateLayout()
 }

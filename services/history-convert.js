@@ -7,6 +7,7 @@
 //  - text / thinking / tool_use  → stream_event の content_block_* チェーン
 //  - tool_result                 → type:'user'（フロントの case 'user' が既存の折り畳みへ流す）
 //  - image                       → type:'system' の "[image]" マーカー1件（表示はスコープ外）
+//  - attachment{queued_command}  → user 行と同じ扱い（ターン中に届いた送信・バックグラウンド完了通知）
 //  - トークン使用量 / ctx% の再構成は行わない（スコープ外）。ターン終端イベント(done/result)も
 //    足さない。各ブロックの content_block_stop が finalizeText を呼ぶため描画は閉じる。
 
@@ -54,6 +55,16 @@ function pushUserEntry(out, entry) {
   }
 }
 
+// ターン実行中に届いた入力（ユーザーの送信／バックグラウンド処理の完了通知）を CLI は
+// user 行ではなく、モデルが読んだ時点で attachment{type:'queued_command'} として書く
+// （stdout には一切出ない。実測 2026-09-28）。prompt は user 行の content と同じ形
+// （文字列 or text/image ブロック配列）なので user 行と同じ変換に通す。
+function pushQueuedCommand(out, entry) {
+  const a = entry.attachment
+  if (!a || a.type !== 'queued_command' || a.prompt == null) return
+  pushUserEntry(out, { message: { content: a.prompt }, timestamp: entry.timestamp })
+}
+
 function pushAssistantEntry(out, entry) {
   const content = entry.message && entry.message.content
   if (!Array.isArray(content)) return
@@ -96,7 +107,8 @@ function claudeEntriesToEvents(entries, opts = {}) {
     if (since && entry.timestamp && entry.timestamp <= since) continue
     if (entry.type === 'user') pushUserEntry(out, entry)
     else if (entry.type === 'assistant') pushAssistantEntry(out, entry)
-    // それ以外（queue-operation / attachment / atis-latch / last-prompt / ai-title /
+    else if (entry.type === 'attachment') pushQueuedCommand(out, entry)
+    // それ以外（queue-operation / 他の attachment / atis-latch / last-prompt / ai-title /
     // summary / system / file-history-snapshot 等）は画面イベントに写さない。
   }
   return out

@@ -4,6 +4,15 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.18.0] - 2026-09-28
+
+### Fixed
+- **Messages sent while Claude is working show up in the conversation again** - Since v2.15.0 the conversation is drawn from the CLI's transcript, but a message sent mid-turn is not written there as a user line: the CLI queues it and, when it reads it after the running tool finishes, records it as `attachment{type:"queued_command"}` (nothing is printed on stdout). pocket-claude skipped that record, so these messages never appeared, live or in history (Claude did receive them). They are now shown as your message at the point Claude read it, both live and when reopening past conversations. Background task notifications that arrive mid-turn are shown the same way as those between turns (`[notification]`).
+- **Sending mid-turn no longer drops the in-progress output kept for reconnects** - The server cleared the current turn's buffer on every send, so reconnecting right after a mid-turn send redrew a block from the middle. It is now cleared only when a send starts a new turn.
+
+### Added
+- **"Waiting to be read" indicator** - Until Claude reads a message sent mid-turn (up to the end of the running tool, which can be minutes), the slot above the input shows `⏳ 取り込み待ち: <start of message>`. It disappears when the message appears in the conversation or the turn ends. Memory only: a reload hides it, but the message still appears once read. `POST /api/send` returns `queued: true` in this case (additive).
+
 ## [v2.17.0] - 2026-09-28
 
 ### Fixed

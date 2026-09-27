@@ -103,6 +103,21 @@ test('非会話エントリ（queue-operation / attachment / ai-title 等）は�
   assert.deepEqual(out, [])
 })
 
+test('attachment{queued_command}（ターン中に届いた送信）は user 行と同じく user_input になる', () => {
+  const out = claudeEntriesToEvents([
+    { type: 'attachment', timestamp: 't', attachment: { type: 'queued_command', commandMode: 'prompt',
+      prompt: [{ type: 'text', text: '途中で送った' }, { type: 'image', source: {} }] } },
+    { type: 'attachment', timestamp: 't2', attachment: { type: 'queued_command', commandMode: 'task-notification',
+      prompt: '<task-notification>\n<task-id>x</task-id>\n</task-notification>' } },
+    { type: 'attachment', timestamp: 't3', attachment: { type: 'environment' } },
+  ])
+  assert.deepEqual(out, [
+    { type: 'user_input', text: '途中で送った', timestamp: 't' },
+    { type: 'system', text: '[image]', timestamp: 't' },
+    { type: 'user_input', text: '<task-notification>\n<task-id>x</task-id>\n</task-notification>', timestamp: 't2' },
+  ])
+})
+
 test('ターン終端イベント(done/result)を足さない（block stop が描画を閉じる）', () => {
   const out = claudeEntriesToEvents([
     { type: 'user', timestamp: 't', message: { content: 'q' } },

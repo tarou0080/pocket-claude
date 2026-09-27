@@ -128,6 +128,8 @@ router.post('/send', async (req, res) => {
     sessionId: actualSessionId,
     injected: result.status === 'injected',
     started: result.status === 'started',
+    // ターン実行中に送った＝CLI の待ち行列に入り、モデルが読んだ時点で会話に現れる
+    queued: !!result.queued,
   })
 })
 

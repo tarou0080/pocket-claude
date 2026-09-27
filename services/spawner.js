@@ -348,12 +348,15 @@ function injectPrompt(sessionId, prompt, imageData) {
   const s = getState(sessionId)
   if (!s.process || !s.process.stdin || s.process.stdin.destroyed) return false
   s.lastStillQueued = null
+  const wasTurning = !!s.turning
   const sent = _sendMessage(sessionId, s.process, prompt, imageData)
-  if (sent) {
-    s.turning = true
-    s.buffer = []
-  }
-  return sent
+  if (!sent) return false
+  // ターン中の送信は CLI が待ち行列に積み、ツール結果の後で同じターンに取り込む
+  // （A に attachment{queued_command} が残る）。ターンは続くので M（現在ターンの書きかけ）を
+  // 捨てない——捨てると直後の再接続で書きかけのブロックが途中から描き直される。
+  if (!wasTurning) s.buffer = []
+  s.turning = true
+  return { queued: wasTurning }
 }
 
 // プロンプト配送口の一本化。呼び出し元(手動送信/自動再開/予約投稿/将来の経路)はすべて
@@ -371,7 +374,7 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
 
   if (s.process) {
     const injected = injectPrompt(sessionId, prompt, imageData)
-    if (injected) return { status: 'injected' }
+    if (injected) return { status: 'injected', queued: injected.queued }
     // stdin不在・destroyed・書き込み例外のいずれでもここに来る。事後にジャーナルで
     // 追えるよう、画面通知(_notifyFailure)とは別にサーバーログへも残す。
     console.error(`[deliverPrompt] inject failed sessionId=${sessionId} reason=stdin unavailable or write failed`)
