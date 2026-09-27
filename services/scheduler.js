@@ -50,13 +50,14 @@ async function doResume(sessionId) {
 
   const { broadcast } = require('./stream')
   const { deliverPrompt, gitPull } = require('./spawner')
-  const { readSessionFacts, projectFromCwd, matchConfigModel } = require('./session-facts')
+  const { readSessionFacts, projectFromCwd } = require('./session-facts')
+  const { sessionModel } = require('./models')
   const config = require('../config/index')
 
   // レコードの値 → 本体jsonlの事実 → 既定 の順で解決する。
   const facts = readSessionFacts(sessionId)
   const project = s.project || projectFromCwd(facts.cwd, config.projects)
-  const model = s.model || matchConfigModel(facts, config.models)
+  const model = s.model || sessionModel(sessionId, facts)
   const effort = s.effort || facts.effort
   const thinking = s.thinking != null ? s.thinking : null
 

@@ -5,7 +5,8 @@ const router = express.Router()
 const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
 const { getState, broadcast, logFile } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
-const { readSessionFacts, matchConfigModel, projectFromCwd, sessionExists } = require('../services/session-facts')
+const { readSessionFacts, projectFromCwd, sessionExists } = require('../services/session-facts')
+const { sessionModel } = require('../services/models')
 const { findClaudePid } = require('../services/external-process')
 const { UUID_RE } = require('../services/history')
 const { proxyRouteChanged } = require('../services/proxy-route')
@@ -66,6 +67,7 @@ router.post('/send', async (req, res) => {
       const response = await sendControlMessage(s.process, 'set_model', { model: targetModel })
       if (response && response.subtype === 'success') {
         s.model = model || null
+        s.learnModel = true
         switched = true
         console.log(`[send] set_model succeeded sessionId=${actualSessionId}`)
       } else {
@@ -150,7 +152,7 @@ router.get('/session-settings/:sessionId', (req, res) => {
   const facts = readSessionFacts(sessionId)
   res.json({
     project: projectFromCwd(facts.cwd, config.projects),
-    model: matchConfigModel(facts, config.models),
+    model: sessionModel(sessionId, facts),
     modelResolved: facts.model,
     effort: facts.effort,
   })

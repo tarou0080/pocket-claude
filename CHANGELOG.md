@@ -4,6 +4,16 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.17.0] - 2026-09-28
+
+### Fixed
+- **Model names in the dropdown are no longer guessed by each browser** - Labels used to be rewritten from a per-browser cache keyed by whatever the tab had selected, and the cache was also rewritten while replaying old conversations. Opening a Sonnet conversation could relabel a pinned `claude-opus-5-5` option as `Sonnet 5`, so the option you added seemed to be missing. The server now records which model each dropdown value actually ran as (the CLI's report right after pocket-claude starts a session or switches its model with that value) and returns it from `/api/models` along with the context window. Browsers render that as-is: configured names are never replaced; aliases get the actual model in parentheses (`Opus (Opus 5.5) · 1M`). The old browser caches (`pc-resolved-models`, `pc-model-context`) are deleted on load.
+- **Reopening a conversation from history restores the option you actually picked** - Transcripts only hold the resolved model, which cannot tell `opus` from a pinned `claude-opus-5-5`. `/api/session-settings` and auto-resume now use the value pocket-claude itself passed when it last started the session (from its own log), then fall back to matching the last model that answered.
+- **`config.example.json` no longer hides the Claude models** - It listed only the proxy example, and `models` replaces the whole list, so copying it as the README says left only "My Proxy Model". It now includes the default aliases.
+
+### Changed
+- **The default model list lives on the server** (`DEFAULT_MODELS` in `services/models.js`) instead of `ALL_MODELS` in `public/index.html`. `/api/models` always returns a full list; each entry may carry `resolved` and `contextWindow` (additive).
+
 ## [v2.16.2] - 2026-09-24
 
 ### Fixed

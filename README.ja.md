@@ -121,7 +121,7 @@ cp projects.example.json projects.json
 
 効果があるのは主に、プロンプトキャッシュが効かない経路（翻訳プロキシ配下の小型ローカルモデルなど）で、毎ターン全ツール定義を再送・再処理しているケースです。実測例: ツール定義24個・64,310バイトを `Bash`・`Edit`・`Read`・`Write`・`WebFetch` の5個・6,789バイトへ絞ると、リクエスト全体は83,225→16,960バイトに縮小、ローカルOllama相手では初回応答が約40秒→約13秒、会話に使えるコンテキストが約5万→約7万トークンになりました。`proxyModels` の接続先が社内ゲートウェイ経由の本物のClaudeであるような場合はプロンプトキャッシュが効くため絞る利点がなく、プロキシ側のリストは未設定のままにしてください。「Claude直」側も仕組みは同じですが、Anthropicへ直接つなぐセッションはツール定義がプロンプトキャッシュに乗るため、絞っても効果は小さくなります。
 
-> **Fable 5 の課金について（2026-07-20時点）:** Anthropic は Fable 5 をプラン別に課金します。**Max / Team Premium** は**サブスクに含まれる**（週制限の50%まで）。**Pro / Team Standard** は一度きりの $100 usage credit 付与後、**従量課金**（$10 / $50 per 100万入力/出力トークン）に落ちます。pocket-claude は利用者のプランを判別できないため、既定のモデルリストでは `Fable 5 (Pro: metered)` と表示します（Pro ユーザーは従量課金に注意・Max ユーザーは無視可）。ラベルは `config.json`（または `public/index.html` の `ALL_MODELS`）で自分のプランに合わせて変更できます。
+> **Fable 5 の課金について（2026-07-20時点）:** Anthropic は Fable 5 をプラン別に課金します。**Max / Team Premium** は**サブスクに含まれる**（週制限の50%まで）。**Pro / Team Standard** は一度きりの $100 usage credit 付与後、**従量課金**（$10 / $50 per 100万入力/出力トークン）に落ちます。pocket-claude は利用者のプランを判別できないため、既定のモデルリストでは `Fable 5 (Pro: metered)` と表示します（Pro ユーザーは従量課金に注意・Max ユーザーは無視可）。ラベルは `config.json`（または `services/models.js` の `DEFAULT_MODELS`）で自分のプランに合わせて変更できます。
 
 ### 前提条件
 
@@ -181,7 +181,7 @@ npm start
 | Default | （`--model` を渡さない） | CLI 自身の既定モデル |
 | Fable / Opus / Sonnet / Haiku | `--model sonnet` など | そのティアの**最新**モデル |
 
-エイリアスは起動時に Claude Code CLI 自身が解決するため、Anthropic が新しいモデルを出すと自動的に反映されます（設定編集は不要）。プルダウンは各選択肢のラベルを、CLI が実際に解決した具体モデル名（`system/init` イベントから実測）へ書き換えます。例えば `Sonnet` は `Sonnet 5` に、`Default` は `Default (Sonnet 5)` になり、**実際に何が動くか**が常に見えます。
+エイリアスは起動時に Claude Code CLI 自身が解決するため、Anthropic が新しいモデルを出すと自動的に反映されます（設定編集は不要）。モデル一覧と名前はサーバー（`GET /api/models`）から来ます。`config.json` に `models` があればそれ、無ければ `services/models.js` の既定一覧です。名前は書いたとおりに表示します。エイリアスには、実際に何として動いたかをサーバーが添えます（pocket-claude 自身がその値で会話を起動した／モデルを切り替えた直後に CLI が報告した具体モデルを記録）。表示は `Opus (Opus 5.5)`・`Default (Sonnet 5)` のようになり、コンテキスト窓が分かれば `· 1M` も付きます。どの端末でも同じ表示になり、古い会話を開いても変わりません。再起動直後もサーバーが自分の最近の会話ログ（`logs/`）から埋めるので空になりません。会話の中で CLI の `/model` コマンドで切り替えたモデルは、その会話を起動した選択肢には結び付けません。
 
 > ⚠️ **Claude Code CLI を最新に保ってください。** エイリアスが最新モデルへ追従するのは、**インストール済みの CLI が知っている範囲まで**です。CLI が古いと `sonnet` などが**古いモデル**へ解決されます（CLI が約47版古かったために `sonnet` が Sonnet 5 ではなくレガシーな 4.6 に解決された事例があります）。次で更新してください：
 >
@@ -216,7 +216,9 @@ npm start
 
 - モデルIDは [models overview](https://platform.claude.com/docs/en/about-claude/models/overview) の正確なIDを使ってください（誤ったIDは `claude` が 404 を返します）。
 - ピン留めIDは**自動更新されません**。それが狙いです。同じリスト内でエイリアス（自動最新）とピン留め（固定）を混在できます。
-- `config.json` は gitignore（インスタンス固有）です。新規 clone が既定で見る内容を変えるには、代わりに `public/index.html` の `ALL_MODELS` を編集してください。
+- 書いた `label` / `name` はそのまま表示されます（ピン留めIDの名前が書き換わることはありません）。CLI がピン留めIDと違うモデルを報告した場合だけ括弧で添えます。
+- `models` は一覧全体を置き換えるので、残したいエイリアスも書いてください（`config.example.json` 参照）。
+- `config.json` は gitignore（インスタンス固有）です。新規 clone が既定で見る内容を変えるには、代わりに `services/models.js` の `DEFAULT_MODELS` を編集してください。
 
 ## 設定パネル
 

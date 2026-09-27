@@ -97,12 +97,11 @@ app.get('/api/health', (req, res) => {
   })
 })
 
+const { listModels, seedFromLogs } = require('./services/models')
+seedFromLogs()
+
 app.get('/api/models', (req, res) => {
-  const cfg = require('./config/index')
-  const models = cfg.models && cfg.models.length > 0 ? cfg.models : [
-    { value: '', label: 'Default' }
-  ]
-  res.json(models)
+  res.json(listModels())
 })
 
 // API routes

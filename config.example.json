@@ -6,7 +6,12 @@
   "uiLang": "en",
   "maxBodySizeMb": 0,
   "models": [
-    { "value": "my-proxy-model", "label": "My Proxy Model" }
+    { "value": "",       "name": "Default" },
+    { "value": "fable",  "name": "Fable", "note": " (Pro: metered)" },
+    { "value": "opus",   "name": "Opus" },
+    { "value": "sonnet", "name": "Sonnet" },
+    { "value": "haiku",  "name": "Haiku" },
+    { "value": "my-proxy-model", "name": "My Proxy Model" }
   ],
   "proxyModels": {
     "my-proxy-model": {

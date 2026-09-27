@@ -1243,26 +1243,14 @@ const STRINGS = {
 function t(key) { return STRINGS[appSettings?.lang || 'ja'][key] }
 
 // ── 設定管理 ──
-// モデルは CLI エイリアス（fable/opus/sonnet/haiku）で持つ。claude CLI が起動時に各ティアの
-// 最新モデルへ自動解決するため、新モデルが出ても値を書き換える必要がない（動的追従）。
-// value='' の Default は --model を渡さず CLI 既定に委ねる。
-const ALL_MODELS = [
-  { value: '',       name: 'Default' },
-  { value: 'fable',  name: 'Fable', note: ' (Pro: metered)' },
-  { value: 'opus',   name: 'Opus' },
-  { value: 'sonnet', name: 'Sonnet' },
-  { value: 'haiku',  name: 'Haiku' },
-]
+// モデル一覧はサーバーの /api/models が唯一の出どころ（config.json の models、無ければサーバー側の既定）。
+// 各項目にはサーバーが実際に見た事実（resolved＝CLI が返した具体モデル・contextWindow）が付いてくる。
+// フロントは推測で名前を作らない。取得前・取得失敗時は Default だけで動く。
+const ALL_MODELS = [{ value: '', name: 'Default' }]
+// v2.16 以前の端末側の推測キャッシュ（別モデルの名前が入る原因だった）を掃除する
+localStorage.removeItem('pc-resolved-models')
+localStorage.removeItem('pc-model-context')
 
-// エイリアス → 実際に解決された具体モデルID（例 'sonnet' → 'claude-sonnet-5'）。
-// system/init イベントから実測で学習し localStorage にキャッシュ。プルダウンのラベルに反映する。
-function loadResolvedModels() {
-  try { return JSON.parse(localStorage.getItem('pc-resolved-models') || '{}') } catch { return {} }
-}
-let resolvedModels = loadResolvedModels()
-function saveResolvedModels() {
-  localStorage.setItem('pc-resolved-models', JSON.stringify(resolvedModels))
-}
 // 具体モデルID（claude-sonnet-5 等）を表示名（Sonnet 5）へ整形。ハードコードでなく変換なので
 // 新モデルにも追従する。claude-* 以外（プロキシモデル等）は素のIDを返す。
 function prettyModel(id) {
@@ -1280,29 +1268,32 @@ function fmtTokens(n) {
   if (n >= 1000000 && n % 100000 === 0) return (n / 1000000) + 'M'
   return n >= 1000 ? Math.round(n / 1000) + 'K' : String(n)
 }
-// モデル選択値 → CLI が result.modelUsage で返したコンテキスト窓（実測）。プルダウンに「· 1M」と出す。
-// 手書きの値は持たない（ラベルと同じく、CLI の事実を学習するだけ）。未使用のモデルには付かない。
-function loadModelContext() {
-  try { return JSON.parse(localStorage.getItem('pc-model-context') || '{}') } catch { return {} }
-}
-let modelContext = loadModelContext()
-function learnModelContext(value, win) {
-  if (!win || modelContext[value] === win) return
-  modelContext[value] = win
-  localStorage.setItem('pc-model-context', JSON.stringify(modelContext))
-  rebuildModelSelect()
-}
-// プルダウン/設定に出すラベル。実解決名を学習済みならそれを、未学習なら素のティア名を出す。
+// プルダウン/設定に出すラベル。名前は config のとおり。サーバーが見た実モデルが名前と違えば
+// 括弧で添える（Default (Sonnet 5)・Opus (Opus 5.5)）。窓がわかっていれば「· 1M」。
 function optionLabel(m) {
-  const resolved = resolvedModels[m.value]
-  const win = modelContext[m.value]
-  const suffix = (m.note || '') + (win ? ' · ' + fmtTokens(win) : '')
-  const curated = m.name || m.label || m.value
-  if (m.value === '') {
-    return (resolved ? 'Default (' + prettyModel(resolved) + ')' : curated) + suffix
-  }
-  if (resolved && /^claude-/.test(resolved)) return prettyModel(resolved) + suffix
-  return curated + suffix
+  const name = m.name || m.label || prettyModel(m.value) || m.value
+  const actual = /^claude-/.test(m.resolved || '') ? prettyModel(m.resolved) : ''
+  const paren = actual && actual !== name && m.resolved !== m.value ? ' (' + actual + ')' : ''
+  return name + paren + (m.note || '') + (m.contextWindow ? ' · ' + fmtTokens(m.contextWindow) : '')
+}
+// サーバーから一覧を取り直す。新しく増えたモデルは表示対象に加える（端末で外したものは外したまま）。
+async function refreshModels() {
+  try {
+    const res = await fetch('/api/models')
+    if (!res.ok) return
+    const models = await res.json()
+    if (!Array.isArray(models) || models.length === 0) return
+    const known = new Set(ALL_MODELS.map(m => m.value))
+    ALL_MODELS.length = 0
+    models.forEach(m => ALL_MODELS.push(m))
+    const validValues = ALL_MODELS.map(m => m.value)
+    const saved = appSettings.enabledModels
+    const kept = saved.filter(v => validValues.includes(v))
+    const added = validValues.filter(v => !saved.includes(v) && !known.has(v))
+    appSettings.enabledModels = [...kept, ...added]
+    if (appSettings.enabledModels.length === 0) appSettings.enabledModels = validValues
+  } catch {}
+  rebuildModelSelect()
 }
 const EFFORT_OPTIONS = [
   { value: '',       dots: [0,0,0,0], label: 'CLI default' },
@@ -2857,23 +2848,7 @@ function reconcileBackgroundTabs() {
 // ── 初期化 ──
 async function init() {
   applyTheme()
-  try {
-    const res = await fetch('/api/models')
-    if (res.ok) {
-      const models = await res.json()
-      if (Array.isArray(models) && models.length > 0) {
-        ALL_MODELS.length = 0
-        models.forEach(m => ALL_MODELS.push(m))
-        const saved = appSettings.enabledModels
-        const validValues = ALL_MODELS.map(m => m.value)
-        const kept = saved.filter(v => validValues.includes(v))
-        const newModels = validValues.filter(v => !saved.includes(v))
-        appSettings.enabledModels = [...kept, ...newModels]
-        if (appSettings.enabledModels.length === 0) appSettings.enabledModels = validValues
-      }
-    }
-  } catch {}
-  rebuildModelSelect()
+  await refreshModels()
   applyFontSizes()
   updateEffortIndicator()
   await refreshProjectsCache()
@@ -4003,10 +3978,9 @@ function handleEvent(sessionId, ev, isLive = true) {
         // contextWindow をモデルごとに取得（モデル切り替え・将来の1Mモデル対応）
         if (hasModelUsage) {
           const windows = Object.values(ev.modelUsage).map(m => m.contextWindow).filter(Boolean)
-          if (windows.length) {
-            ts._ctxMax = Math.max(...windows)
-            learnModelContext(ts.model || '', ts._ctxMax)
-          }
+          if (windows.length) ts._ctxMax = Math.max(...windows)
+          // 窓はサーバーが記録する。まだ一覧に窓が無いモデルならこの時点で取り直して「· 1M」を出す
+          if (isLive && !ALL_MODELS.find(m => m.value === (ts.model || ''))?.contextWindow) refreshModels()
         }
         // サーバーが result に添える「このプロセスが起動時に受け取った自動圧縮の開始点」（null=CLI既定）。
         // 添えていない旧ログの result では前の値を保つ（undefined と null を区別する）。
@@ -4079,17 +4053,9 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'system':
       if (ev.subtype === 'init') {
-        // CLIが解決した実モデルを学習し、プルダウンのラベルへ反映する。
-        // どのエイリアスの解決結果かは、そのタブが選んでいたモデル(ts.model)で仕分ける。
-        // リプレイ(isLive=false)でも同じ値を書くだけ＝冪等。値が変わった時のみ再描画。
-        if (ev.model) {
-          const alias = ts.model || ''
-          if (resolvedModels[alias] !== ev.model) {
-            resolvedModels[alias] = ev.model
-            saveResolvedModels()
-            rebuildModelSelect()
-          }
-        }
+        // どの選択値がどのモデルに当たったかはサーバーが記録している。表示と違えば取り直す
+        // （リプレイ中の init は過去のもの＝見ない）。
+        if (isLive && ev.model && ALL_MODELS.find(m => m.value === (ts.model || ''))?.resolved !== ev.model) refreshModels()
       } else if (ev.subtype === 'api_retry') {
         // Anthropic側が529等を返すとCLIが最大10回・指数バックオフで黙って再試行する。
         // このイベントは text を持たないため従来は捨てられ、画面が最大3分無反応になっていた
@@ -4491,11 +4457,6 @@ async function attachLiveSession(liveSessionId, title) {
         lastUsed: Date.now(),
       }
       if (saved.model != null) session.model = saved.model
-      if (saved.modelResolved && !saved.model) {
-        // model が config に無い場合、resolved 値から逆引きしてタブの初期モデルを決める。
-        const alias = Object.entries(resolvedModels).find(([, v]) => v === saved.modelResolved)?.[0]
-        session.model = alias || ''
-      }
       if (saved.effort != null) session.effort = saved.effort
       if (saved.thinking != null) session.thinking = saved.thinking
       sessions.push(session)
@@ -4583,18 +4544,13 @@ async function resumeConversation(sessionId, title) {
         lastUsed: Date.now(),
       }
       // サーバーに最終使用設定(model/effort/thinking)が残っていれば引き継ぐ。
-      // model は matchConfigModel で解決した config 内の値。config に無ければ resolvedModels を
-      // 逆引きし、それでも無ければ既定値へフォールバック（ensureTabStateの既定処理に任せる）。
+      // model はサーバーが一覧の中から決めた値（pocket が起動時に渡した値が最優先）。
+      // null なら既定値へフォールバック（ensureTabStateの既定処理に任せる）。
       try {
         const settingsRes = await fetch(`/api/session-settings/${sessionId}`)
         if (settingsRes.ok) {
           const saved = await settingsRes.json()
-          if (saved.model != null) {
-            targetSession.model = saved.model
-          } else if (saved.modelResolved) {
-            const alias = Object.entries(resolvedModels).find(([, v]) => v === saved.modelResolved)?.[0]
-            targetSession.model = alias || ''
-          }
+          if (saved.model != null) targetSession.model = saved.model
           if (saved.effort != null) targetSession.effort = saved.effort
           if (saved.thinking != null) targetSession.thinking = saved.thinking
         }

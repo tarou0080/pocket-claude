@@ -121,7 +121,7 @@ You can also limit which tools a session is allowed to use, from the **Settings 
 
 This is mostly useful for endpoints where prompt caching does not apply — e.g. a small local model behind a translation proxy, where the full tool definitions are re-sent and re-processed on every turn. One measurement: 24 tool definitions at 64,310 bytes trimmed to 5 tools (`Bash`, `Edit`, `Read`, `Write`, `WebFetch`) at 6,789 bytes, shrinking the whole request from 83,225 to 16,960 bytes; against a local Ollama model this cut the first response from ~40 seconds to ~13, and grew usable context from ~50K to ~70K tokens. If your `proxyModels` entry actually reaches a real Claude behind a corporate gateway, prompt caching still applies there, so there is no benefit to trimming — leave the proxy list unset. The "Claude direct" list works the same way functionally, but for sessions talking to Anthropic directly the tool definitions ride Anthropic's prompt cache, so trimming there saves little.
 
-> **Note on Fable 5 billing (as of 2026-07-20):** Anthropic bills Fable 5 differently by plan. **Max / Team Premium** subscribers get it **included** in the subscription (up to 50% of usage limits). **Pro / Team Standard** subscribers get a one-time $100 usage credit, after which Fable 5 falls back to **metered API billing** ($10 / $50 per million input/output tokens). Because pocket-claude can't know your plan, the default model list labels it `Fable 5 (Pro: metered)` — Pro users should expect usage charges, Max users can ignore the note. Edit the label in `config.json` (or `ALL_MODELS` in `public/index.html`) to suit your plan.
+> **Note on Fable 5 billing (as of 2026-07-20):** Anthropic bills Fable 5 differently by plan. **Max / Team Premium** subscribers get it **included** in the subscription (up to 50% of usage limits). **Pro / Team Standard** subscribers get a one-time $100 usage credit, after which Fable 5 falls back to **metered API billing** ($10 / $50 per million input/output tokens). Because pocket-claude can't know your plan, the default model list labels it `Fable 5 (Pro: metered)` — Pro users should expect usage charges, Max users can ignore the note. Edit the label in `config.json` (or `DEFAULT_MODELS` in `services/models.js`) to suit your plan.
 
 ### Prerequisites
 
@@ -181,7 +181,7 @@ The model dropdown ships with **tier aliases**, not pinned model IDs:
 | Default | (no `--model`) | Your CLI's own default |
 | Fable / Opus / Sonnet / Haiku | `--model sonnet`, etc. | The **latest** model in that tier |
 
-Aliases are resolved by the Claude Code CLI itself at spawn time, so when Anthropic ships a newer model in a tier you get it automatically — no config edit required. The dropdown also relabels each option with the concrete model it actually resolved to (learned from the CLI's `system/init` event), e.g. `Sonnet` becomes `Sonnet 5` and `Default` becomes `Default (Sonnet 5)`, so you can always see what will actually run.
+Aliases are resolved by the Claude Code CLI itself at spawn time, so when Anthropic ships a newer model in a tier you get it automatically — no config edit required. The model list and its names come from the server (`GET /api/models`): your `config.json` `models` if set, otherwise the built-in default list in `services/models.js`. Names are shown exactly as configured. For aliases, the server adds what the alias actually ran as — it records the concrete model the CLI reports right after pocket-claude itself starts a session (or switches its model) with that value — so the option reads e.g. `Opus (Opus 5.5)` or `Default (Sonnet 5)`, plus the context window once known (`· 1M`). The same labels show on every device, and opening an old conversation never changes them. After a restart the server fills these in from its own recent session logs (`logs/`), so they don't start blank. A model you switch to inside a conversation with the CLI's `/model` command is not attributed to the dropdown option the session was started with.
 
 > ⚠️ **Keep your Claude Code CLI up to date.** Aliases only track the latest model *as far as your installed CLI knows*. A stale CLI resolves an alias like `sonnet` to an **older** model (we hit a case where a CLI ~47 versions behind resolved `sonnet` to a legacy 4.6 model instead of Sonnet 5). Update with:
 >
@@ -216,7 +216,9 @@ Add it in `config.json` (applied on restart; this file is not committed):
 
 - Use exact IDs from the [models overview](https://platform.claude.com/docs/en/about-claude/models/overview) — a wrong ID makes `claude` return a 404.
 - Pinned IDs do **not** auto-update; that's the point. You can mix aliases (auto-latest) and pins (fixed) in the same list.
-- `config.json` is gitignored (per-instance). To change what fresh clones see by default, edit `ALL_MODELS` in `public/index.html` instead.
+- The `label` / `name` you write is shown as-is (a pinned ID is never relabeled). If the CLI ever reports a different model for a pinned ID, it is shown in parentheses.
+- `models` replaces the whole list, so include the aliases you still want (see `config.example.json`).
+- `config.json` is gitignored (per-instance). To change what fresh clones see by default, edit `DEFAULT_MODELS` in `services/models.js` instead.
 
 ## Settings
 

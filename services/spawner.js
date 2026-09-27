@@ -10,6 +10,7 @@ const { parseResetTime } = require('./reset-time')
 const { getProxyEnv, getToolFlags } = require('./proxy-route')
 const { validAutoCompactWindow } = require('./auto-compact')
 const { saveToolsCatalog } = require('./tools-catalog')
+const { noteResolved, noteUsage } = require('./models')
 
 // stdin へ送る control_request の応答を待つ標準タイムアウト。
 // 実測(interrupt/set_model とも成功時は数ms〜十数msでACKが返る)に対して十分な余裕を持たせつつ、
@@ -63,6 +64,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   // spawn時のモデルを記録。/api/send がアイドル時のモデル変更を検知し、
   // 異なれば --resume で再起動して新モデルを適用するために使う。
   s.model = model || null
+  s.learnModel = true
   // Bのafter起点をリセット（v2.15.0）。次の最初の broadcast で A の最後の
   // user/assistant 行のuuidから再初期化される（=会話がAのどこから続くかをBが自ら運ぶ）。
   s.lastUuid = undefined
@@ -207,6 +209,20 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
         // 現在ターンの生イベント（stream_event等）は emitLive（bufferのみ）。
         // assistant/user は A の行と同じ uuid を持つ（実測）ため、先に noteUuid してから
         // emitLive する＝次の broadcast の after が直前のA行を指す。
+        // どの選択値がどの具体モデルに当たったかをサーバーが記録する（/api/models の表示名に使う）。
+        // init はターンごとに来るが、選択値と組にしてよいのは pocket が起動/set_model した直後の1回だけ:
+        // 会話内で /model を打つと CLI だけがモデルを変え、s.model とは食い違う。
+        if (parsed.type === 'system' && parsed.subtype === 'init') {
+          if (s.learnModel) {
+            noteResolved(s.model, parsed.model)
+            s.learnModel = false
+            s.learnedModel = parsed.model
+          }
+          s.modelDiverged = parsed.model !== s.learnedModel
+        } else if (parsed.type === 'result' && !s.modelDiverged) {
+          noteUsage(s.model, parsed.modelUsage)
+        }
+
         if (parsed.type === 'result' || (parsed.type === 'system' && parsed.subtype === 'init')) {
           // ✓行に「自動圧縮の開始点」を出すため、このプロセスが起動時に受け取った値を result に添える。
           // start だけに載せるとリロード（IndexedDB復元）後の最初の✓行で値が分からなくなる。
