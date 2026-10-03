@@ -4,6 +4,17 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.19.2] - 2026-10-04
+
+### Fixed
+- **`ops/update-claude-cli.sh` defaults to `http://localhost:3333`** - The `POCKET_URL` fallback used to check `GET /api/busy` before restarting pointed at a private address from the author's setup. Set `POCKET_URL` (e.g. in the crontab line) if pocket-claude listens on a specific address.
+- **`.gitignore` ignores leftovers from removed features again** - `sessions/` and `migration-backup-*.tar.gz` (the v2.12.0 backup, which contains conversation logs) can still exist in installs that ran older versions. Their ignore rules were dropped together with the features in v2.14.0; they are back so the leftovers can't be committed by accident.
+- **Scheduled-post routes reject non-UUID session IDs consistently** - `GET /api/scheduled-posts/session/:sessionId` now returns 400 for an invalid ID instead of an empty list, matching the other routes.
+
+### Docs
+- Transcript path corrected to `~/.claude/projects/<project-dir>/<id>.jsonl` (README, v2.14.0 entry).
+- v2.14.0: added an upgrade note for installs still on v2.11.x or earlier.
+
 ## [v2.19.1] - 2026-10-03
 
 ### Fixed
@@ -85,11 +96,15 @@ All notable changes to pocket-claude are documented here.
 ## [v2.14.0] - 2026-09-16
 
 ### Changed
-- **`sessions/*.json` and the v2.12.0 startup migration are removed** - pocket-claude no longer keeps its own session metadata files. Project, model, effort, and thinking are all read directly from the CLI's own transcript (`~/.claude/projects/<id>.jsonl`) via the new `services/session-facts.js`. The startup migration, `PC_SKIP_STARTUP_MIGRATION`, and `migration-backup-*.tar.gz` are gone. This follows the design principle "a thin wrapper should not hold facts that the CLI already holds".
+- **`sessions/*.json` and the v2.12.0 startup migration are removed** - pocket-claude no longer keeps its own session metadata files. Project, model, effort, and thinking are all read directly from the CLI's own transcript (`~/.claude/projects/<project-dir>/<id>.jsonl`) via the new `services/session-facts.js`. The startup migration, `PC_SKIP_STARTUP_MIGRATION`, and `migration-backup-*.tar.gz` are gone. This follows the design principle "a thin wrapper should not hold facts that the CLI already holds".
 - **Conversations started outside pocket-claude are now tracked live** - If a `claude` process is running with `--session-id <id>` or `--resume <id>` but pocket-claude did not spawn it, the UI still shows it as running, streams its output from the CLI transcript, and prevents conflicting sends with a 409 `external process running`. When the external process exits, the pane displays `── External process ended ──`.
 - **`POST /api/send` can now omit the `model` field to mean "do not change"** - Sending `model: ''` still means "use the default", and any other value still switches the model. Sending no `model` at all leaves the current session's model untouched.
 - **History list now shows each conversation's last used model** - `GET /api/history` includes a `model` field for each session, and the client meta line displays `date · N messages · <model>` (omitted if unknown).
 - **Old pocket-ID tabs are no longer forwarded** - The `canonicalId` field and the `movedTo` forwarding stub infrastructure from the v2.12.0 migration have been removed. Tabs that still hold an old pocket ID are simply reopened under the canonical session ID.
+
+### Migration note
+- **Upgrading from v2.11.x or earlier: start v2.13.1 once first.** The one-time ID unification (and its `migration-backup-*.tar.gz`) only exists in v2.12.0-v2.13.1. If you jump straight to v2.14.0 or later, it never runs: your conversations stay reachable from History (they live in the CLI's transcripts), but open tabs, scheduled posts and auto-resume entries that still refer to old pocket IDs will not find their conversation. `git checkout v2.13.1 && npm start`, wait for the conversion log to finish, then update.
+- A leftover `sessions/` directory and any `migration-backup-*.tar.gz` are no longer read and can be deleted once you are satisfied.
 
 ## [v2.13.1] - 2026-09-15
 

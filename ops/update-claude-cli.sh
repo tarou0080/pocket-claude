@@ -31,7 +31,7 @@ NODE_BIN=/usr/local/bin/node
 NPM_BIN=/usr/local/bin/npm
 CLAUDE_BIN=/usr/local/bin/claude
 PKG_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code
-POCKET_URL="${POCKET_URL:-http://10.0.0.10:3333}"
+POCKET_URL="${POCKET_URL:-http://localhost:3333}"
 PENDING_FILE="${HOME}/.local/state/pocket-claude/cli-restart-pending"
 MAX_DEFER_SEC=$((3 * 86400))
 

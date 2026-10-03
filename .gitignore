@@ -1,4 +1,6 @@
 node_modules/
+# v2.14.0 で撤去した旧セッションメタ（既存インストールに残りうる）
+sessions/
 logs/
 tabs.json
 *.log
@@ -14,3 +16,6 @@ ops/claude-keepalive/keepalive.log
 
 # writeJsonAtomic() の一時ファイル（クラッシュ時に残りうる）
 .*.tmp
+
+# v2.12.0 の起動時マイグレーションが作った退避アーカイブ（会話ログを含む。機能は v2.14.0 で撤去）
+migration-backup-*.tar.gz

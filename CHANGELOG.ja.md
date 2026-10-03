@@ -4,6 +4,17 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v2.19.2] - 2026-10-04
+
+### 修正
+- **`ops/update-claude-cli.sh` の既定の接続先を `http://localhost:3333` に** — 再起動前に `GET /api/busy` を確かめる `POCKET_URL` の既定値が、作者の環境のプライベートアドレスになっていました。pocket-claude を特定のアドレスで待ち受けさせている場合は `POCKET_URL` を指定してください（crontab の行に書くなど）。
+- **撤去した機能の残骸を `.gitignore` で再び除外** — `sessions/` と `migration-backup-*.tar.gz`（v2.12.0 の退避アーカイブ＝会話ログを含む）は、旧版を動かしたことのあるインストールには残っている可能性があります。v2.14.0 で機能と一緒に除外指定も消していたため戻し、誤って commit されないようにしました。
+- **予約投稿のルートで不正なセッションIDを一律に拒否** — `GET /api/scheduled-posts/session/:sessionId` は不正なIDに空の一覧でなく 400 を返します（他のルートと同じ）。
+
+### ドキュメント
+- 会話ログのパス表記を `~/.claude/projects/<project-dir>/<id>.jsonl` に訂正（README・v2.14.0 の項）。
+- v2.14.0 に、v2.11.x 以前からアップグレードする場合の注意を追記。
+
 ## [v2.19.1] - 2026-10-03
 
 ### 修正
@@ -85,11 +96,15 @@ pocket-claude の主要な変更をここに記録します。
 ## [v2.14.0] - 2026-09-16
 
 ### 変更
-- **`sessions/*.json` と v2.12.0 の起動時マイグレーションを撤去** — pocket-claude は独自のセッションメタデータファイルを保持しなくなりました。project・model・effort・thinking はすべて、CLI 自身の会話ログ（`~/.claude/projects/<id>.jsonl`）から新設の `services/session-facts.js` で読み取ります。起動時マイグレーション・`PC_SKIP_STARTUP_MIGRATION`・`migration-backup-*.tar.gz` は削除しました。設計指針「薄いラッパーはCLIが持つ事実を自前で持たない」に従います。
+- **`sessions/*.json` と v2.12.0 の起動時マイグレーションを撤去** — pocket-claude は独自のセッションメタデータファイルを保持しなくなりました。project・model・effort・thinking はすべて、CLI 自身の会話ログ（`~/.claude/projects/<project-dir>/<id>.jsonl`）から新設の `services/session-facts.js` で読み取ります。起動時マイグレーション・`PC_SKIP_STARTUP_MIGRATION`・`migration-backup-*.tar.gz` は削除しました。設計指針「薄いラッパーはCLIが持つ事実を自前で持たない」に従います。
 - **pocket-claude 外で起動された会話もライブで追尾** — `--session-id <id>` または `--resume <id>` で `claude` プロセスが動いていても、pocket-claude が spawn していない場合でも、UI は実行中として表示し、CLI の会話ログから出力をストリーミングします。競合する送信は 409 `external process running` で防ぎ、外部プロセス終了後は `── エージェント終了 ──` を表示します。
 - **`POST /api/send` の `model` 省略の意味を変更** — `model` フィールドを送らない場合は「現在のモデルを変えない」、`model: ''` は「既定モデル」を意味します。それ以外はモデル切り替えとして動作します。
 - **履歴一覧に最終使用モデルを表示** — `GET /api/history` の各要素に `model` を追加し、クライアントのメタ行を `日時 · N messages · <model>` に変更しました（モデル不明時は省略）。
 - **旧 pocket ID タブの転送を廃止** — v2.12.0 マイグレーションで使っていた `canonicalId` フィールドと `movedTo` 転送スタブの仕組みを削除しました。旧 pocket ID を持つタブは、正規のセッション ID で開き直されます。
+
+### 移行
+- **v2.11.x 以前から上げる場合は、先に v2.13.1 を一度起動してください。** ID 統一の一回きりの変換（と `migration-backup-*.tar.gz` の作成）は v2.12.0〜v2.13.1 にしかありません。v2.14.0 以降へ直接上げると変換は走らず、会話そのものは履歴から開けます（CLI の会話ログにあるため）が、旧 pocket ID を指したままのタブ・予約投稿・自動再開は会話を見つけられません。`git checkout v2.13.1 && npm start` で変換ログの完了を待ってから更新してください。
+- 残った `sessions/` ディレクトリと `migration-backup-*.tar.gz` はもう読まれません。問題が無いことを確認したら削除して構いません。
 
 ## [v2.13.1] - 2026-09-15
 
@@ -107,9 +122,6 @@ pocket-claude の主要な変更をここに記録します。
 - `services/directories.js` の `sweepOldPocketLogs` を `sweepOldFiles(dir, ext, maxAgeDays, { exclude })` へ汎用化し、`logs/` と `sessions/` を1回で掃除する `sweepRetention(maxAgeDays)` を新設しました。`server.js` は起動時に `cleanupPeriodDays` を1回だけ読み、起動時スイープと日次の `setInterval` の両方に同じ値を渡します（設定変更の反映は再起動時）。
 - `services/history.js` は `~/.claude/projects/<...>` を自前計算しなくなり、新設 `services/claude-dir.js` から `CLAUDE_PROJECTS_DIR` を取得するようになりました。`CLAUDE_CONFIG_DIR` が設定されていればそれに追従します（従来はCLIの設定場所に関わらず `~/.claude` に固定していました）。
 - `services/spawner.js` はCLIが受け付ける `--permission-mode` の一覧を複製したり、未知の値を黙って `acceptEdits` へ書き換えたりしなくなりました。`config.permissionMode`（未設定時は `acceptEdits`）をそのままCLIへ渡します。不正な値は黙って書き換えられる代わりに、CLI自身が起動を拒否しタブにstderrとして表示されます。
-
-## v2.12.0 の移行記述は v2.14.0 で撤去済み
-- v2.12.0 で導入された起動時マイグレーション（`sessions/*.json` の統合・`migration-backup-*.tar.gz`・`PC_SKIP_STARTUP_MIGRATION`）は、v2.14.0 で削除されました。v2.14.0 以降、pocket-claude は自前のセッションメタを一切保持しません。
 
 ## [v2.12.4] - 2026-09-15
 

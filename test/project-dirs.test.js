@@ -41,8 +41,8 @@ function writeTranscript(cwd, id, text) {
 }
 
 test('projectDirFor: 英数字以外は全部 "-"（CLI と同じ規則。"." "_" "$" も置換）', () => {
-  const name = path.basename(projectDirFor('/mnt/caitin_karin-fs/sys$/reports'))
-  assert.equal(name, '-mnt-caitin-karin-fs-sys--reports')
+  const name = path.basename(projectDirFor('/mnt/nas_share-fs/data$/reports'))
+  assert.equal(name, '-mnt-nas-share-fs-data--reports')
   assert.equal(path.basename(projectDirFor('/home/john.doe')), '-home-john-doe')
 })
 
