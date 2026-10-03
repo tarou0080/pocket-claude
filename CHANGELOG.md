@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.19.1] - 2026-10-03
+
+### Fixed
+- **Background notifications shown as one line** - Notifications (command completion, Monitor events and stream end) were rendered with the CLI's tags for Claude (`<task-id>`, `<summary>`, `<event>`, ...) and looked like leaked code. They are now shown as a single `🔔 …` line with just the human-readable summary and event, in both the conversation view and the history detail view. Task IDs and output file paths are hidden. Unknown shapes with neither summary nor event are shown raw as before.
+
 ## [v2.19.0] - 2026-09-28
 
 ### Fixed

@@ -3857,6 +3857,20 @@ function rememberUuid(sessionId, uuid) {
 }
 
 // ── イベント処理 ──
+// CLI のバックグラウンド通知（<task-notification>）を1行にする。形式は CLI 内部のもので
+// 種類（コマンド完了・Monitor のイベント/終了…）ごとの表は持たず、人が読む summary と
+// event だけを出す（task-id・tool-use-id・output-file は Claude 向け）。どちらも無い
+// 未知の形は原文のまま出す＝形式が変わっても情報を落とさない。
+function formatTaskNotification(text) {
+  const tag = name => {
+    const m = text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))
+    return m ? m[1].trim() : ''
+  }
+  const parts = [tag('summary'), tag('event')].filter(Boolean)
+  if (parts.length === 0) return `[notification] ${text.replace(/<\/?task-notification>/g, '').trim()}`
+  return `🔔 ${parts.join(' — ')}`
+}
+
 function handleEvent(sessionId, ev, isLive = true) {
   // isLive===false（event:history の再生）では永続/再接続跨ぎ状態
   // （rate-limitカード・送信待ちキュー・isRunning）を一切変更しない＝描画専用。
@@ -3884,7 +3898,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       ts._doneShown = false  // 新しいターンにつき次のdoneは描画対象に戻す
       if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
-        addLine(ts, `[notification] ${ev.text.replace(/<\/?task-notification>/g, '').trim()}`, 'line-system')
+        addLine(ts, formatTaskNotification(ev.text), 'line-system')
       } else if (ev.text) {
         addLine(ts, `> ${ev.text}`, 'line-user')
         // 初回プロンプト時にタブタイトルを自動更新（'Claude Code'の場合のみ）
@@ -4492,7 +4506,8 @@ async function openHistoryDetail(session) {
     for (const m of msgs) {
       const div = document.createElement('div')
       div.className = `history-msg ${m.role === 'user' ? 'history-msg-user' : 'history-msg-assistant'}`
-      div.textContent = m.text
+      div.textContent = m.role === 'user' && m.text.trimStart().startsWith('<task-notification>')
+        ? formatTaskNotification(m.text) : m.text
       historyBody.appendChild(div)
     }
 
