@@ -53,7 +53,7 @@ function warnSaveFailed(sessionId) {
   if (!sessionId) return
   try {
     const { broadcast } = require('./stream')
-    broadcast(sessionId, { type: 'system', text: '⚠ 予約の保存に失敗しました（ディスク書き込みエラー）。再起動すると内容が失われるおそれがあります' })
+    broadcast(sessionId, { type: 'system', key: 'scheduleSaveFailed', text: '予約の保存に失敗しました（ディスク書き込みエラー）。再起動すると内容が失われるおそれがあります' })
   } catch {}
 }
 
@@ -81,7 +81,7 @@ async function executePost(id) {
   console.log(`[scheduled-posts] deliverPrompt result=${result.status} id=${id}`)
 
   if (result.status === 'injected' || result.status === 'started') {
-    broadcast(p.sessionId, { type: 'system', text: '🕐 予約投稿を実行しました' })
+    broadcast(p.sessionId, { type: 'system', key: 'scheduledPostSent', text: '予約投稿を実行しました' })
     posts.delete(id)
     if (!savePosts()) warnSaveFailed(p.sessionId)
   } else {
@@ -90,7 +90,7 @@ async function executePost(id) {
     p.failedReason = reason
     p.executedAt = new Date().toISOString()
     if (!savePosts()) warnSaveFailed(p.sessionId)
-    broadcast(p.sessionId, { type: 'system', text: `⚠ 予約投稿を送信できませんでした: ${reason}` })
+    broadcast(p.sessionId, { type: 'system', key: 'scheduledPostFailed', params: { reason }, text: `予約投稿を送信できませんでした: ${reason}` })
   }
 }
 

@@ -759,6 +759,8 @@
   }
 
   .line { margin-bottom: 2px; word-break: break-word; white-space: pre-wrap; }
+  /* 行頭の線画アイコン。メニューの添付/予約ボタンと同じ線幅で、行の文字色に従う */
+  .ln-icon { width: 1em; height: 1em; vertical-align: -0.125em; margin-right: 0.4em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .pc-provisional { /* M由来の書きかけ領域。確定時は中身がpane直下へ移る＝見た目に影響しない */ }
   .line-user    { color: var(--green-user); }
   .line-text    { color: var(--text); white-space: normal; }
@@ -1177,7 +1179,7 @@ const STRINGS = {
     autoCompactLabel:     '自動圧縮の開始サイズ',
     autoCompactDesc:      '会話がこの大きさに近づくとCLIが自動で要約・圧縮します（約33K手前で開始）。変更は次に起動する会話から効きます',
     autoCompactDefault:   'CLI既定',
-    projectNoteLocked:    '⚠ セッション開始済みのため変更できません。新しいタブで開始してください。★ は新規セッションのデフォルトを設定します。',
+    projectNoteLocked:    'セッション開始済みのため変更できません。新しいタブで開始してください。★ は新規セッションのデフォルトを設定します。',
     projectNoteUnlocked:  '最初のメッセージを送る前のみ変更できます',
     projectNamePh:        'プロジェクト名 (例: myapp)',
     projectPathPh:        'ディレクトリパス (例: /srv/shell/myapp)',
@@ -1197,6 +1199,31 @@ const STRINGS = {
     toolsSaveError:       '保存に失敗しました',
     saveLabel:            '保存',
     cancelLabel:          'キャンセル',
+    // 会話の行（サーバーが key 付きで送る system 行も含む。{name} は t() の params で埋める）
+    lineSkipped:          '表示できなかった記録を {n} 件スキップしました',
+    queuedPrefix:         '取り込み待ち: ',
+    imagePlaceholder:     '(画像)',
+    retryOverloaded:      'APIが混雑しています',
+    retryConnError:       'API接続エラー ({err})',
+    retrying:             '{why} — 再試行中 ({attempt}/{max})',
+    retryWait:            '・約{sec}秒後',
+    retriedN:             'API混雑のため{n}回再試行しました',
+    stopped:              '停止しました',
+    stopFailed:           '停止できませんでした ({detail})',
+    connFailed:           '接続失敗',
+    agentExited:          'エージェント終了',
+    schedDeleteFailed:    '予約を削除できませんでした。通信状態を確認してください。',
+    schedResendFailed:    '再送できませんでした: {reason}',
+    schedResendReqFailed: '再送のリクエストが失敗しました。通信状態を確認してください。',
+    unknownReason:        '原因不明',
+    rlAutoResume:         '自動再開',
+    scheduleSaveFailed:   '予約の保存に失敗しました（ディスク書き込みエラー）。再起動すると内容が失われるおそれがあります',
+    scheduledPostSent:    '予約投稿を実行しました',
+    scheduledPostFailed:  '予約投稿を送信できませんでした: {reason}',
+    autoResumed:          'レート制限リセット後、自動再開しました',
+    autoResumeFailed:     '自動再開できませんでした: {reason}',
+    sessionIdMismatch:    'セッションIDの不一致を検出しました（サーバーログ参照）',
+    sendFailed:           '送信できませんでした: {reason} — {preview}',
   },
   en: {
     settingsTitle:        'Settings',
@@ -1242,9 +1269,77 @@ const STRINGS = {
     toolsSaveError:       'Failed to save',
     saveLabel:            'Save',
     cancelLabel:          'Cancel',
+    lineSkipped:          'Skipped {n} record(s) that could not be displayed',
+    queuedPrefix:         'Waiting to be read: ',
+    imagePlaceholder:     '(image)',
+    retryOverloaded:      'API is overloaded',
+    retryConnError:       'API connection error ({err})',
+    retrying:             '{why} — retrying ({attempt}/{max})',
+    retryWait:            ', in ~{sec}s',
+    retriedN:             'Retried {n} times due to API overload',
+    stopped:              'Stopped',
+    stopFailed:           'Could not stop ({detail})',
+    connFailed:           'connection failed',
+    agentExited:          'Agent exited',
+    schedDeleteFailed:    'Could not delete the scheduled post. Check your connection.',
+    schedResendFailed:    'Could not resend: {reason}',
+    schedResendReqFailed: 'The resend request failed. Check your connection.',
+    unknownReason:        'unknown reason',
+    rlAutoResume:         'Auto-resume',
+    scheduleSaveFailed:   'Failed to save scheduled posts (disk write error). They may be lost on restart',
+    scheduledPostSent:    'Scheduled post sent',
+    scheduledPostFailed:  'Could not send the scheduled post: {reason}',
+    autoResumed:          'Resumed automatically after the rate limit reset',
+    autoResumeFailed:     'Could not resume automatically: {reason}',
+    sessionIdMismatch:    'Session ID mismatch detected (see server log)',
+    sendFailed:           'Could not send: {reason} — {preview}',
   },
 }
-function t(key) { return STRINGS[appSettings?.lang || 'ja'][key] }
+function t(key, params) {
+  let s = STRINGS[appSettings?.lang || 'ja'][key] ?? STRINGS.ja[key]
+  if (s !== undefined && params) s = s.replace(/\{(\w+)\}/g, (m, k) => params[k] ?? m)
+  return s
+}
+
+// ── 線画アイコン ──
+// 会話の行・状態表示の目印。Feather Icons（MIT）の形で、メニューの添付/予約ボタンと同じ描き方。
+// カラー絵文字は行の文字色が効かず iPhone で浮くため使わない（test/ui-glyphs.test.js が検査）。
+const ICONS = {
+  bell:             '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  'refresh-cw':     '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  inbox:            '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  zap:              '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  clock:            '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/>',
+  play:             '<polygon points="5 3 19 12 5 21 5 3"/>',
+  check:            '<polyline points="20 6 9 17 4 12"/>',
+  'alert-triangle': '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  'alert-circle':   '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  square:           '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>',
+}
+function iconEl(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('class', 'ln-icon')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.innerHTML = ICONS[name]
+  return svg
+}
+// 本文は常に文字として入れる（HTML として解釈しない）。未知のアイコン名は本文だけになる。
+function setIconText(el, text, icon) {
+  el.replaceChildren(...(ICONS[icon] ? [iconEl(icon)] : []), text)
+}
+
+// サーバーが key 付きで送る system 行の見た目。文言は STRINGS（端末の言語で訳す）。
+// key が未知・訳が無いときは送られてきた text をそのまま出す（古い画面・新しい key の両方で落とさない）。
+const SYSTEM_LINES = {
+  scheduleSaveFailed:  { icon: 'alert-triangle', cls: 'line-error' },
+  scheduledPostSent:   { icon: 'clock' },
+  scheduledPostFailed: { icon: 'alert-triangle', cls: 'line-error' },
+  autoResumed:         { icon: 'play' },
+  autoResumeFailed:    { icon: 'alert-triangle', cls: 'line-error' },
+  sessionIdMismatch:   { icon: 'alert-triangle', cls: 'line-error' },
+  sendFailed:          { icon: 'alert-triangle', cls: 'line-error' },
+}
 
 // ── 設定管理 ──
 // モデル一覧はサーバーの /api/models が唯一の出どころ（config.json の models、無ければサーバー側の既定）。
@@ -2695,7 +2790,7 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false, fireAt = n
 
   const label = document.createElement('span')
   label.className = 'rl-label'
-  label.textContent = '⏱ 自動再開'
+  setIconText(label, t('rlAutoResume'), 'clock')
 
   const countdown = document.createElement('div')
   countdown.className = 'rl-countdown'
@@ -2813,7 +2908,7 @@ function renderQueuedPanel(sessionId) {
   }
   ts._queuedEl.replaceChildren(...ts._queued.map(text => {
     const row = document.createElement('div')
-    row.textContent = `⏳ 取り込み待ち: ${text.replace(/\s+/g, ' ').trim() || '(画像)'}`
+    setIconText(row, t('queuedPrefix') + (text.replace(/\s+/g, ' ').trim() || t('imagePlaceholder')), 'inbox')
     return row
   }))
   if (currentSessionId === sessionId && !ts._queuedEl.isConnected) statusSlot.appendChild(ts._queuedEl)
@@ -3065,7 +3160,7 @@ function renderScheduledPosts(sessionId, posts) {
     const timeEl = document.createElement('div')
     timeEl.className = 'scheduled-post-time'
     const timeLabel = document.createElement('span')
-    timeLabel.textContent = `⏱ ${timeStr}`
+    setIconText(timeLabel, timeStr, 'clock')
     timeEl.appendChild(timeLabel)
     if (post.status === 'failed') {
       const badge = document.createElement('span')
@@ -3107,7 +3202,7 @@ function renderScheduledPosts(sessionId, posts) {
     if (post.status === 'failed' && post.failedReason) {
       const reasonEl = document.createElement('div')
       reasonEl.className = 'scheduled-post-reason'
-      reasonEl.textContent = `⚠ ${post.failedReason}`
+      setIconText(reasonEl, post.failedReason, 'alert-triangle')
       item.appendChild(reasonEl)
     }
     item.appendChild(actionsEl)
@@ -3198,14 +3293,14 @@ async function deleteScheduledPost(id, sessionId, prompt) {
     loadScheduledPosts()
   } catch (err) {
     console.error(err)
-    notifyScheduleFailure(sessionId, '予約を削除できませんでした。通信状態を確認してください。')
+    notifyScheduleFailure(sessionId, t('schedDeleteFailed'))
   }
 }
 
 // 予約操作の失敗を必ず画面へ出す（console.errorだけで済ませると握りつぶしになる）
 function notifyScheduleFailure(sessionId, text) {
   const ts = tabState[sessionId] || tabState[currentSessionId]
-  if (ts) addLine(ts, `⚠ ${text}`, 'line-error')
+  if (ts) addLine(ts, text, 'line-error', 'alert-triangle')
 }
 
 // その場で即時配送する（サーバー側の resend API が executePost と同じ配送・成否処理を担う）
@@ -3216,12 +3311,12 @@ async function resendScheduledPost(id) {
     const data = await res.json().catch(() => null)
     // 配送に失敗した場合はサーバーが post を failed のまま返す（成功時は削除されnullになる）
     if (data && data.post && data.post.status === 'failed') {
-      notifyScheduleFailure(data.post.sessionId, `再送できませんでした: ${data.post.failedReason || '原因不明'}`)
+      notifyScheduleFailure(data.post.sessionId, t('schedResendFailed', { reason: data.post.failedReason || t('unknownReason') }))
     }
     loadScheduledPosts()
   } catch (err) {
     console.error(err)
-    notifyScheduleFailure(null, '再送のリクエストが失敗しました。通信状態を確認してください。')
+    notifyScheduleFailure(null, t('schedResendReqFailed'))
   }
 }
 
@@ -3450,7 +3545,7 @@ async function loadHistoryIntoPane(sessionId, onProgress) {
 
   ts.autoScroll = true
   if (skipped > 0) {
-    addLine(ts, `[注意] 表示できなかった記録を ${skipped} 件スキップしました`, 'line-system')
+    addLine(ts, t('lineSkipped', { n: skipped }), 'line-system', 'alert-circle')
   }
   scheduleConvSave(sessionId)
   return { eventsCount: events.length, skipped }
@@ -3857,18 +3952,18 @@ function rememberUuid(sessionId, uuid) {
 }
 
 // ── イベント処理 ──
-// CLI のバックグラウンド通知（<task-notification>）を1行にする。形式は CLI 内部のもので
-// 種類（コマンド完了・Monitor のイベント/終了…）ごとの表は持たず、人が読む summary と
-// event だけを出す（task-id・tool-use-id・output-file は Claude 向け）。どちらも無い
-// 未知の形は原文のまま出す＝形式が変わっても情報を落とさない。
+// CLI のバックグラウンド通知（<task-notification>）を1行の本文にする（目印はベルの線画）。
+// 形式は CLI 内部のもので種類（コマンド完了・Monitor のイベント/終了…）ごとの表は持たず、
+// 人が読む summary と event だけを出す（task-id・tool-use-id・output-file は Claude 向け）。
+// どちらも無い未知の形は原文のまま出す＝形式が変わっても情報を落とさない。
 function formatTaskNotification(text) {
   const tag = name => {
     const m = text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))
     return m ? m[1].trim() : ''
   }
   const parts = [tag('summary'), tag('event')].filter(Boolean)
-  if (parts.length === 0) return `[notification] ${text.replace(/<\/?task-notification>/g, '').trim()}`
-  return `🔔 ${parts.join(' — ')}`
+  if (parts.length === 0) return text.replace(/<\/?task-notification>/g, '').trim()
+  return parts.join(' — ')
 }
 
 function handleEvent(sessionId, ev, isLive = true) {
@@ -3898,7 +3993,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       ts._doneShown = false  // 新しいターンにつき次のdoneは描画対象に戻す
       if (isLive) { ts.isRunning = true; if (isActive) updateUI() }
       if (ev.text && ev.text.trimStart().startsWith('<task-notification>')) {
-        addLine(ts, formatTaskNotification(ev.text), 'line-system')
+        addLine(ts, formatTaskNotification(ev.text), 'line-system', 'bell')
       } else if (ev.text) {
         addLine(ts, `> ${ev.text}`, 'line-user')
         // 初回プロンプト時にタブタイトルを自動更新（'Claude Code'の場合のみ）
@@ -4059,7 +4154,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       // 実体のない空ターン対策: `--resume`直後にCLIがnum_turns:0・modelUsage:{}・
       // usage.iterations無し（＝トークン情報が皆無）のresultを1回吐くことがある。
       // これを通常ターンと同様に扱うと、コンテキスト窓が既定200Kへフォールバックし
-      // ✓0%という嘘の行が出た上、直前の正しい%まで0へ潰れる（⚡compacted?誤検知の原因にも
+      // ✓0%という嘘の行が出た上、直前の正しい%まで0へ潰れる（compacted?誤検知の原因にも
       // なる）。トークン情報が皆無なターンでは_ctxTokens/_ctxMax/_prevCtxTokensを一切
       // 上書きせず、✓行も描かない。
       const hasModelUsage = ev.modelUsage && Object.keys(ev.modelUsage).length > 0
@@ -4092,16 +4187,16 @@ function handleEvent(sessionId, ev, isLive = true) {
       }
       finalizeText(ts)
       if (wasInterrupted) {
-        addLine(ts, `■ 停止しました`, 'line-system')
+        addLine(ts, t('stopped'), 'line-system', 'square')
       } else if (!isEmptyTurn) {
         const ctxMax = ts._ctxMax || CTX_MAX
         const fmtK = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
         if (ts._prevCtxTokens > 0 && ts._ctxTokens < ts._prevCtxTokens * 0.6) {
-          addLine(ts, `⚡ compacted? (${fmtK(ts._prevCtxTokens)}→${fmtK(ts._ctxTokens)})`, 'line-compact')
+          addLine(ts, `compacted? (${fmtK(ts._prevCtxTokens)}→${fmtK(ts._ctxTokens)})`, 'line-compact', 'zap')
         }
         ts._prevCtxTokens = ts._ctxTokens
         const pct = Math.round(ts._ctxTokens / ctxMax * 100)
-        const resultEl = addLine(ts, `✓ ${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})${autoCompactSuffix(ts, ctxMax)}`, 'line-done')
+        const resultEl = addLine(ts, `${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})${autoCompactSuffix(ts, ctxMax)}`, 'line-done', 'check')
         if (pct >= 50) resultEl.classList.add('warn')
       }
       break
@@ -4114,7 +4209,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       // done{exitCode:-1, reason:'server_shutdown'}を配信し、約0.4秒後に実際の
       // プロセス終了でdone{exitCode:143}を配信する（2イベント）。既存の
       // 'server_restart'（起動時ログ修復の別経路）と合わせて両方とも
-      // 「⚠ Interrupted (server restarted)」として扱い、かつ後続の重複描画を
+      // 「Interrupted (server restarted)」として扱い、かつ後続の重複描画を
       // _doneShownで抑止する（次のstart/user_inputで解除）。
       // external_exit: pocketがspawnしていないプロセスが終了した。Interrupted扱いにしない。
       const isRestartReason = ev.reason === 'server_restart' || ev.reason === 'server_shutdown'
@@ -4124,12 +4219,12 @@ function handleEvent(sessionId, ev, isLive = true) {
       const ctxMaxD = ts._ctxMax || CTX_MAX
       const fmtKD = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
       const pct = Math.round(ts._ctxTokens / ctxMaxD * 100)
-      const doneMsg = isRestartReason
-        ? `⚠ Interrupted (server restarted)`
+      const [doneMsg, doneIcon] = isRestartReason
+        ? [`Interrupted (server restarted)`, 'alert-triangle']
         : isExternalExit
-          ? `── エージェント終了 ──`
-          : `✓ Done (exit ${ev.exitCode}) — ${pct}% (${fmtKD(ts._ctxTokens)} / ${fmtKD(ctxMaxD)})`
-      const doneEl = addLine(ts, doneMsg, 'line-done')
+          ? [`── ${t('agentExited')} ──`, null]
+          : [`Done (exit ${ev.exitCode}) — ${pct}% (${fmtKD(ts._ctxTokens)} / ${fmtKD(ctxMaxD)})`, 'check']
+      const doneEl = addLine(ts, doneMsg, 'line-done', doneIcon)
       if (isRestartReason || (isExternalExit && pct >= 50) || (!isExternalExit && (ev.exitCode !== 0 || pct >= 50))) doneEl.classList.add('warn')
       if (isActive) updateUI()
       break
@@ -4152,6 +4247,9 @@ function handleEvent(sessionId, ev, isLive = true) {
         // このイベントは text を持たないため従来は捨てられ、画面が最大3分無反応になっていた
         // （＝「死んだ」と誤解して停止→再送→さらに混雑、という2026-09-03の実害）。
         if (isLive) showRetryLine(ts, ev)
+      } else if (ev.key && SYSTEM_LINES[ev.key] && t(ev.key) !== undefined) {
+        const def = SYSTEM_LINES[ev.key]
+        addLine(ts, t(ev.key, ev.params), def.cls || 'line-system', def.icon)
       } else if (ev.text) {
         addLine(ts, ev.text, 'line-system')
       }
@@ -4253,14 +4351,14 @@ function showRetryLine(ts, ev) {
   const attempt = ev.attempt || 0
   const max = ev.max_retries || 10
   const wait = ev.retry_delay_ms ? Math.round(ev.retry_delay_ms / 1000) : 0
-  const why = ev.error === 'overloaded' ? 'APIが混雑しています' : `API接続エラー (${ev.error || ev.error_status || 'unknown'})`
-  const text = `⏳ ${why} — 再試行中 (${attempt}/${max})${wait ? `・約${wait}秒後` : ''}`
+  const why = ev.error === 'overloaded' ? t('retryOverloaded') : t('retryConnError', { err: ev.error || ev.error_status || 'unknown' })
+  const text = t('retrying', { why, attempt, max }) + (wait ? t('retryWait', { sec: wait }) : '')
   ts._retryAttempts = attempt
   if (ts._retryEl && ts._retryEl.isConnected) {
-    ts._retryEl.textContent = text
+    setIconText(ts._retryEl, text, 'refresh-cw')
     scrollToBottom(ts)
   } else {
-    ts._retryEl = addLine(ts, text, 'line-retry')
+    ts._retryEl = addLine(ts, text, 'line-retry', 'refresh-cw')
   }
 }
 
@@ -4274,16 +4372,16 @@ function clearRetryLine(ts) {
   ts._retryAttempts = 0
   if (!el.isConnected) return
   if (attempts >= 3) {
-    el.textContent = `⚠ API混雑のため${attempts}回再試行しました`
+    setIconText(el, t('retriedN', { n: attempts }), 'alert-triangle')
   } else {
     el.remove()
   }
 }
 
-function addLine(ts, text, cls) {
+function addLine(ts, text, cls, icon) {
   const div = document.createElement('div')
   div.className = `line ${cls}`
-  div.textContent = text
+  setIconText(div, text, icon)
   drawTarget(ts).appendChild(div)
   scrollToBottom(ts)
   return div
@@ -4506,8 +4604,11 @@ async function openHistoryDetail(session) {
     for (const m of msgs) {
       const div = document.createElement('div')
       div.className = `history-msg ${m.role === 'user' ? 'history-msg-user' : 'history-msg-assistant'}`
-      div.textContent = m.role === 'user' && m.text.trimStart().startsWith('<task-notification>')
-        ? formatTaskNotification(m.text) : m.text
+      if (m.role === 'user' && m.text.trimStart().startsWith('<task-notification>')) {
+        setIconText(div, formatTaskNotification(m.text), 'bell')
+      } else {
+        div.textContent = m.text
+      }
       historyBody.appendChild(div)
     }
 
@@ -4864,9 +4965,9 @@ async function requestStop(sessionId) {
     const res = await fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session: sessionId }) })
     ok = res.ok
-    if (!ok && res.status !== 409) addLine(ts, `停止できませんでした (${res.status})`, 'line-error')
+    if (!ok && res.status !== 409) addLine(ts, t('stopFailed', { detail: res.status }), 'line-error')
   } catch {
-    addLine(ts, `停止できませんでした (接続失敗)`, 'line-error')
+    addLine(ts, t('stopFailed', { detail: t('connFailed') }), 'line-error')
   }
   if (!ok) {
     // 409=サーバーは既に停止済み。それ以外=届いていない。どちらもサーバーを正として引き直す。

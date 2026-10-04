@@ -165,7 +165,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
         if (parsed.type === 'system' && parsed.subtype === 'init' && usedSessionId &&
             parsed.session_id && parsed.session_id !== sessionId) {
           console.warn(`[spawn] session-id MISMATCH sessionId=${sessionId} but CLI init reported ${parsed.session_id} — a CLI change may have re-introduced ID divergence`)
-          broadcast(sessionId, { type: 'system', text: '⚠ セッションIDの不一致を検出しました（サーバーログ参照）' })
+          broadcast(sessionId, { type: 'system', key: 'sessionIdMismatch', text: 'セッションIDの不一致を検出しました（サーバーログ参照）' })
         }
 
         // init イベントの tools はそのプロセスが実際に持つツール名一覧(正)。設定モーダルの
@@ -408,7 +408,7 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
 // でも気づけるよう system イベントを出す（握りつぶし禁止）。
 function _notifyFailure(sessionId, prompt, reason) {
   const preview = prompt ? (prompt.length > 40 ? prompt.slice(0, 40) + '…' : prompt) : '(画像)'
-  broadcast(sessionId, { type: 'system', text: `⚠ 送信できませんでした: ${reason} — ${preview}` })
+  broadcast(sessionId, { type: 'system', key: 'sendFailed', params: { reason, preview }, text: `送信できませんでした: ${reason} — ${preview}` })
 }
 
 module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull }

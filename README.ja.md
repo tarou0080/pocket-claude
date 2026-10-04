@@ -351,6 +351,7 @@ MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照してくださ�
 
 - [marked.js](https://github.com/markedjs/marked) - Markdown パーサー (MIT)
 - [Express](https://expressjs.com/) - Web フレームワーク (MIT)
+- [Feather Icons](https://feathericons.com/) - 線画アイコン (MIT)
 
 以下のプロジェクトからインスピレーションを得ました：
 - [claude-code-webui](https://github.com/sugyan/claude-code-webui) by sugyan

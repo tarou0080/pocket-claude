@@ -4,6 +4,13 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.20.0] - 2026-10-04
+
+### Changed
+- **Line icons instead of color emoji** - Markers in the conversation (notifications, retries, "waiting to be read", compacted?, Done/Interrupted, stopped, scheduled-post and auto-resume messages) and in the rate-limit card and scheduled-post list were emoji (🔔 ⏳ ⚡ 🕐 ⏱ ⚠). Emoji ignore the line color and stood out, especially on iPhone. They are now line icons drawn like the header buttons (Feather Icons) and follow the line color. A test fails if color emoji come back.
+- **Conversation messages follow the language setting** - Messages that were hard-coded in Japanese (stopped, could not stop, retrying, waiting to be read, agent exited, scheduled-post failures, ...) now switch with the Japanese/English setting. Messages sent by the server (scheduled post sent, auto-resumed, send failures) carry a `key` and `params` so each device shows them in its own language; the Japanese `text` is kept as a fallback for older pages. CLI terms (Done, Interrupted, compacted?, auto-compact) stay in English as before, and text written by the CLI is shown as is.
+- Server warnings shown in the conversation (scheduled post / auto-resume / send failures) are now red like other errors.
+
 ## [v2.19.2] - 2026-10-04
 
 ### Fixed

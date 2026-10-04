@@ -77,7 +77,7 @@ async function doResume(sessionId) {
     // 配送成功を確認してから消す・成功を知らせる（配送前の無条件表示は嘘表示になる）
     schedules.delete(sessionId)
     saveSchedules()
-    broadcast(sessionId, { type: 'system', text: '⏱ レート制限リセット後、自動再開しました' })
+    broadcast(sessionId, { type: 'system', key: 'autoResumed', text: 'レート制限リセット後、自動再開しました' })
   } else {
     // 配送失敗。エントリを残しても再発火はしない（このタイマーは使い切り）ため、
     // 予約投稿のような再送UIが無い現状ではここに留め置いても救済されない。
@@ -85,7 +85,7 @@ async function doResume(sessionId) {
     const reason = result.reason || '配送に失敗しました'
     schedules.delete(sessionId)
     saveSchedules()
-    broadcast(sessionId, { type: 'system', text: `⚠ 自動再開できませんでした: ${reason}` })
+    broadcast(sessionId, { type: 'system', key: 'autoResumeFailed', params: { reason }, text: `自動再開できませんでした: ${reason}` })
   }
 }
 

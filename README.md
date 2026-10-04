@@ -353,6 +353,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 - [marked.js](https://github.com/markedjs/marked) - Markdown parser (MIT)
 - [Express](https://expressjs.com/) - Web framework (MIT)
+- [Feather Icons](https://feathericons.com/) - Line icons (MIT)
 
 Inspired by:
 - [claude-code-webui](https://github.com/sugyan/claude-code-webui) by sugyan
