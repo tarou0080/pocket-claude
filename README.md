@@ -6,6 +6,15 @@
 
 pocket-claude is a web interface for Claude Code CLI. If you're using Claude Code, you can install this to get a browser-based UI instead of working in the terminal.
 
+## Project status: maintenance mode
+
+Claude Code now ships [Remote Control](https://code.claude.com/docs/en/remote-control), which lets you continue a local session from claude.ai/code or the Claude mobile app. That covers the main reason pocket-claude was built, so **no new features are planned**. The project stays available and will receive:
+
+- security fixes (including updates to bundled libraries), and
+- fixes when a Claude Code CLI change breaks pocket-claude.
+
+If you just want to reach your local Claude Code from a phone, try Remote Control first. pocket-claude may still suit you if you prefer a self-hosted UI that does not go through claude.ai. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
 ## What does it do?
 
 Turn your Claude Code CLI into a web app:

@@ -4,6 +4,14 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.21.1] - 2026-10-04
+
+### Changed
+- **Maintenance mode** - Claude Code now has official [Remote Control](https://code.claude.com/docs/en/remote-control), so no new features are planned. The README (English/Japanese) states what will still be fixed: security issues (including bundled libraries) and breakage from Claude Code CLI changes.
+- Added `SECURITY.md`: report vulnerabilities through GitHub private vulnerability reporting, not public issues.
+- Updated the bundled DOMPurify from 3.4.14 to 3.4.16 (GHSA-p98j-92pf-mc4p, low severity). pocket-claude was not affected — the issue needs `IN_PLACE` sanitizing together with a hook that removes nodes, and pocket-claude uses neither — but the bundled copy now matches the fixed release.
+- Refreshed the settings screenshot (English UI).
+
 ## [v2.21.0] - 2026-10-04
 
 ### Changed

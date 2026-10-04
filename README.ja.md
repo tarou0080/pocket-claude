@@ -6,6 +6,15 @@
 
 pocket-claude は Claude Code CLI の Web インターフェースです。Claude Code を使っている方は、これをインストールすることでターミナルではなくブラウザベースの UI で操作できるようになります。
 
+## プロジェクトの状況: 保守モード
+
+Claude Code に公式の [Remote Control](https://code.claude.com/docs/en/remote-control) が入り、手元のセッションを claude.ai/code や Claude モバイルアプリから続けられるようになりました。pocket-claude を作った主な目的はこれで満たされるため、**今後の機能追加は予定していません**。公開は続け、次の対応は行います。
+
+- セキュリティ修正（同梱ライブラリの更新を含む）
+- Claude Code CLI の仕様変更で pocket-claude が動かなくなったときの修正
+
+スマホから手元の Claude Code を使いたいだけなら、まず Remote Control をお試しください。claude.ai を経由しない自前の UI を置きたい場合は、引き続き pocket-claude が使えます。脆弱性の報告は [SECURITY.md](SECURITY.md) を参照してください。
+
 ## 何ができるの？
 
 Claude Code CLI を Web アプリに変換：

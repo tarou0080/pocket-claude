@@ -4,6 +4,14 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v2.21.1] - 2026-10-04
+
+### 変更
+- **保守モードへ** — Claude Code に公式の [Remote Control](https://code.claude.com/docs/en/remote-control) が入ったため、今後の機能追加は予定していません。README（英・日）に、引き続き直すもの（セキュリティの問題（同梱ライブラリを含む）と、Claude Code CLI の仕様変更による不具合）を明記しました。
+- `SECURITY.md` を追加しました。脆弱性は公開 issue ではなく GitHub の非公開の脆弱性報告から送ってください。
+- 同梱の DOMPurify を 3.4.14 から 3.4.16 へ更新しました（GHSA-p98j-92pf-mc4p・深刻度 Low）。pocket-claude は該当しません（`IN_PLACE` での無害化と、ノードを消すフックの両方が条件で、pocket-claude はどちらも使っていない）が、同梱物を修正版に揃えました。
+- 設定画面のスクリーンショットを撮り直しました（英語表示）。
+
 ## [v2.21.0] - 2026-10-04
 
 ### 変更
