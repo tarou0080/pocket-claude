@@ -40,6 +40,7 @@ function savePosts() {
       createdAt: p.createdAt,
       status: p.status,
       failedReason: p.failedReason || null,
+      failedReasonKey: p.failedReasonKey || null,
       executedAt: p.executedAt || null,
     }
   })
@@ -53,7 +54,7 @@ function warnSaveFailed(sessionId) {
   if (!sessionId) return
   try {
     const { broadcast } = require('./stream')
-    broadcast(sessionId, { type: 'system', key: 'scheduleSaveFailed', text: '予約の保存に失敗しました（ディスク書き込みエラー）。再起動すると内容が失われるおそれがあります' })
+    broadcast(sessionId, { type: 'system', key: 'scheduleSaveFailed', text: 'Failed to save scheduled posts (disk write error). They may be lost on restart' })
   } catch {}
 }
 
@@ -81,16 +82,18 @@ async function executePost(id) {
   console.log(`[scheduled-posts] deliverPrompt result=${result.status} id=${id}`)
 
   if (result.status === 'injected' || result.status === 'started') {
-    broadcast(p.sessionId, { type: 'system', key: 'scheduledPostSent', text: '予約投稿を実行しました' })
+    broadcast(p.sessionId, { type: 'system', key: 'scheduledPostSent', text: 'Scheduled post sent' })
     posts.delete(id)
     if (!savePosts()) warnSaveFailed(p.sessionId)
   } else {
-    const reason = result.reason || '配送に失敗しました'
+    const reason = result.reason || 'delivery failed'
+    const reasonKey = result.reason ? result.reasonKey || null : 'reasonDeliveryFailed'
     p.status = 'failed'
     p.failedReason = reason
+    p.failedReasonKey = reasonKey
     p.executedAt = new Date().toISOString()
     if (!savePosts()) warnSaveFailed(p.sessionId)
-    broadcast(p.sessionId, { type: 'system', key: 'scheduledPostFailed', params: { reason }, text: `予約投稿を送信できませんでした: ${reason}` })
+    broadcast(p.sessionId, { type: 'system', key: 'scheduledPostFailed', params: { reason, reasonKey }, text: `Could not send the scheduled post: ${reason}` })
   }
 }
 
@@ -112,6 +115,7 @@ function createPost({ scheduledAt, prompt, sessionId, project, model, effort, th
     createdAt: new Date().toISOString(),
     status: 'pending',
     failedReason: null,
+    failedReasonKey: null,
     executedAt: null,
     timerId
   })
@@ -134,6 +138,7 @@ function updatePost(id, { scheduledAt, prompt }) {
   p.timerId = timerId
   p.status = 'pending'
   p.failedReason = null
+  p.failedReasonKey = null
   p.executedAt = null
 
   if (!savePosts()) warnSaveFailed(p.sessionId)
@@ -175,6 +180,7 @@ function getPost(id) {
     createdAt: p.createdAt,
     status: p.status,
     failedReason: p.failedReason || null,
+    failedReasonKey: p.failedReasonKey || null,
     executedAt: p.executedAt || null,
   }
 }
@@ -194,6 +200,7 @@ function getAllPosts() {
       createdAt: p.createdAt,
       status: p.status,
       failedReason: p.failedReason || null,
+      failedReasonKey: p.failedReasonKey || null,
       executedAt: p.executedAt || null,
     })
   })
@@ -214,7 +221,7 @@ function loadPosts() {
       const status = p.status || 'pending' // 旧形式互換（statusフィールド無し = pending扱い）
 
       if (status === 'running') {
-        posts.set(id, { ...p, status: 'failed', failedReason: '実行中に中断されました', executedAt: new Date().toISOString(), timerId: null })
+        posts.set(id, { ...p, status: 'failed', failedReason: 'interrupted while running', failedReasonKey: 'reasonInterrupted', executedAt: new Date().toISOString(), timerId: null })
         continue
       }
 
@@ -230,7 +237,7 @@ function loadPosts() {
         const timerId = setTimeout(() => executePost(id), delay)
         posts.set(id, { ...p, status: 'pending', timerId })
       } else {
-        posts.set(id, { ...p, status: 'failed', failedReason: 'サービス停止中に予約時刻を過ぎました', executedAt: new Date().toISOString(), timerId: null })
+        posts.set(id, { ...p, status: 'failed', failedReason: 'scheduled time passed while the service was stopped', failedReasonKey: 'reasonMissedWhileStopped', executedAt: new Date().toISOString(), timerId: null })
       }
     }
     savePosts()

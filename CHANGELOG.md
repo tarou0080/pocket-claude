@@ -4,6 +4,14 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.21.0] - 2026-10-04
+
+### Changed
+- **All UI text goes through the dictionary** - v2.20.0 only covered conversation lines; the rest of the UI still had text written directly in the code (header tooltips, history panel, schedule modal and list, rate-limit card, resume button, send errors, Effort labels, ...), so English users saw Japanese and Japanese users saw English. Every user-facing string now comes from `STRINGS` via `t()`. Static HTML uses `data-i18n` / `data-i18n-title` / `data-i18n-aria` and is re-applied when the language changes. CLI terms that stay English in both languages (Done, Interrupted, compacted?, auto-compact, effort levels, ...) are defined once in `CLI_TERMS`.
+- **Server messages are English with a key** - Failure reasons sent by the server (`reason`) are now English, with a `reasonKey` (`deliveryFailed`, `injectFailed`, `noProject`, ...) that the UI translates. `POST /api/claude` failures include `reasonKey`; scheduled posts carry `failedReasonKey` (older saved posts without it show their stored text). Reasons without a key (e.g. exception messages) are shown as is.
+- The default auto-resume prompt follows the language (`続けてください` / `Please continue.`) unless you set your own.
+- `test/ui-glyphs.test.js` now also fails on Japanese text outside the dictionary (client and server), visible text or `title`/`placeholder`/`aria-label` written directly in the HTML, keys missing from either language, and server keys/reason keys without a translation.
+
 ## [v2.20.0] - 2026-10-04
 
 ### Changed

@@ -915,27 +915,27 @@
   <div id="header">
     <div id="status-dot"></div>
     <select id="model-select"></select>
-    <div id="effort-indicator" title="Effort level">
+    <div id="effort-indicator">
       <span class="effort-dot" data-idx="0"></span>
       <span class="effort-dot" data-idx="1"></span>
       <span class="effort-dot" data-idx="2"></span>
       <span class="effort-dot" data-idx="3"></span>
     </div>
-    <button id="attach-header-btn" title="Attach image"><svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
-    <button id="history-btn" title="Conversation history">⟳</button>
-    <button id="schedule-btn" title="Schedule post"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg></button>
-    <button id="settings-btn" title="Settings">&#9881;&#xFE0E;</button>
+    <button id="attach-header-btn" data-i18n-title="hdrAttachTitle"><svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+    <button id="history-btn" data-i18n-title="hdrHistoryTitle">⟳</button>
+    <button id="schedule-btn" data-i18n-title="hdrScheduleTitle"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg></button>
+    <button id="settings-btn" data-i18n-title="hdrSettingsTitle">&#9881;&#xFE0E;</button>
   </div>
   <div id="tab-bar">
-    <button id="add-tab-btn" title="New conversation">+</button>
+    <button id="add-tab-btn" data-i18n-title="newTabTitle">+</button>
   </div>
 </div>
 
 <!-- 履歴パネル -->
 <div id="history-panel">
   <div id="history-header">
-    <button id="history-back">← Back</button>
-    <span id="history-title">Conversation History</span>
+    <button id="history-back" data-i18n="historyBack"></button>
+    <span id="history-title" data-i18n="historyTitle"></span>
   </div>
   <div id="history-body"></div>
 </div>
@@ -1016,7 +1016,7 @@
         <input type="text" id="resume-prompt-input" style="width:100%;background:var(--surface3);color:var(--text);border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;font-size:13px;outline:none;">
         <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--text);cursor:pointer;">
           <input type="checkbox" id="resume-default-on-chk" style="width:16px;height:16px;cursor:pointer;">
-          レート制限時に自動再開をデフォルトON
+          <span data-i18n="resumeDefaultOnLabel"></span>
         </label>
       </div>
       <!-- Theme -->
@@ -1079,29 +1079,29 @@
 <div id="schedule-modal">
   <div id="schedule-content">
     <div id="schedule-header">
-      <h3>Schedule Post</h3>
+      <h3 data-i18n="schedModalTitle"></h3>
       <button id="schedule-close">✕</button>
     </div>
     <div id="schedule-body">
       <div style="margin-bottom: 16px;">
-        <label style="display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 13px;">Scheduled Time</label>
+        <label style="display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 13px;" data-i18n="schedTimeLabel"></label>
         <input type="datetime-local" id="schedule-datetime" style="width: 100%; max-width: 100%; box-sizing: border-box; background: var(--surface3); color: var(--text); border: 1px solid var(--border-input); border-radius: 6px; padding: 8px 10px; font-size: 16px; outline: none;">
       </div>
       <div style="margin-bottom: 16px;">
-        <label style="display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 13px;">Prompt</label>
+        <label style="display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 13px;" data-i18n="schedPromptLabel"></label>
         <textarea id="schedule-prompt" rows="8" style="width: 100%; background: var(--surface3); color: var(--text); border: 1px solid var(--border-input); border-radius: 6px; padding: 8px 10px; font-size: 16px; outline: none; resize: vertical; font-family: inherit;"></textarea>
       </div>
       <div id="schedule-error" style="display:none; color: var(--red); font-size: 13px; margin-bottom: 8px;"></div>
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
-        <button id="schedule-cancel" style="background: var(--surface3); color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 14px;">Cancel</button>
-        <button id="schedule-save" style="background: var(--accent); color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 14px;">Schedule</button>
+        <button id="schedule-cancel" style="background: var(--surface3); color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 14px;" data-i18n="cancelLabel"></button>
+        <button id="schedule-save" style="background: var(--accent); color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 14px;" data-i18n="schedSubmit"></button>
       </div>
     </div>
   </div>
 </div>
 
 <div id="output-container">
-  <button id="scroll-bottom-btn" aria-label="Scroll to bottom">↓</button>
+  <button id="scroll-bottom-btn" data-i18n-aria="scrollBottom">↓</button>
 </div>
 
 <div id="status-slot"></div>
@@ -1109,7 +1109,7 @@
 <div id="input-area">
   <div id="image-preview-area"></div>
   <div id="input-row">
-    <textarea id="prompt" placeholder="Enter prompt..." rows="1"></textarea>
+    <textarea id="prompt" rows="1"></textarea>
     <button id="send-btn">✨</button>
   </div>
   <input type="file" id="attach-input" accept="image/*" multiple style="display:none">
@@ -1154,8 +1154,35 @@ const scheduleDatetime = document.getElementById('schedule-datetime')
 const schedulePrompt  = document.getElementById('schedule-prompt')
 
 // ── UI文字列（言語切り替え） ──
+// 画面に出る文言はすべてここを通す（t()）。直書きは test/ui-glyphs.test.js が検出する。
+// CLI の用語は言語に依らず英語で固定する（v2.16.1「最初から英語でいい」）＝両言語へ同じ値を展開する。
+const CLI_TERMS = {
+  effortTitle:          'Effort: {label}',
+  rateLimitReached:     'Rate limit reached',
+  thinkingLine:         '[thinking...]',
+  thinkingDoneLine:     '[thinking done]',
+  toolFallbackName:     'Tool',
+  externalTag:          ' (external)',
+  compactedLine:        'compacted? ({from}→{to})',
+  doneLine:             'Done (exit {code}) — {pct}% ({used} / {max})',
+  interruptedLine:      'Interrupted (server restarted)',
+  autoCompactSuffixDefault: ' · auto-compact: CLI default',
+  autoCompactSuffixAt:  ' · auto-compact ~{n}',
+  diffIn:               'IN',
+  diffOut:              'OUT',
+  diffRemoved:          'REMOVED',
+  diffAdded:            'ADDED',
+  rlOff:                'OFF',
+  rlOn:                 'ON',
+  effortLow:            'Low',
+  effortMedium:         'Medium',
+  effortHigh:           'High',
+  effortXhigh:          'xHigh',
+  modelDefaultName:     'Default',
+}
 const STRINGS = {
   ja: {
+    ...CLI_TERMS,
     settingsTitle:        'Settings',
     langLabel:            '言語',
     fontSizeLabel:        'フォントサイズ',
@@ -1224,8 +1251,72 @@ const STRINGS = {
     autoResumeFailed:     '自動再開できませんでした: {reason}',
     sessionIdMismatch:    'セッションIDの不一致を検出しました（サーバーログ参照）',
     sendFailed:           '送信できませんでした: {reason} — {preview}',
+    resumePromptDefault:  '続けてください',
+    effortCliDefault:     'CLI既定',
+    renameConversation:   '会話の名前を変更',
+    noOutput:             '(出力なし)',
+    fromLine:             '（{n} 行目から）',
+    resumeDefaultOnLabel: 'レート制限時に自動再開をデフォルトON',
+    hdrAttachTitle:       '画像を添付',
+    hdrHistoryTitle:      '会話履歴',
+    hdrScheduleTitle:     '予約投稿',
+    hdrSettingsTitle:     '設定',
+    newTabTitle:          '新しい会話',
+    historyBack:          '← 戻る',
+    historyTitle:         '会話履歴',
+    historyTitleProject:  '会話履歴 · {project}',
+    historyLoading:       '読み込み中...',
+    historyEmpty:         '履歴はありません',
+    historyNoMessages:    'メッセージはありません',
+    historyMsgCount:      '{n} 件',
+    errorMsg:             'エラー: {msg}',
+    resumeConversation:   'この会話を再開',
+    resumedConvName:      '再開した会話',
+    resumeError:          '再開できませんでした: {msg}',
+    connecting:           '接続中…',
+    authExpired:          '認証の期限が切れました。ページを再読み込みしてログインし直してください',
+    authExpiredKeepInput: '認証の期限が切れました。ページを再読み込みしてログインし直してください（入力内容は保持されます）',
+    serverError:          'サーバーエラー ({status})',
+    connectionFailed:     '接続できませんでした',
+    promptPh:             'プロンプトを入力... (Ctrl+Enter で送信)',
+    promptPhProject:      '{path}   (Ctrl+Enter で送信)',
+    scrollBottom:         '一番下へ',
+    schedModalTitle:      '予約投稿',
+    schedTimeLabel:       '予約時刻',
+    schedPromptLabel:     'プロンプト',
+    schedSubmit:          '予約する',
+    schedErrRequired:     '時刻とプロンプトを入力してください。',
+    schedErrPast:         '過去の時刻は指定できません。',
+    schedErrNoTab:        'アクティブなタブがありません。',
+    schedErrCreate:       '予約の作成に失敗しました。',
+    schedErrUpdate:       '更新に失敗しました。',
+    schedErrLoad:         '予約データの取得に失敗しました。',
+    schedBadgeFailed:     '失敗',
+    schedBadgeRunning:    '実行中',
+    schedResendBtn:       '再送',
+    schedEditBtn:         '編集',
+    schedDeleteBtn:       '削除',
+    schedPast:            '時刻を過ぎています',
+    schedInHours:         '{h}時間{m}分後',
+    schedInMinutes:       '{m}分後',
+    schedWeekdays:        ['日', '月', '火', '水', '木', '金', '土'],
+    schedDate:            '{month}月{day}日（{weekday}）{time}',
+    schedWhen:            '{left}（{date}）投稿予定',
+    rlResumeAt:           '再開予定: {time}',
+    rlResetAt:            'リセット: {time}',
+    rlResetUnknown:       'リセット時刻: 不明',
+    rlResuming:           '再開中...',
+    rlRemaining:          'あと {m}分{s}秒',
+    modelDefaultTag:      'デフォルト',
+    addProjectFailed:     'プロジェクトを追加できませんでした',
+    reasonDeliveryFailed: '配送に失敗しました',
+    reasonInjectFailed:   '実行中プロセスへの送信に失敗しました',
+    reasonNoProject:      'プロジェクトが設定されていません',
+    reasonInterrupted:    '実行中に中断されました',
+    reasonMissedWhileStopped: 'サービス停止中に予約時刻を過ぎました',
   },
   en: {
+    ...CLI_TERMS,
     settingsTitle:        'Settings',
     langLabel:            'Language',
     fontSizeLabel:        'Font Size',
@@ -1293,12 +1384,88 @@ const STRINGS = {
     autoResumeFailed:     'Could not resume automatically: {reason}',
     sessionIdMismatch:    'Session ID mismatch detected (see server log)',
     sendFailed:           'Could not send: {reason} — {preview}',
+    resumePromptDefault:  'Please continue.',
+    effortCliDefault:     'CLI default',
+    renameConversation:   'Rename conversation',
+    noOutput:             '(no output)',
+    fromLine:             ' (from line {n})',
+    resumeDefaultOnLabel: 'Turn auto-resume ON by default when rate-limited',
+    hdrAttachTitle:       'Attach image',
+    hdrHistoryTitle:      'Conversation history',
+    hdrScheduleTitle:     'Schedule post',
+    hdrSettingsTitle:     'Settings',
+    newTabTitle:          'New conversation',
+    historyBack:          '← Back',
+    historyTitle:         'Conversation History',
+    historyTitleProject:  'Conversation History · {project}',
+    historyLoading:       'Loading...',
+    historyEmpty:         'No history available',
+    historyNoMessages:    'No messages',
+    historyMsgCount:      '{n} messages',
+    errorMsg:             'Error: {msg}',
+    resumeConversation:   'Resume this conversation',
+    resumedConvName:      'Resumed conversation',
+    resumeError:          'Resume error: {msg}',
+    connecting:           'Connecting…',
+    authExpired:          'Your login has expired. Reload the page and log in again',
+    authExpiredKeepInput: 'Your login has expired. Reload the page and log in again (your input is kept)',
+    serverError:          'Server error ({status})',
+    connectionFailed:     'Connection failed',
+    promptPh:             'Enter prompt... (Ctrl+Enter to send)',
+    promptPhProject:      '{path}   (Ctrl+Enter to send)',
+    scrollBottom:         'Scroll to bottom',
+    schedModalTitle:      'Schedule Post',
+    schedTimeLabel:       'Scheduled Time',
+    schedPromptLabel:     'Prompt',
+    schedSubmit:          'Schedule',
+    schedErrRequired:     'Enter a time and a prompt.',
+    schedErrPast:         'The time must be in the future.',
+    schedErrNoTab:        'There is no active tab.',
+    schedErrCreate:       'Failed to create the scheduled post.',
+    schedErrUpdate:       'Failed to update.',
+    schedErrLoad:         'Failed to load the scheduled post.',
+    schedBadgeFailed:     'Failed',
+    schedBadgeRunning:    'Running',
+    schedResendBtn:       'Resend',
+    schedEditBtn:         'Edit',
+    schedDeleteBtn:       'Delete',
+    schedPast:            'Past',
+    schedInHours:         'in {h}h {m}m',
+    schedInMinutes:       'in {m}m',
+    schedWeekdays:        ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    schedDate:            '{weekday} {month}/{day} {time}',
+    schedWhen:            'Posts {left} ({date})',
+    rlResumeAt:           'Resumes at {time}',
+    rlResetAt:            'Resets at {time}',
+    rlResetUnknown:       'Reset time: unknown',
+    rlResuming:           'Resuming...',
+    rlRemaining:          '{m}m {s}s left',
+    modelDefaultTag:      'default',
+    addProjectFailed:     'Failed to add project',
+    reasonDeliveryFailed: 'delivery failed',
+    reasonInjectFailed:   'could not write to the running process',
+    reasonNoProject:      'no project is configured',
+    reasonInterrupted:    'interrupted while running',
+    reasonMissedWhileStopped: 'scheduled time passed while the service was stopped',
   },
 }
 function t(key, params) {
   let s = STRINGS[appSettings?.lang || 'ja'][key] ?? STRINGS.ja[key]
-  if (s !== undefined && params) s = s.replace(/\{(\w+)\}/g, (m, k) => params[k] ?? m)
+  if (typeof s === 'string' && params) s = s.replace(/\{(\w+)\}/g, (m, k) => params[k] ?? m)
   return s
+}
+// サーバーが送る失敗理由: reasonKey があれば訳し、無ければ届いた文（例外のメッセージ等）をそのまま出す。
+function reasonText(reason, reasonKey) {
+  return (reasonKey && t(reasonKey)) || reason
+}
+// 静的な HTML の文言（data-i18n / data-i18n-title / data-i18n-aria）を今の言語で入れ直す。
+function applyStaticStrings() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n) })
+  document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle) })
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nAria)))
+  // JS が状態に応じて書く文言（Effort の説明・入力欄の案内）も描き直す
+  updateEffortIndicator()
+  updatePlaceholder()
 }
 
 // ── 線画アイコン ──
@@ -1345,7 +1512,7 @@ const SYSTEM_LINES = {
 // モデル一覧はサーバーの /api/models が唯一の出どころ（config.json の models、無ければサーバー側の既定）。
 // 各項目にはサーバーが実際に見た事実（resolved＝CLI が返した具体モデル・contextWindow）が付いてくる。
 // フロントは推測で名前を作らない。取得前・取得失敗時は Default だけで動く。
-const ALL_MODELS = [{ value: '', name: 'Default' }]
+const ALL_MODELS = [{ value: '', name: CLI_TERMS.modelDefaultName }]
 // v2.16 以前の端末側の推測キャッシュ（別モデルの名前が入る原因だった）を掃除する
 localStorage.removeItem('pc-resolved-models')
 localStorage.removeItem('pc-model-context')
@@ -1394,12 +1561,13 @@ async function refreshModels() {
   } catch {}
   rebuildModelSelect()
 }
+// 表示名は辞書のキー（レベル名は CLI の用語＝CLI_TERMS、既定だけ訳す）
 const EFFORT_OPTIONS = [
-  { value: '',       dots: [0,0,0,0], label: 'CLI default' },
-  { value: 'low',    dots: [1,0,0,0], label: 'Low' },
-  { value: 'medium', dots: [1,1,0,0], label: 'Medium' },
-  { value: 'high',   dots: [1,1,1,0], label: 'High' },
-  { value: 'xhigh',  dots: [1,1,1,1], label: 'xHigh' },
+  { value: '',       dots: [0,0,0,0], labelKey: 'effortCliDefault' },
+  { value: 'low',    dots: [1,0,0,0], labelKey: 'effortLow' },
+  { value: 'medium', dots: [1,1,0,0], labelKey: 'effortMedium' },
+  { value: 'high',   dots: [1,1,1,0], labelKey: 'effortHigh' },
+  { value: 'xhigh',  dots: [1,1,1,1], labelKey: 'effortXhigh' },
 ]
 function getEffortOptions() {
   return EFFORT_OPTIONS
@@ -1415,7 +1583,7 @@ function loadSettings() {
     defaultModel: '',
     enabledModels: ALL_MODELS.map(m => m.value),
     theme: window.DEFAULT_THEME || 'pocket-claude',
-    resumePrompt: '続けてください',
+    resumePrompt: '',
     resumeDefaultOn: false,
     lang: 'ja',
   }
@@ -1473,7 +1641,7 @@ function updateEffortIndicator() {
   effortIndicator.querySelectorAll('.effort-dot').forEach((dot, i) => {
     dot.classList.toggle('filled', opt.dots[i] === 1)
   })
-  effortIndicator.title = `Effort: ${opt.label}`
+  effortIndicator.title = t('effortTitle', { label: t(opt.labelKey) })
 }
 
 function applyTheme() {
@@ -1818,6 +1986,9 @@ function closeSettings() {
   thinkingDraft = undefined
   settingsModal.classList.remove('open')
   settingsBtn.classList.remove('active')
+  // 保存・キャンセルのどちらでも、確定した言語で静的な文言と予約一覧を描き直す
+  applyStaticStrings()
+  loadScheduledPosts()
 }
 
 function openScheduleModal() {
@@ -1861,19 +2032,19 @@ async function saveScheduledPost() {
   const prompt = schedulePrompt.value.trim()
 
   if (!scheduledAt || !prompt) {
-    showScheduleError('時刻とプロンプトを入力してください。')
+    showScheduleError(t('schedErrRequired'))
     return
   }
 
   const scheduledDate = new Date(scheduledAt)
   if (scheduledDate <= new Date()) {
-    showScheduleError('過去の時刻は指定できません。')
+    showScheduleError(t('schedErrPast'))
     return
   }
 
   const sessionId = currentSessionId
   if (!sessionId) {
-    showScheduleError('アクティブなタブがありません。')
+    showScheduleError(t('schedErrNoTab'))
     return
   }
 
@@ -1901,11 +2072,12 @@ async function saveScheduledPost() {
     loadScheduledPosts()
   } catch (err) {
     console.error(err)
-    showScheduleError('予約の作成に失敗しました。')
+    showScheduleError(t('schedErrCreate'))
   }
 }
 
 function renderSettingsModal() {
+  applyStaticStrings()
   // Section titles & labels
   document.getElementById('settings-title').textContent  = t('settingsTitle')
   document.getElementById('stitle-lang').textContent     = t('langLabel')
@@ -2001,7 +2173,7 @@ function renderSettingsModal() {
         markSettingsChanged()
         // ラベル更新
         modelList.querySelectorAll('.model-row-default-label').forEach(l => l.textContent = '')
-        row.querySelector('.model-row-default-label').textContent = 'default'
+        row.querySelector('.model-row-default-label').textContent = t('modelDefaultTag')
       }
     })
 
@@ -2042,7 +2214,7 @@ function renderSettingsModal() {
 
     const label = document.createElement('span')
     label.className = 'effort-option-label'
-    label.textContent = opt.label
+    label.textContent = t(opt.labelKey)
 
     row.appendChild(dots)
     row.appendChild(label)
@@ -2064,7 +2236,7 @@ function renderSettingsModal() {
 
   // Resume prompt
   const resumeInput = document.getElementById('resume-prompt-input')
-  resumeInput.value = appSettings.resumePrompt || '続けてください'
+  resumeInput.value = appSettings.resumePrompt || t('resumePromptDefault')
   resumeInput.oninput = (e) => { appSettings.resumePrompt = e.target.value; markSettingsChanged() }
 
   // Resume default ON checkbox
@@ -2212,9 +2384,9 @@ const AUTOCOMPACT_BUFFER = 33000
 // 予備の行が出ない）ので数字を出さず「CLI default」と書く。
 function autoCompactSuffix(ts, ctxMax) {
   if (ts._autoCompact === undefined) return ''
-  if (!ts._autoCompact) return ' · auto-compact: CLI default'
+  if (!ts._autoCompact) return t('autoCompactSuffixDefault')
   const start = Math.max(0, Math.min(ts._autoCompact, ctxMax) - AUTOCOMPACT_BUFFER)
-  return ` · auto-compact ~${fmtTokens(start)}`
+  return t('autoCompactSuffixAt', { n: fmtTokens(start) })
 }
 let currentSessionId = null
 let currentES = null
@@ -2337,7 +2509,7 @@ function createTabEl(session) {
   name.addEventListener('click', () => {
     if (tapTimer) {
       clearTimeout(tapTimer); tapTimer = null
-      const newName = prompt('Rename conversation', name.textContent)
+      const newName = prompt(t('renameConversation'), name.textContent)
       if (newName?.trim()) {
         name.textContent = newName.trim()
         updateSession(session.sessionId, { name: newName.trim() })
@@ -2592,7 +2764,7 @@ async function loadProjects() {
           })
           loadProjects()
         } catch (err) {
-          projectError.textContent = `Error: ${err.message}`
+          projectError.textContent = t('errorMsg', { msg: err.message })
           projectError.style.display = 'block'
         }
       })
@@ -2639,7 +2811,7 @@ projectAddBtn.addEventListener('click', async () => {
 
     if (!res.ok) {
       const data = await res.json()
-      throw new Error(data.error || 'Failed to add project')
+      throw new Error(data.error || t('addProjectFailed'))
     }
 
     projectNameInput.value = ''
@@ -2730,7 +2902,7 @@ async function scheduleResumeForSession(sessionId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         resetAt: ts.rl.resetAt.toISOString(),
-        prompt: appSettings.resumePrompt || '続けてください',
+        prompt: appSettings.resumePrompt || t('resumePromptDefault'),
         project: session?.project ?? null,
         model: (ts.model || appSettings.defaultModel) || null,
         effort: (ts.effort ?? appSettings.effort) || null,
@@ -2752,7 +2924,7 @@ function applyFireAt(sessionId, fireAt) {
   if (timeEl && ts.rl.autoResume) {
     const h = fireAt.getHours().toString().padStart(2, '0')
     const m = fireAt.getMinutes().toString().padStart(2, '0')
-    timeEl.textContent = `再開予定: ${h}:${m}`
+    timeEl.textContent = t('rlResumeAt', { time: `${h}:${m}` })
   }
   if (ts.rl.autoClearId) { clearTimeout(ts.rl.autoClearId); ts.rl.autoClearId = null }
   ts.rl.autoClearId = setTimeout(() => {
@@ -2807,11 +2979,11 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false, fireAt = n
 
     const offBtn = document.createElement('button')
     offBtn.className = 'rl-toggle-btn' + (!autoResumeOn ? ' active' : '')
-    offBtn.textContent = 'OFF'
+    offBtn.textContent = t('rlOff')
 
     const onBtn = document.createElement('button')
     onBtn.className = 'rl-toggle-btn' + (autoResumeOn ? ' active' : '')
-    onBtn.textContent = 'ON'
+    onBtn.textContent = t('rlOn')
 
     offBtn.addEventListener('click', () => {
       if (!ts.rl || !ts.rl.autoResume) return
@@ -2839,12 +3011,12 @@ function showRateLimitPanel(sessionId, resetAt, autoResumeOn = false, fireAt = n
 
     // ONかつ実キック時刻が分かっていれば「再開予定」を表示、それ以外は「リセット」時刻
     const showFire = autoResumeOn && ts.rl.fireAt
-    const t = showFire ? ts.rl.fireAt : resetAt
-    const h = t.getHours().toString().padStart(2, '0')
-    const m = t.getMinutes().toString().padStart(2, '0')
-    timeEl.textContent = showFire ? `再開予定: ${h}:${m}` : `リセット: ${h}:${m}`
+    const at = showFire ? ts.rl.fireAt : resetAt
+    const h = at.getHours().toString().padStart(2, '0')
+    const m = at.getMinutes().toString().padStart(2, '0')
+    timeEl.textContent = t(showFire ? 'rlResumeAt' : 'rlResetAt', { time: `${h}:${m}` })
   } else {
-    timeEl.textContent = 'リセット時刻: 不明'
+    timeEl.textContent = t('rlResetUnknown')
   }
 
   row.appendChild(timeEl)
@@ -2878,12 +3050,12 @@ function startRateLimitCountdown(sessionId) {
     if (diff <= 0) {
       clearInterval(ts.rl.countdownId)
       ts.rl.countdownId = null
-      if (countdown) countdown.textContent = '再開中...'
+      if (countdown) countdown.textContent = t('rlResuming')
       return
     }
     const mins = Math.floor(diff / 60000)
     const secs = Math.floor((diff % 60000) / 1000)
-    if (countdown) countdown.textContent = `あと ${mins}分${secs.toString().padStart(2, '0')}秒`
+    if (countdown) countdown.textContent = t('rlRemaining', { m: mins, s: secs.toString().padStart(2, '0') })
   }
   tick()
   ts.rl.countdownId = setInterval(tick, 1000)
@@ -3015,6 +3187,7 @@ function reconcileBackgroundTabs() {
 // ── 初期化 ──
 async function init() {
   applyTheme()
+  applyStaticStrings()
   await refreshModels()
   applyFontSizes()
   updateEffortIndicator()
@@ -3110,8 +3283,8 @@ function updatePlaceholder() {
 
   const projectPath = _projectsCache[currentSession.project] || ''
   promptEl.placeholder = projectPath
-    ? `${projectPath}   (Ctrl+Enter to send)`
-    : 'Enter prompt... (Ctrl+Enter to send)'
+    ? t('promptPhProject', { path: projectPath })
+    : t('promptPh')
 }
 
 async function refreshProjectsCache() {
@@ -3165,12 +3338,12 @@ function renderScheduledPosts(sessionId, posts) {
     if (post.status === 'failed') {
       const badge = document.createElement('span')
       badge.className = 'scheduled-post-badge failed'
-      badge.textContent = '失敗'
+      badge.textContent = t('schedBadgeFailed')
       timeEl.appendChild(badge)
     } else if (post.status === 'running') {
       const badge = document.createElement('span')
       badge.className = 'scheduled-post-badge'
-      badge.textContent = '実行中'
+      badge.textContent = t('schedBadgeRunning')
       timeEl.appendChild(badge)
     }
 
@@ -3182,15 +3355,15 @@ function renderScheduledPosts(sessionId, posts) {
     actionsEl.className = 'scheduled-post-actions'
 
     const resendBtn = document.createElement('button')
-    resendBtn.textContent = '再送'
+    resendBtn.textContent = t('schedResendBtn')
     resendBtn.onclick = () => resendScheduledPost(post.id)
 
     const editBtn = document.createElement('button')
-    editBtn.textContent = '編集'
+    editBtn.textContent = t('schedEditBtn')
     editBtn.onclick = () => editScheduledPost(post.id)
 
     const deleteBtn = document.createElement('button')
-    deleteBtn.textContent = '削除'
+    deleteBtn.textContent = t('schedDeleteBtn')
     deleteBtn.onclick = () => deleteScheduledPost(post.id, post.sessionId, post.prompt)
 
     actionsEl.appendChild(resendBtn)
@@ -3202,7 +3375,7 @@ function renderScheduledPosts(sessionId, posts) {
     if (post.status === 'failed' && post.failedReason) {
       const reasonEl = document.createElement('div')
       reasonEl.className = 'scheduled-post-reason'
-      setIconText(reasonEl, post.failedReason, 'alert-triangle')
+      setIconText(reasonEl, reasonText(post.failedReason, post.failedReasonKey), 'alert-triangle')
       item.appendChild(reasonEl)
     }
     item.appendChild(actionsEl)
@@ -3216,22 +3389,18 @@ function renderScheduledPosts(sessionId, posts) {
 function formatScheduledTime(date) {
   const now = new Date()
   const diff = date - now
-  if (diff < 0) return 'Past'
+  if (diff < 0) return t('schedPast')
 
   const hours = Math.floor(diff / (1000 * 60 * 60))
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
 
-  const weekdays = ['日', '月', '火', '水', '木', '金', '土']
   const month = date.getMonth() + 1
   const day = date.getDate()
-  const weekday = weekdays[date.getDay()]
-  const hour = date.getHours()
-  const minute = date.getMinutes()
+  const weekday = t('schedWeekdays')[date.getDay()]
+  const time = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
 
-  const timeLeft = hours > 0 ? `${hours}時間${minutes}分後` : `${minutes}分後`
-  const dateStr = `${month}月${day}日（${weekday}）${hour}:${minute.toString().padStart(2, '0')}`
-
-  return `${timeLeft}（${dateStr}）投稿予定`
+  const left = hours > 0 ? t('schedInHours', { h: hours, m: minutes }) : t('schedInMinutes', { m: minutes })
+  return t('schedWhen', { left, date: t('schedDate', { month, day, weekday, time }) })
 }
 
 async function editScheduledPost(id) {
@@ -3252,13 +3421,13 @@ async function editScheduledPost(id) {
 
       clearScheduleError()
       if (!scheduledAt || !prompt) {
-        showScheduleError('時刻とプロンプトを入力してください。')
+        showScheduleError(t('schedErrRequired'))
         return
       }
 
       const scheduledDate = new Date(scheduledAt)
       if (scheduledDate <= new Date()) {
-        showScheduleError('過去の時刻は指定できません。')
+        showScheduleError(t('schedErrPast'))
         return
       }
 
@@ -3275,12 +3444,12 @@ async function editScheduledPost(id) {
         scheduleSave.onclick = saveScheduledPost
       } catch (err) {
         console.error(err)
-        showScheduleError('更新に失敗しました。')
+        showScheduleError(t('schedErrUpdate'))
       }
     }
   } catch (err) {
     console.error(err)
-    showScheduleError('予約データの取得に失敗しました。')
+    showScheduleError(t('schedErrLoad'))
   }
 }
 
@@ -3311,7 +3480,7 @@ async function resendScheduledPost(id) {
     const data = await res.json().catch(() => null)
     // 配送に失敗した場合はサーバーが post を failed のまま返す（成功時は削除されnullになる）
     if (data && data.post && data.post.status === 'failed') {
-      notifyScheduleFailure(data.post.sessionId, t('schedResendFailed', { reason: data.post.failedReason || t('unknownReason') }))
+      notifyScheduleFailure(data.post.sessionId, t('schedResendFailed', { reason: reasonText(data.post.failedReason, data.post.failedReasonKey) || t('unknownReason') }))
     }
     loadScheduledPosts()
   } catch (err) {
@@ -3865,11 +4034,11 @@ function resolveToolContent(content, toolUseResult) {
   if (Array.isArray(content)) {
     // Agent等: [{type:"text", text:"..."}, ...] → textブロックを結合
     const text = content.filter(b => b.type === 'text').map(b => b.text).join('\n')
-    return text || '(no output)'
+    return text || t('noOutput')
   }
   if (typeof content === 'string' && content !== '') return content
   // 空文字列のフォールバック（Bash出力なし等）
-  return '(no output)'
+  return t('noOutput')
 }
 
 // ── 仮領域（M由来の描画の巻き戻し） ──
@@ -4022,7 +4191,7 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'assistant':
       if (ev.error === 'rate_limit') {
-        const limitText = ev.message?.content?.find(c => c.type === 'text')?.text || 'Rate limit reached'
+        const limitText = ev.message?.content?.find(c => c.type === 'text')?.text || t('rateLimitReached')
         addLine(ts, limitText, 'line-error')
         clientLog('rate_limit:received', { sessionId, isLive, limitText: limitText.slice(0, 80) })
         if (isLive) {
@@ -4070,7 +4239,7 @@ function handleEvent(sessionId, ev, isLive = true) {
       finalizeText(ts)
       if (isLive) ts.isRunning = true
       ts._doneShown = false  // 新規spawnにつき次のdoneは描画対象に戻す
-      addLine(ts, `── ${ev.project} (${ev.model})${ev.external ? ' (external)' : ''} ──`, 'line-system')
+      addLine(ts, `── ${ev.project} (${ev.model})${ev.external ? t('externalTag') : ''} ──`, 'line-system')
       if (isActive) updateUI()
       break
 
@@ -4081,12 +4250,12 @@ function handleEvent(sessionId, ev, isLive = true) {
         case 'content_block_start':
           finalizeText(ts)
           if (inner.content_block?.type === 'tool_use') {
-            const toolName = inner.content_block.name || 'Tool'
+            const toolName = inner.content_block.name || t('toolFallbackName')
             ts._currentToolEl = addToolLine(ts, toolName, inner.content_block.id)
             ts._currentToolInput = ''
             ts._currentBlockType = 'tool_use'
           } else if (inner.content_block?.type === 'thinking') {
-            ts._thinkingEl = addLine(ts, '[thinking...]', 'line-thinking')
+            ts._thinkingEl = addLine(ts, t('thinkingLine'), 'line-thinking')
             ts._currentBlockType = 'thinking'
           } else {
             ts._currentBlockType = inner.content_block?.type || null
@@ -4112,7 +4281,7 @@ function handleEvent(sessionId, ev, isLive = true) {
             ts._currentToolInput = ''
           } else if (ts._currentBlockType === 'thinking') {
             // thinkingブロック終了 → 表示を折りたたみ済みに変更
-            if (ts._thinkingEl) ts._thinkingEl.textContent = '[thinking done]'
+            if (ts._thinkingEl) ts._thinkingEl.textContent = t('thinkingDoneLine')
             ts._thinkingEl = null
           }
           ts._currentBlockType = null
@@ -4192,7 +4361,7 @@ function handleEvent(sessionId, ev, isLive = true) {
         const ctxMax = ts._ctxMax || CTX_MAX
         const fmtK = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
         if (ts._prevCtxTokens > 0 && ts._ctxTokens < ts._prevCtxTokens * 0.6) {
-          addLine(ts, `compacted? (${fmtK(ts._prevCtxTokens)}→${fmtK(ts._ctxTokens)})`, 'line-compact', 'zap')
+          addLine(ts, t('compactedLine', { from: fmtK(ts._prevCtxTokens), to: fmtK(ts._ctxTokens) }), 'line-compact', 'zap')
         }
         ts._prevCtxTokens = ts._ctxTokens
         const pct = Math.round(ts._ctxTokens / ctxMax * 100)
@@ -4220,10 +4389,10 @@ function handleEvent(sessionId, ev, isLive = true) {
       const fmtKD = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
       const pct = Math.round(ts._ctxTokens / ctxMaxD * 100)
       const [doneMsg, doneIcon] = isRestartReason
-        ? [`Interrupted (server restarted)`, 'alert-triangle']
+        ? [t('interruptedLine'), 'alert-triangle']
         : isExternalExit
           ? [`── ${t('agentExited')} ──`, null]
-          : [`Done (exit ${ev.exitCode}) — ${pct}% (${fmtKD(ts._ctxTokens)} / ${fmtKD(ctxMaxD)})`, 'check']
+          : [t('doneLine', { code: ev.exitCode, pct, used: fmtKD(ts._ctxTokens), max: fmtKD(ctxMaxD) }), 'check']
       const doneEl = addLine(ts, doneMsg, 'line-done', doneIcon)
       if (isRestartReason || (isExternalExit && pct >= 50) || (!isExternalExit && (ev.exitCode !== 0 || pct >= 50))) doneEl.classList.add('warn')
       if (isActive) updateUI()
@@ -4233,7 +4402,7 @@ function handleEvent(sessionId, ev, isLive = true) {
     case 'error':
       finalizeText(ts)
       if (isLive) { ts.isRunning = false; ts.isStopping = false }
-      addLine(ts, `Error: ${ev.message}`, 'line-error')
+      addLine(ts, t('errorMsg', { msg: ev.message }), 'line-error')
       if (isActive) updateUI()
       break
 
@@ -4249,7 +4418,10 @@ function handleEvent(sessionId, ev, isLive = true) {
         if (isLive) showRetryLine(ts, ev)
       } else if (ev.key && SYSTEM_LINES[ev.key] && t(ev.key) !== undefined) {
         const def = SYSTEM_LINES[ev.key]
-        addLine(ts, t(ev.key, ev.params), def.cls || 'line-system', def.icon)
+        const p = { ...ev.params }
+        if ('reason' in p) p.reason = reasonText(p.reason, p.reasonKey)
+        if ('preview' in p && p.preview == null) p.preview = t('imagePlaceholder')
+        addLine(ts, t(ev.key, p), def.cls || 'line-system', def.icon)
       } else if (ev.text) {
         addLine(ts, ev.text, 'line-system')
       }
@@ -4450,7 +4622,7 @@ function updateToolDesc(toolEl, params) {
         if (params.offset && params.limit) {
           desc = `${fname} (lines ${params.offset}-${params.offset + params.limit - 1})`
         } else if (params.offset) {
-          desc = `${fname} (from line ${params.offset})`
+          desc = fname + t('fromLine', { n: params.offset })
         } else if (params.limit) {
           desc = `${fname} (${params.limit} lines)`
         } else {
@@ -4491,12 +4663,12 @@ function renderToolResult(toolEl, resultText, isError) {
   if (toolName === 'Bash') {
     const inLabel = document.createElement('div')
     inLabel.className = 'tool-result-label'
-    inLabel.textContent = 'IN'
+    inLabel.textContent = t('diffIn')
     const inContent = document.createElement('div')
     inContent.textContent = params.command || ''
     const outLabel = document.createElement('div')
     outLabel.className = 'tool-result-label'
-    outLabel.textContent = 'OUT'
+    outLabel.textContent = t('diffOut')
     const outContent = document.createElement('div')
     outContent.textContent = resultText
     rd.appendChild(inLabel)
@@ -4509,7 +4681,7 @@ function renderToolResult(toolEl, resultText, isError) {
     if (oldStr || newStr) {
       const delLabel = document.createElement('div')
       delLabel.className = 'tool-result-label'
-      delLabel.textContent = 'REMOVED'
+      delLabel.textContent = t('diffRemoved')
       rd.appendChild(delLabel)
       oldStr.split('\n').forEach(line => {
         const span = document.createElement('span')
@@ -4519,7 +4691,7 @@ function renderToolResult(toolEl, resultText, isError) {
       })
       const addLabel = document.createElement('div')
       addLabel.className = 'tool-result-label'
-      addLabel.textContent = 'ADDED'
+      addLabel.textContent = t('diffAdded')
       rd.appendChild(addLabel)
       newStr.split('\n').forEach(line => {
         const span = document.createElement('span')
@@ -4542,14 +4714,22 @@ function formatDate(iso) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
+// 履歴パネルの案内・エラー表示（本文は文字として入れる＝エラー文に HTML が混じっても解釈しない）
+function setHistoryNote(text, isError = false) {
+  const div = document.createElement('div')
+  div.style.cssText = `padding:20px;color:${isError ? '#EF5350' : '#666'};font-size:13px;`
+  div.textContent = text
+  historyBody.replaceChildren(div)
+}
+
 async function openHistory() {
   historyPanel.classList.add('open')
   historyBtn.classList.add('active')
   // 履歴は今のタブのプロジェクトの会話だけ出す（CLI は cwd ごとに会話を分けて保存する）
   const project = getCurrentSession()?.project || Object.keys(_projectsCache)[0]
-  historyTitle.textContent = project ? `Conversation History · ${project}` : 'Conversation History'
+  historyTitle.textContent = project ? t('historyTitleProject', { project }) : t('historyTitle')
   historyBack.onclick = closeHistory
-  historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">Loading...</div>'
+  setHistoryNote(t('historyLoading'))
 
   try {
     // 認証プロキシ（Authelia等）の期限切れは 302 → 別オリジンの認証画面。follow だと CORS で
@@ -4557,14 +4737,14 @@ async function openHistory() {
     const q = project ? `?project=${encodeURIComponent(project)}` : ''
     const res = await fetch(`/api/history${q}`, { redirect: 'manual' })
     if (res.type === 'opaqueredirect') {
-      historyBody.innerHTML = '<div style="padding:20px;color:#EF5350;font-size:13px;">認証の期限が切れました。ページを再読み込みしてログインし直してください</div>'
+      setHistoryNote(t('authExpired'), true)
       return
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const sessions = await res.json()
     historyBody.innerHTML = ''
     if (sessions.length === 0) {
-      historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">No history available</div>'
+      setHistoryNote(t('historyEmpty'))
       return
     }
     for (const s of sessions) {
@@ -4573,32 +4753,32 @@ async function openHistory() {
       const modelPart = s.model ? ` · ${escapeHtml(prettyModel(s.model))}` : ''
       item.innerHTML = `
         <div class="history-item-title">${escapeHtml(s.title)}</div>
-        <div class="history-item-meta">${formatDate(s.updatedAt)} · ${s.msgCount} messages${modelPart}</div>
+        <div class="history-item-meta">${formatDate(s.updatedAt)} · ${escapeHtml(t('historyMsgCount', { n: s.msgCount }))}${modelPart}</div>
       `
       item.addEventListener('click', () => openHistoryDetail(s))
       historyBody.appendChild(item)
     }
   } catch (e) {
-    historyBody.innerHTML = `<div style="padding:20px;color:#EF5350;font-size:13px;">Error: ${e.message}</div>`
+    setHistoryNote(t('errorMsg', { msg: e.message }), true)
   }
 }
 
 async function openHistoryDetail(session) {
   historyTitle.textContent = formatDate(session.updatedAt)
   historyBack.onclick = openHistory
-  historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">Loading...</div>'
+  setHistoryNote(t('historyLoading'))
 
   try {
     const res = await fetch(`/api/history/${encodeURIComponent(session.sessionId)}`, { redirect: 'manual' })
     if (res.type === 'opaqueredirect') {
-      historyBody.innerHTML = '<div style="padding:20px;color:#EF5350;font-size:13px;">認証の期限が切れました。ページを再読み込みしてログインし直してください</div>'
+      setHistoryNote(t('authExpired'), true)
       return
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const msgs = await res.json()
     historyBody.innerHTML = ''
     if (msgs.length === 0) {
-      historyBody.innerHTML = '<div style="padding:20px;color:#666;font-size:13px;">No messages</div>'
+      setHistoryNote(t('historyNoMessages'))
       return
     }
     for (const m of msgs) {
@@ -4615,7 +4795,7 @@ async function openHistoryDetail(session) {
     // 再開ボタン
     const resumeBtn = document.createElement('button')
     resumeBtn.id = 'resume-btn'
-    resumeBtn.textContent = 'Resume this conversation'
+    resumeBtn.textContent = t('resumeConversation')
     resumeBtn.addEventListener('click', () => resumeConversation(session.sessionId, session.title))
     historyBody.appendChild(resumeBtn)
 
@@ -4624,7 +4804,7 @@ async function openHistoryDetail(session) {
       historyBody.scrollTop = historyBody.scrollHeight
     }, 100)
   } catch (e) {
-    historyBody.innerHTML = `<div style="padding:20px;color:#EF5350;font-size:13px;">Error: ${e.message}</div>`
+    setHistoryNote(t('errorMsg', { msg: e.message }), true)
   }
 }
 
@@ -4645,7 +4825,7 @@ async function attachLiveSession(liveSessionId, title) {
       } catch (e) { /* 取得失敗時は既定値フォールバック */ }
       session = {
         sessionId: liveSessionId,
-        name: (title || 'Resumed conversation').substring(0, 30),
+        name: (title || t('resumedConvName')).substring(0, 30),
         project: saved.project || getCurrentSession()?.project || Object.keys(_projectsCache)[0],
         lastUsed: Date.now(),
       }
@@ -4680,7 +4860,7 @@ async function resumeConversation(sessionId, title) {
   const btn = document.getElementById('resume-btn')
   const setProgress = (pct) => { if (btn) btn.textContent = `${pct}%` }
   const showResumeError = (msg) => {
-    if (btn) { btn.disabled = false; btn.textContent = 'Resume this conversation' }
+    if (btn) { btn.disabled = false; btn.textContent = t('resumeConversation') }
     let errEl = historyBody.querySelector('.resume-error')
     if (!errEl) {
       errEl = document.createElement('div')
@@ -4701,7 +4881,7 @@ async function resumeConversation(sessionId, title) {
     if (res.ok) {
       const info = await res.json()
       if (info.running) {
-        if (btn) { btn.disabled = true; btn.textContent = '接続中…' }
+        if (btn) { btn.disabled = true; btn.textContent = t('connecting') }
         await attachLiveSession(sessionId, title)
         return
       }
@@ -4732,7 +4912,7 @@ async function resumeConversation(sessionId, title) {
       const currentProj = getCurrentSession()?.project || Object.keys(_projectsCache)[0]
       targetSession = {
         sessionId,
-        name: (title || 'Resumed conversation').substring(0, 30),
+        name: (title || t('resumedConvName')).substring(0, 30),
         project: currentProj,
         lastUsed: Date.now(),
       }
@@ -4765,11 +4945,11 @@ async function resumeConversation(sessionId, title) {
   } catch (e) {
     if (e.opaqueredirect) {
       clientLog('resume:error', { sessionId, phase: 'download', message: 'auth expired (opaqueredirect)' })
-      showResumeError('認証の期限が切れました。ページを再読み込みしてログインし直してください')
+      showResumeError(t('authExpired'))
       return
     }
     clientLog('resume:error', { sessionId, phase: 'unknown', message: e.message })
-    showResumeError(`Resume error: ${e.message}`)
+    showResumeError(t('resumeError', { msg: e.message }))
   }
 }
 
@@ -4910,20 +5090,20 @@ async function send() {
       })
     })
     if (res.type === 'opaqueredirect') {
-      failMessage = '認証の期限が切れました。ページを再読み込みしてログインし直してください（入力内容は保持されます）'
+      failMessage = t('authExpiredKeepInput')
       deliveryConfirmedFailed = true
     } else {
       let body = null
       try { body = await res.json() } catch {}
       if (!res.ok || (body && body.ok === false)) {
-        failMessage = (body && (body.reason || body.error)) || `Server error (${res.status})`
+        failMessage = (body && (reasonText(body.reason, body.reasonKey) || body.error)) || t('serverError', { status: res.status })
         deliveryConfirmedFailed = true
       } else if (body && body.queued) {
         queued = true
       }
     }
   } catch (e) {
-    failMessage = 'Connection failed'
+    failMessage = t('connectionFailed')
   }
 
   if (failMessage) {

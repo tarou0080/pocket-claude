@@ -165,7 +165,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
         if (parsed.type === 'system' && parsed.subtype === 'init' && usedSessionId &&
             parsed.session_id && parsed.session_id !== sessionId) {
           console.warn(`[spawn] session-id MISMATCH sessionId=${sessionId} but CLI init reported ${parsed.session_id} — a CLI change may have re-introduced ID divergence`)
-          broadcast(sessionId, { type: 'system', key: 'sessionIdMismatch', text: 'セッションIDの不一致を検出しました（サーバーログ参照）' })
+          broadcast(sessionId, { type: 'system', key: 'sessionIdMismatch', text: 'Session ID mismatch detected (see server log)' })
         }
 
         // init イベントの tools はそのプロセスが実際に持つツール名一覧(正)。設定モーダルの
@@ -192,7 +192,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
               // model/effort/thinking も渡す（このプロセスが現在実際に走っている設定＝最も正確な値）。
               // 渡し忘れると切断中に制限へ当たった場合、doResume再起動時にCLI既定モデルへ
               // 無言で落ちる（予約投稿のproject欠落と同型の不具合）。
-              const resumePrompt = '続けてください'
+              const resumePrompt = '続けてください'  // Claude 宛ての本文（画面の文言ではない）
               scheduleResume(sessionId, resetAt.toISOString(), resumePrompt, project, model, effort, thinking)
               console.log(`[rate-limit] auto-resume default-on registered sessionId=${sessionId} resetAt=${resetAt.toISOString()}`)
             } else {
@@ -378,14 +378,16 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
     // stdin不在・destroyed・書き込み例外のいずれでもここに来る。事後にジャーナルで
     // 追えるよう、画面通知(_notifyFailure)とは別にサーバーログへも残す。
     console.error(`[deliverPrompt] inject failed sessionId=${sessionId} reason=stdin unavailable or write failed`)
-    _notifyFailure(sessionId, prompt, '実行中プロセスへの送信に失敗しました')
-    return { status: 'failed', reason: '実行中プロセスへの送信に失敗しました' }
+    const reason = 'could not write to the running process'
+    _notifyFailure(sessionId, prompt, reason, 'reasonInjectFailed')
+    return { status: 'failed', reason, reasonKey: 'reasonInjectFailed' }
   }
 
   if (Object.keys(config.projects).length === 0) {
     console.error(`[deliverPrompt] config.projects is empty, cannot start sessionId=${sessionId}`)
-    _notifyFailure(sessionId, prompt, 'プロジェクトが設定されていません')
-    return { status: 'failed', reason: 'プロジェクトが設定されていません' }
+    const reason = 'no project is configured'
+    _notifyFailure(sessionId, prompt, reason, 'reasonNoProject')
+    return { status: 'failed', reason, reasonKey: 'reasonNoProject' }
   }
 
   try {
@@ -406,9 +408,11 @@ function deliverPrompt(sessionId, prompt, opts = {}) {
 
 // 配送失敗を画面へ必ず知らせる。自動再開・予約投稿のように「ユーザーが見ていない経路」
 // でも気づけるよう system イベントを出す（握りつぶし禁止）。
-function _notifyFailure(sessionId, prompt, reason) {
-  const preview = prompt ? (prompt.length > 40 ? prompt.slice(0, 40) + '…' : prompt) : '(画像)'
-  broadcast(sessionId, { type: 'system', key: 'sendFailed', params: { reason, preview }, text: `送信できませんでした: ${reason} — ${preview}` })
+// 文言は画面が key と reasonKey で端末の言語に訳す。text は訳の無い画面向けの英語の代替。
+// preview が null＝画像のみの送信（「(画像)」の表記も画面側の辞書が持つ）。
+function _notifyFailure(sessionId, prompt, reason, reasonKey = null) {
+  const preview = prompt ? (prompt.length > 40 ? prompt.slice(0, 40) + '…' : prompt) : null
+  broadcast(sessionId, { type: 'system', key: 'sendFailed', params: { reason, reasonKey, preview }, text: `Could not send: ${reason} — ${preview ?? '(image)'}` })
 }
 
 module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull }

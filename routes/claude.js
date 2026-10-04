@@ -126,6 +126,7 @@ router.post('/send', async (req, res) => {
       ok: false,
       status: 'failed',
       reason: result.reason,
+      reasonKey: result.reasonKey || null,
       sessionId: actualSessionId,
     })
   }
