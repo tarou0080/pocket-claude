@@ -118,6 +118,16 @@ test('attachment{queued_command}（ターン中に届いた送信）は user 行
   ])
 })
 
+test('isMeta の user 行（スキル本文・画像注記）は写さない＝ユーザー発言として描かない', () => {
+  const out = claudeEntriesToEvents([
+    { type: 'user', timestamp: 't', isMeta: true,
+      message: { content: [{ type: 'text', text: 'Base directory for this skill: /tmp/x\n\n# Skill' }] } },
+    { type: 'user', timestamp: 't2', isMeta: true, message: { content: '[Image: original 1080x2160]' } },
+    { type: 'user', timestamp: 't3', message: { content: '本当の発言' } },
+  ])
+  assert.deepEqual(out, [{ type: 'user_input', text: '本当の発言', timestamp: 't3' }])
+})
+
 test('ターン終端イベント(done/result)を足さない（block stop が描画を閉じる）', () => {
   const out = claudeEntriesToEvents([
     { type: 'user', timestamp: 't', message: { content: 'q' } },

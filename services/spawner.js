@@ -1,4 +1,5 @@
 const { spawn } = require('child_process')
+const readline = require('readline')
 const { randomUUID } = require('crypto')
 const fs = require('fs')
 const path = require('path')
@@ -131,7 +132,9 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   console.log(`[spawn] project=${project} cwd=${projectDir}`)
   const proc = spawn('claude', args, {
     cwd: projectDir,
-    env: { ...process.env, ...(proxyEnv || {}) },
+    // プロキシ経路は API キー認証になり claude.ai コネクタが使えない。CLI はその旨の警告を
+    // 毎回 stderr へ出すため、この経路ではコネクタ読み込みごと止める（config 側で上書き可）。
+    env: { ...process.env, ...(proxyEnv ? { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } : {}), ...(proxyEnv || {}) },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   s.process = proc
@@ -143,101 +146,103 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   // 最初のメッセージ送信
   _sendMessage(sessionId, proc, prompt, imageData)
 
-  proc.stdout.on('data', data => {
-    data.toString().split('\n').filter(l => l.trim()).forEach(line => {
-      try {
-        const parsed = JSON.parse(line)
+  // stdout は1行=1イベントの JSON。'data' のチャンク境界は行境界と一致しない（スキル本文や
+  // 大きなツール結果は64KB超の1行になる）ため、readline で行を組み立ててから読む。
+  // チャンク単位で split していた頃は長い行が2片の raw に化け、ライブ表示から落ちていた。
+  readline.createInterface({ input: proc.stdout, crlfDelay: Infinity }).on('line', line => {
+    if (!line.trim()) return
+    try {
+      const parsed = JSON.parse(line)
 
-        // control_response: interrupt/set_model等の応答。内部プロトコルなので
-        // クライアントへbroadcastせず、対応する待機Promiseを解決するだけに留める。
-        if (parsed.type === 'control_response') {
-          const requestId = parsed.response?.request_id
-          if (requestId && proc._controlWaiters && proc._controlWaiters.has(requestId)) {
-            const resolve = proc._controlWaiters.get(requestId)
-            proc._controlWaiters.delete(requestId)
-            resolve(parsed.response)
-          }
-          return
+      // control_response: interrupt/set_model等の応答。内部プロトコルなので
+      // クライアントへbroadcastせず、対応する待機Promiseを解決するだけに留める。
+      if (parsed.type === 'control_response') {
+        const requestId = parsed.response?.request_id
+        if (requestId && proc._controlWaiters && proc._controlWaiters.has(requestId)) {
+          const resolve = proc._controlWaiters.get(requestId)
+          proc._controlWaiters.delete(requestId)
+          resolve(parsed.response)
         }
-
-        // ID統一の検証（fail-loud）: --session-id で起動したのに init が別IDを返したら、
-        // CLI仕様変更で黙ってID分裂が再発した可能性がある。握りつぶさず警告を残す。
-        if (parsed.type === 'system' && parsed.subtype === 'init' && usedSessionId &&
-            parsed.session_id && parsed.session_id !== sessionId) {
-          console.warn(`[spawn] session-id MISMATCH sessionId=${sessionId} but CLI init reported ${parsed.session_id} — a CLI change may have re-introduced ID divergence`)
-          broadcast(sessionId, { type: 'system', key: 'sessionIdMismatch', text: 'Session ID mismatch detected (see server log)' })
-        }
-
-        // init イベントの tools はそのプロセスが実際に持つツール名一覧(正)。設定モーダルの
-        // チェックボックス一覧描画に使うカタログとして保存する。ハードコードした固定リストは
-        // CLIのバージョンアップで陳腐化するため、起動のたびに学習し直す。失敗してもセッションは
-        // 継続する(saveToolsCatalog側で例外は握る副作用専用の呼び出し)。
-        if (parsed.type === 'system' && parsed.subtype === 'init' && Array.isArray(parsed.tools)) {
-          try { saveToolsCatalog(parsed.tools) } catch (err) { console.warn('[tools-catalog] init handling failed:', err.message) }
-        }
-
-        if (parsed.type === 'assistant' && parsed.error === 'rate_limit') {
-          const limitText = parsed.message?.content?.find(c => c.type === 'text')?.text || ''
-          console.log(`[rate-limit] broadcast sessionId=${sessionId} text="${limitText}"`)
-          // サーバーを真実源としてresetAtを保存する。クライアントが切断中（iPhoneバックグラウンド等）でも
-          // 再接続時の restoreRateLimitPanel がGETで拾えるようにする。
-          // prompt=null の保存は既存のON登録（prompt有り）を上書きしない（scheduler側ガード）。
-          const resetAt = parseResetTime(limitText)
-          if (resetAt) {
-            const { scheduleResume } = require('./scheduler')
-            const cfg = require('../config/index')
-            if (cfg.resumeDefaultOn) {
-              // resumeDefaultON=true: prompt付きで登録 → doResumeタイマーが入る
-              // 既存にprompt有りのON登録があればscheduler側ガードで何もしない（二重登録しない）
-              // model/effort/thinking も渡す（このプロセスが現在実際に走っている設定＝最も正確な値）。
-              // 渡し忘れると切断中に制限へ当たった場合、doResume再起動時にCLI既定モデルへ
-              // 無言で落ちる（予約投稿のproject欠落と同型の不具合）。
-              const resumePrompt = '続けてください'  // Claude 宛ての本文（画面の文言ではない）
-              scheduleResume(sessionId, resetAt.toISOString(), resumePrompt, project, model, effort, thinking)
-              console.log(`[rate-limit] auto-resume default-on registered sessionId=${sessionId} resetAt=${resetAt.toISOString()}`)
-            } else {
-              // resumeDefaultOn=false: 状態記録のみ（タイマーなし）
-              scheduleResume(sessionId, resetAt.toISOString(), null, project, model, effort, thinking)
-              console.log(`[rate-limit] saved resetAt=${resetAt.toISOString()}`)
-            }
-          }
-          broadcast(sessionId, parsed)
-          return
-        }
-
-        // 事実と生イベントの振り分け（v2.15.0）: Bへ永続化する事実は broadcast、
-        // 現在ターンの生イベント（stream_event等）は emitLive（bufferのみ）。
-        // assistant/user は A の行と同じ uuid を持つ（実測）ため、先に noteUuid してから
-        // emitLive する＝次の broadcast の after が直前のA行を指す。
-        // どの選択値がどの具体モデルに当たったかをサーバーが記録する（/api/models の表示名に使う）。
-        // init はターンごとに来るが、選択値と組にしてよいのは pocket が起動/set_model した直後の1回だけ:
-        // 会話内で /model を打つと CLI だけがモデルを変え、s.model とは食い違う。
-        if (parsed.type === 'system' && parsed.subtype === 'init') {
-          if (s.learnModel) {
-            noteResolved(s.model, parsed.model)
-            s.learnModel = false
-            s.learnedModel = parsed.model
-          }
-          s.modelDiverged = parsed.model !== s.learnedModel
-        } else if (parsed.type === 'result' && !s.modelDiverged) {
-          noteUsage(s.model, parsed.modelUsage)
-        }
-
-        if (parsed.type === 'result' || (parsed.type === 'system' && parsed.subtype === 'init')) {
-          // ✓行に「自動圧縮の開始点」を出すため、このプロセスが起動時に受け取った値を result に添える。
-          // start だけに載せるとリロード（IndexedDB復元）後の最初の✓行で値が分からなくなる。
-          if (parsed.type === 'result') parsed.autoCompactWindow = autoCompactWindow
-          broadcast(sessionId, parsed)
-        } else if (parsed.type === 'assistant' || parsed.type === 'user') {
-          noteUuid(sessionId, parsed.uuid)
-          emitLive(sessionId, parsed)
-        } else {
-          emitLive(sessionId, parsed)
-        }
-      } catch {
-        broadcast(sessionId, { type: 'raw', text: line })
+        return
       }
-    })
+
+      // ID統一の検証（fail-loud）: --session-id で起動したのに init が別IDを返したら、
+      // CLI仕様変更で黙ってID分裂が再発した可能性がある。握りつぶさず警告を残す。
+      if (parsed.type === 'system' && parsed.subtype === 'init' && usedSessionId &&
+          parsed.session_id && parsed.session_id !== sessionId) {
+        console.warn(`[spawn] session-id MISMATCH sessionId=${sessionId} but CLI init reported ${parsed.session_id} — a CLI change may have re-introduced ID divergence`)
+        broadcast(sessionId, { type: 'system', key: 'sessionIdMismatch', text: 'Session ID mismatch detected (see server log)' })
+      }
+
+      // init イベントの tools はそのプロセスが実際に持つツール名一覧(正)。設定モーダルの
+      // チェックボックス一覧描画に使うカタログとして保存する。ハードコードした固定リストは
+      // CLIのバージョンアップで陳腐化するため、起動のたびに学習し直す。失敗してもセッションは
+      // 継続する(saveToolsCatalog側で例外は握る副作用専用の呼び出し)。
+      if (parsed.type === 'system' && parsed.subtype === 'init' && Array.isArray(parsed.tools)) {
+        try { saveToolsCatalog(parsed.tools) } catch (err) { console.warn('[tools-catalog] init handling failed:', err.message) }
+      }
+
+      if (parsed.type === 'assistant' && parsed.error === 'rate_limit') {
+        const limitText = parsed.message?.content?.find(c => c.type === 'text')?.text || ''
+        console.log(`[rate-limit] broadcast sessionId=${sessionId} text="${limitText}"`)
+        // サーバーを真実源としてresetAtを保存する。クライアントが切断中（iPhoneバックグラウンド等）でも
+        // 再接続時の restoreRateLimitPanel がGETで拾えるようにする。
+        // prompt=null の保存は既存のON登録（prompt有り）を上書きしない（scheduler側ガード）。
+        const resetAt = parseResetTime(limitText)
+        if (resetAt) {
+          const { scheduleResume } = require('./scheduler')
+          const cfg = require('../config/index')
+          if (cfg.resumeDefaultOn) {
+            // resumeDefaultON=true: prompt付きで登録 → doResumeタイマーが入る
+            // 既存にprompt有りのON登録があればscheduler側ガードで何もしない（二重登録しない）
+            // model/effort/thinking も渡す（このプロセスが現在実際に走っている設定＝最も正確な値）。
+            // 渡し忘れると切断中に制限へ当たった場合、doResume再起動時にCLI既定モデルへ
+            // 無言で落ちる（予約投稿のproject欠落と同型の不具合）。
+            const resumePrompt = '続けてください'  // Claude 宛ての本文（画面の文言ではない）
+            scheduleResume(sessionId, resetAt.toISOString(), resumePrompt, project, model, effort, thinking)
+            console.log(`[rate-limit] auto-resume default-on registered sessionId=${sessionId} resetAt=${resetAt.toISOString()}`)
+          } else {
+            // resumeDefaultOn=false: 状態記録のみ（タイマーなし）
+            scheduleResume(sessionId, resetAt.toISOString(), null, project, model, effort, thinking)
+            console.log(`[rate-limit] saved resetAt=${resetAt.toISOString()}`)
+          }
+        }
+        broadcast(sessionId, parsed)
+        return
+      }
+
+      // 事実と生イベントの振り分け（v2.15.0）: Bへ永続化する事実は broadcast、
+      // 現在ターンの生イベント（stream_event等）は emitLive（bufferのみ）。
+      // assistant/user は A の行と同じ uuid を持つ（実測）ため、先に noteUuid してから
+      // emitLive する＝次の broadcast の after が直前のA行を指す。
+      // どの選択値がどの具体モデルに当たったかをサーバーが記録する（/api/models の表示名に使う）。
+      // init はターンごとに来るが、選択値と組にしてよいのは pocket が起動/set_model した直後の1回だけ:
+      // 会話内で /model を打つと CLI だけがモデルを変え、s.model とは食い違う。
+      if (parsed.type === 'system' && parsed.subtype === 'init') {
+        if (s.learnModel) {
+          noteResolved(s.model, parsed.model)
+          s.learnModel = false
+          s.learnedModel = parsed.model
+        }
+        s.modelDiverged = parsed.model !== s.learnedModel
+      } else if (parsed.type === 'result' && !s.modelDiverged) {
+        noteUsage(s.model, parsed.modelUsage)
+      }
+
+      if (parsed.type === 'result' || (parsed.type === 'system' && parsed.subtype === 'init')) {
+        // ✓行に「自動圧縮の開始点」を出すため、このプロセスが起動時に受け取った値を result に添える。
+        // start だけに載せるとリロード（IndexedDB復元）後の最初の✓行で値が分からなくなる。
+        if (parsed.type === 'result') parsed.autoCompactWindow = autoCompactWindow
+        broadcast(sessionId, parsed)
+      } else if (parsed.type === 'assistant' || parsed.type === 'user') {
+        noteUuid(sessionId, parsed.uuid)
+        emitLive(sessionId, parsed)
+      } else {
+        emitLive(sessionId, parsed)
+      }
+    } catch {
+      broadcast(sessionId, { type: 'raw', text: line })
+    }
   })
 
   proc.stderr.on('data', data => {

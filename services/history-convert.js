@@ -8,6 +8,8 @@
 //  - tool_result                 → type:'user'（フロントの case 'user' が既存の折り畳みへ流す）
 //  - image                       → type:'system' の "[image]" マーカー1件（表示はスコープ外）
 //  - attachment{queued_command}  → user 行と同じ扱い（ターン中に届いた送信・バックグラウンド完了通知）
+//  - isMeta の user 行            → 写さない（スキル本文・画像注記など CLI がモデル向けに足した行。
+//                                   ライブでも描かれない。ユーザー発言として描くと緑の長文になる）
 //  - トークン使用量 / ctx% の再構成は行わない（スコープ外）。ターン終端イベント(done/result)も
 //    足さない。各ブロックの content_block_stop が finalizeText を呼ぶため描画は閉じる。
 
@@ -105,7 +107,7 @@ function claudeEntriesToEvents(entries, opts = {}) {
   for (const entry of entries) {
     if (!entry || typeof entry !== 'object') continue
     if (since && entry.timestamp && entry.timestamp <= since) continue
-    if (entry.type === 'user') pushUserEntry(out, entry)
+    if (entry.type === 'user') { if (!entry.isMeta) pushUserEntry(out, entry) }
     else if (entry.type === 'assistant') pushAssistantEntry(out, entry)
     else if (entry.type === 'attachment') pushQueuedCommand(out, entry)
     // それ以外（queue-operation / 他の attachment / atis-latch / last-prompt / ai-title /

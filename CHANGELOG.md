@@ -4,6 +4,14 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.21.2] - 2026-10-12
+
+### Fixed
+- **Long output lines were dropped** - CLI stdout was split into lines per chunk, so a single line over 64KB (skill bodies, large tool results) broke into two unparsable pieces and never reached the live view (it was only recorded as `raw`). Lines are now assembled before parsing, which also removes the chance of multibyte text breaking at chunk boundaries.
+- **Skill bodies shown as user messages** - lines the CLI adds for the model (`isMeta`: skill bodies, image notes, etc.) were rendered as user messages when a conversation was restored, so reopening a conversation that used a skill flooded the screen. These lines are no longer drawn (same as the live view).
+- **CLI notices took over the screen** - CLI stderr (notices, internal diagnostics) is now folded into one line; tap to expand. Rate-limit and reset messages are still shown prominently.
+- Proxy routes (`proxyModels`) now get `ENABLE_CLAUDEAI_MCP_SERVERS=false`. claude.ai connectors are unavailable with API-key auth, and the CLI printed a warning about it on every start (a value in `proxyModels` overrides this).
+
 ## [v2.21.1] - 2026-10-04
 
 ### Changed
