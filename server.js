@@ -70,6 +70,12 @@ loadSchedules()
 const { loadPosts } = require('./services/scheduled-posts')
 loadPosts()
 
+// DNS リバインディング対策（v3.0.0）: Host が IP・localhost・allowedHosts 以外なら 403。
+// 静的ファイル・SSE を含む全経路より先に置く（services/host-guard.js 参照）。
+const { parseAllowedHosts, hostGuard } = require('./services/host-guard')
+const allowedHosts = parseAllowedHosts(process.env.ALLOWED_HOSTS, config.allowedHosts)
+app.use(hostGuard(allowedHosts))
+
 app.use((req, res, next) => {
   const mb = config.maxBodySizeMb
   const limit = (typeof mb === 'number' && mb > 0) ? `${mb}mb` : Infinity

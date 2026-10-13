@@ -96,6 +96,7 @@ That's it! It works out-of-the-box with sensible defaults.
 {
   "port": 3333,
   "host": "0.0.0.0",
+  "allowedHosts": [],
   "permissionMode": "acceptEdits",
   "logsDir": "./logs",
   "maxBodySizeMb": 0
@@ -279,6 +280,7 @@ pocket-claude is designed for **local/trusted network use**:
 
 - **Local network only** - Runs on localhost or LAN by default
 - **Configurable bind address** - Set `host` in `config.json` (or the `HOST` env var) to listen on a specific interface only, e.g. so the server is reachable solely through your reverse proxy (default: `0.0.0.0`)
+- **Host check (DNS rebinding protection, v3.0.0)** - Requests are answered only when the `Host` header is an IP address, `localhost` (or `*.localhost`), or a name listed in `allowedHosts` in `config.json` (or the `ALLOWED_HOSTS` env var, comma-separated; a leading dot such as `".example.com"` also allows its subdomains). Anything else gets `403`. Without this, a malicious web page opened in any browser on your network could point its own domain at your server and call the API as if it were same-origin. **If you reach pocket-claude through a domain name** — for example a reverse proxy that forwards the original `Host` (Caddy does by default; nginx with `proxy_set_header Host $host`) — add that name, e.g. `"allowedHosts": ["pocket.example.com"]`
 - **Permission mode** - Use `permissionMode: "acceptEdits"` for safer operation. The value is passed to `claude --permission-mode` as-is, so the valid set is whatever your installed CLI accepts (see `claude --help`); pocket-claude does not keep its own copy of that list. An unknown value makes the CLI refuse to start.
 - **Trusted environment** - Not designed for public internet exposure
 
@@ -287,6 +289,8 @@ For remote access, consider using a VPN or SSH tunnel instead of exposing the se
 > **Trust model**: pocket-claude does **not** restrict which directories can be registered as projects. Anyone who can reach the API (or edit `projects.json`) can run `claude` in any directory the server user can access — and with `bypassPermissions`, that means arbitrary command execution. This is by design: pocket-claude is a thin wrapper that delegates access control to your network/auth layer (VPN, reverse-proxy auth, firewall). Do not expose it to untrusted clients.
 
 ### Environment Variables
+
+Set `ALLOWED_HOSTS` (comma-separated) to allow additional host names; it takes precedence over `allowedHosts` in `config.json` (see Security Considerations).
 
 Set `ADDITIONAL_ALLOWED_DIRS` to allow access to additional directories (colon-separated):
 

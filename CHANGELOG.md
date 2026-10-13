@@ -4,6 +4,15 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.0.0] - 2026-10-14
+
+### Security
+- **DNS rebinding protection (breaking)** - The server now checks the `Host` header and answers only IP addresses, `localhost` / `*.localhost`, and names listed in the new `allowedHosts` setting (`config.json`, or the `ALLOWED_HOSTS` env var, comma-separated; a leading dot allows subdomains). Other hosts get `403` with instructions. Previously any `Host` was accepted, so a malicious web page opened in a browser on the same network could rebind its own domain to the server's address and call the API (including `/api/send`, which runs `claude`) as same-origin. Affects all earlier versions.
+
+### Upgrading
+- If you open pocket-claude by IP address or `localhost`, nothing changes.
+- If you reach it through a domain name (a reverse proxy that forwards the original `Host`, a hosts-file entry, local DNS, etc.), add that name to `allowedHosts` **before** restarting, e.g. `"allowedHosts": ["pocket.example.com"]`. Otherwise the page shows `Blocked request: host "..." is not allowed`.
+
 ## [v2.21.3] - 2026-10-14
 
 ### Security

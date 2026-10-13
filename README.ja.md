@@ -96,6 +96,7 @@ npm start
 {
   "port": 3333,
   "host": "0.0.0.0",
+  "allowedHosts": [],
   "permissionMode": "acceptEdits",
   "logsDir": "./logs",
   "maxBodySizeMb": 0
@@ -279,6 +280,7 @@ pocket-claude は **ローカル/信頼できるネットワーク用** に設�
 
 - **ローカルネットワークのみ** - デフォルトで localhost または LAN で動作
 - **バインド先アドレスの限定** - `config.json` の `host`（または環境変数 `HOST`）で listen するインターフェースを限定可能。リバースプロキシ経由のアクセスのみに絞りたい場合に使用（デフォルト: `0.0.0.0`）
+- **Host の確認（DNS リバインディング対策・v3.0.0）** - `Host` ヘッダーが IP アドレス・`localhost`（`*.localhost` を含む）・`config.json` の `allowedHosts`（または環境変数 `ALLOWED_HOSTS`、カンマ区切り。`".example.com"` のように先頭をドットにするとサブドメインも許可）に書いた名前のどれかのときだけ応答し、それ以外は `403` を返します。これが無いと、ネットワーク内のどのブラウザでも、悪意あるページを開いただけで、そのページが自分のドメインの向き先をこのサーバーへ切り替え、同一オリジンとして API を呼べてしまいます。**ドメイン名で pocket-claude に到達している場合**（例: 元の `Host` をそのまま渡すリバースプロキシ。Caddy は既定でそうなり、nginx は `proxy_set_header Host $host` のとき）は、その名前を `"allowedHosts": ["pocket.example.com"]` のように追加してください
 - **パーミッションモード** - より安全な操作のため `permissionMode: "acceptEdits"` を使用。値はそのまま `claude --permission-mode` に渡されるため、指定できる値はインストール済みCLIが受け付けるもの（`claude --help` を参照）。pocket-claude側では一覧を持たない。未知の値を書くとCLIが起動を拒否する
 - **信頼できる環境** - 公開インターネットへの露出向けではありません
 
@@ -287,6 +289,8 @@ pocket-claude は **ローカル/信頼できるネットワーク用** に設�
 > **信頼モデル**: pocket-claude はプロジェクトとして登録できるディレクトリを**制限しません**。API に到達できる者（あるいは `projects.json` を編集できる者）は、サーバー実行ユーザーがアクセスできる任意のディレクトリで `claude` を実行でき、`bypassPermissions` 下では実質的に任意コマンド実行が可能です。これは設計上の意図です。pocket-claude はアクセス制御をネットワーク/認証層（VPN、リバースプロキシ認証、ファイアウォール）へ委譲する薄いラッパーです。信頼できないクライアントへ公開しないでください。
 
 ### 環境変数
+
+追加のホスト名を許可するには `ALLOWED_HOSTS`（カンマ区切り）を設定します。`config.json` の `allowedHosts` より優先されます（「セキュリティ上の考慮事項」参照）。
 
 追加のディレクトリへのアクセスを許可するには `ADDITIONAL_ALLOWED_DIRS` を設定してください（コロン区切り）：
 

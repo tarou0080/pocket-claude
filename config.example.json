@@ -1,6 +1,7 @@
 {
   "port": 3333,
   "host": "0.0.0.0",
+  "allowedHosts": [],
   "permissionMode": "acceptEdits",
   "logsDir": "./logs",
   "uiLang": "en",
