@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v2.21.3] - 2026-10-14
+
+### Security
+- Updated the `proxy-addr` dependency (via express) from 2.0.7 to 2.0.8 for GHSA-jqcg-44mw-7w3h (trust subnets written as IPv4-mapped IPv6 with a short prefix trusted every address). pocket-claude does not set `trust proxy` or read `req.ip`, so it was not affected; the update keeps dependency audits clean. Run `npm install` after pulling.
+
 ## [v2.21.2] - 2026-10-12
 
 ### Fixed
