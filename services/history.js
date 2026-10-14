@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const { claudeEntriesToEvents } = require('./history-convert')
+const { viewUserEntry, titleCandidate } = require('./user-entry')
 const { CLAUDE_PROJECTS_DIR, projectDirFor, projectDirs, findTranscript } = require('./claude-dir')
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -41,7 +42,7 @@ function readSessionMeta(dir, file, project) {
   const sessionId = file.replace('.jsonl', '')
   if (!UUID_RE.test(sessionId)) return null
   const filePath = path.join(dir, file)
-  let stat, title = '', updatedAt = '', msgCount = 0, model = null
+  let stat, title = '', fallback = '', updatedAt = '', msgCount = 0, model = null
   try {
     stat = fs.statSync(filePath)
     updatedAt = stat.mtime.toISOString()
@@ -56,12 +57,9 @@ function readSessionMeta(dir, file, project) {
         if (d.type === 'user') {
           msgCount++
           if (!title) {
-            const content = d.message?.content
-            if (typeof content === 'string') title = content
-            else if (Array.isArray(content)) {
-              const textBlock = content.find(c => c.type === 'text')
-              if (textBlock) title = textBlock.text
-            }
+            const c = titleCandidate(d)
+            if (c && c.title) title = c.title
+            else if (c && c.fallback && !fallback) fallback = c.fallback
           }
         } else if (d.type === 'assistant') {
           msgCount++
@@ -72,7 +70,7 @@ function readSessionMeta(dir, file, project) {
       } catch {}
     }
   } catch {}
-  if (!title) title = `(${sessionId.slice(0, 8)})`
+  if (!title) title = fallback || `(${sessionId.slice(0, 8)})`
   return { sessionId, title: title.slice(0, 80), updatedAt, msgCount, model, project }
 }
 
@@ -103,14 +101,19 @@ function getSessionMessages(sessionId) {
   for (const line of lines) {
     try {
       const d = JSON.parse(line)
-      if (d.type === 'user') {
-        const content = d.message?.content
-        let text = ''
-        if (typeof content === 'string') text = content
-        else if (Array.isArray(content)) {
-          text = content.filter(c => c.type === 'text').map(c => c.text).join('\n')
+      // user 行の見せ方は会話画面と同じ規則（services/user-entry.js）。発言は user、
+      // コマンド出力・停止の印は system（会話画面の灰色の行に当たる）として返す。
+      let view = null
+      if (d.type === 'user') view = viewUserEntry(d)
+      else if (d.type === 'attachment' && d.attachment?.type === 'queued_command' && d.attachment.prompt != null) {
+        view = viewUserEntry({ message: { content: d.attachment.prompt } })
+      }
+      if (view) {
+        for (const item of view.items) {
+          if (item.kind === 'prompt') messages.push({ role: 'user', text: item.text, timestamp: d.timestamp })
+          else if (item.kind === 'output' && item.text) messages.push({ role: 'system', text: item.text, timestamp: d.timestamp })
+          else if (item.kind === 'interrupted') messages.push({ role: 'system', key: 'requestInterrupted', timestamp: d.timestamp })
         }
-        if (text.trim()) messages.push({ role: 'user', text, timestamp: d.timestamp })
       } else if (d.type === 'assistant') {
         const content = d.message?.content
         if (!Array.isArray(content)) continue
@@ -236,7 +239,8 @@ function getSessionEvents(sessionId) {
 // 除去規則（4つだけ）:
 //  1. type:'assistant' かつ error!=='rate_limit' → handleEventのcase 'assistant'は
 //     rate_limit以外何もしない（本文はstream_eventのtext_deltaで描画済みの重複）
-//  2. type:'system' かつ subtype!=='init' かつ !text → handleEventはinitかtext有りしか使わない
+//  2. type:'system' かつ subtype!=='init' かつ !text かつ !key → handleEventはinit・text有り・
+//     key有り（SYSTEM_LINES の定型行）しか使わない
 //  3. type:'stream_event' かつ event.delta.type が signature_delta/thinking_delta →
 //     content_block_deltaハンドラはtext_delta/input_json_deltaしか見ていない
 //  4. type:'user' の tool_use_result フィールドを除去 → resolveToolContent は
@@ -249,7 +253,7 @@ function slimEventsForReplay(events) {
   const out = []
   for (const e of events) {
     if (e.type === 'assistant' && e.error !== 'rate_limit') continue
-    if (e.type === 'system' && e.subtype !== 'init' && !e.text) continue
+    if (e.type === 'system' && e.subtype !== 'init' && !e.text && !e.key) continue
     if (e.type === 'stream_event') {
       const deltaType = e.event && e.event.delta && e.event.delta.type
       if (deltaType === 'signature_delta' || deltaType === 'thinking_delta') continue

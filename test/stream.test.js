@@ -135,6 +135,27 @@ test('emitLiveはBに書かずbufferに積み、空idで配信する', () => {
   assert.ok(res.writes[0].startsWith('id:\ndata:'))  // 空idで lastEventId を '' に戻す
 })
 
+// stdout の user 行（tool_result 以外を含む）は送らない＝会話ファイル（A）の tail が CLI と同じ順・形で描く。
+
+test('emitLive: 発言・コマンド出力・要約の user 行は送らず buffer にだけ積む（tool_result だけの行は送る）', () => {
+  const id = testSessionId('emitlive-user')
+  usedIds.push(id)
+
+  const res = stubRes()
+  const s = getState(id)
+  s.sseClients.push(res)
+
+  emitLive(id, { type: 'user', uuid: 'u-1', isSynthetic: true, message: { content: 'This session is being continued...' } })
+  emitLive(id, { type: 'user', uuid: 'u-2', isReplay: true, message: { content: '<local-command-stdout>Compacted </local-command-stdout>' } })
+  emitLive(id, { type: 'user', uuid: 'u-3', message: { content: [{ type: 'text', text: '[Request interrupted by user]' }] } })
+  assert.equal(res.writes.length, 0)
+  emitLive(id, { type: 'user', uuid: 'u-4', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'ok' }] } })
+  assert.equal(res.writes.length, 1)
+  assert.ok(res.writes[0].startsWith('id:\ndata: '))
+  // buffer には全部生のまま積む（M 再送のアンカー判定は生の uuid を見る）
+  assert.deepEqual(s.buffer.map(e => e.uuid), ['u-1', 'u-2', 'u-3', 'u-4'])
+})
+
 // noteUuid() は次の broadcast の after を更新する。
 
 test('noteUuidは次のbroadcastのafterに反映される', () => {

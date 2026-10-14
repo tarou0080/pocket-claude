@@ -4,6 +4,22 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.0.1] - 2026-10-14
+
+### Fixed
+The conversation view now shows what the `claude` CLI itself shows for the same conversation. Several of the CLI's internal lines were drawn as-is, and live and restored views differed. One set of rules (`services/user-entry.js`) now decides how each transcript line is shown, and the live view, restored conversations, the history detail view and history titles all use it.
+- **Compaction** - The summary the CLI writes after compacting was shown as a long message, and a guessed `compacted? (from→to)` line appeared when usage dropped. Now one line, `Conversation compacted (267K → 6K)`, comes from the CLI's own record. While compaction runs (often over a minute), a temporary `Compacting conversation…` line is shown instead of nothing. After `/compact` the lines appear in the CLI's order and the next `✓` line shows the compacted size.
+- **Stopping a turn** - A stopped turn showed `Stopped` while live but up to four lines after reopening (`> [Request interrupted by user]`, an `[ede_diagnostic]` error, `0% (0 / 200K)`). It is now one line, `Interrupted · What should Claude do instead?`, both live and after reopening.
+- **Slash commands and shell commands** - These showed the CLI's tags (`<command-name>/model</command-name>…`). They now look the way you typed them (`> /model opus`, `> ! ls`), and their output is a plain line.
+- **Thinking** - `[thinking...]` / `[thinking done]` lines stayed in the conversation (about 10,000 in a long history). A temporary `Thinking…` line now shows only while Claude is thinking.
+- **Background task notifications** - Characters such as `&` and `>` were shown as `&amp;` / `&gt;`.
+- **Tool calls and results** - Inputs with lists or objects (e.g. AskUserQuestion) were summarized as `[object Object]`. Image results (Read on an image) and ToolSearch results were shown as "no output". `<system-reminder>` and `<tool_use_error>` tags appeared in results.
+- **Model fallback and safety notices** - The CLI's notices (e.g. switching to another model, or a response stopped by safeguards) were not shown. They now appear as lines.
+- **History** - The detail view no longer shows the CLI's internal lines (skill bodies, compaction summaries, tags) as messages. Conversations that start with a command are no longer titled `<local-command-caveat>Caveat…`.
+
+### Notes
+- Conversations cached in the browser are redrawn from the server once after updating, so that older cached copies show the new layout.
+
 ## [v3.0.0] - 2026-10-14
 
 ### Security

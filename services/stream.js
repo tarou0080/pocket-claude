@@ -104,12 +104,25 @@ function emitLive(sessionId, event) {
   s.buffer.push(event)
   if (s.buffer.length > MAX_BUFFER) s.buffer.splice(0, s.buffer.length - MAX_BUFFER)
   // 空の `id:` で lastEventId を '' に戻す（id 付きイベントとの区別。routes/stream.js sendEvent と同じ）
+  if (isTranscriptDrawn(event)) return
   const line = `id:\ndata: ${JSON.stringify(event)}\n\n`
   s.sseClients.forEach(res => {
     try {
       res.write(line)
     } catch {}
   })
+}
+
+// stdout の user 行のうち tool_result 以外を含むもの（圧縮の要約・コマンド出力・停止の印など）は
+// 画面へ送らない。同じ行は会話ファイル（A）にも書かれ、A の tail が会話ファイルの順番どおりに
+// CLI と同じ形で描く（stdout から描くと、/compact の結果が「Conversation compacted」や
+// コマンド行より先に出るなど順番が CLI と食い違う。実測 2026-10-14）。
+// buffer には生のまま積む（M 再送のアンカー判定は生の uuid を見る。再送でも送らない＝routes/stream.js）。
+function isTranscriptDrawn(event) {
+  if (!event || event.type !== 'user') return false
+  const content = event.message && event.message.content
+  if (typeof content === 'string') return true
+  return Array.isArray(content) && content.some(b => b && b.type !== 'tool_result')
 }
 
 // 直前のA行 uuid の追跡更新（v2.15.0）。spawner.js が stdout の assistant/user イベントを
@@ -176,4 +189,5 @@ module.exports = {
   deleteState,
   classifyCursor,
   logFile,
+  isTranscriptDrawn,
 }

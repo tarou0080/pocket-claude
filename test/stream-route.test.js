@@ -199,6 +199,33 @@ test('bufferのうちAに存在する最後のassistant/user以降だけを再�
   assert.ok(iStart < iConvFirst && iConvFirst < iStop)
 })
 
+test('M再送: seq は同じ行から出た何件目か（フロントは1件目の判定に2件目以降を従わせる）', async (t) => {
+  const base = withServer(t)
+  const id = randomUUID()
+  const liveUuid = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+  t.after(() => { cleanupMainJsonl(id); getState(id).buffer = [] })
+  writeMainJsonl(id, [{ type: 'user', uuid: UUID_OK, message: { role: 'user', content: 'hi' } }])
+  getState(id).buffer = [
+    { type: 'assistant', uuid: liveUuid, message: { content: [{ type: 'text', text: 'now' }] } },
+  ]
+  const evs = parseSSE(await readSSE(`${base}/api/stream?session=${id}`))
+  const converted = evs.filter(e => e.event === 'history' && e.id === undefined)
+  assert.deepEqual(converted.map(c => c.data.seq), [0, 1, 2])
+})
+
+test('M再送: 発言・コマンド出力・要約の user 行は送らない（A の tail が会話ファイルの順に描く）', async (t) => {
+  const base = withServer(t)
+  const id = randomUUID()
+  t.after(() => { cleanupMainJsonl(id); getState(id).buffer = [] })
+  writeMainJsonl(id, [{ type: 'user', uuid: UUID_OK, message: { role: 'user', content: 'hi' } }])
+  getState(id).buffer = [
+    { type: 'user', uuid: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', isSynthetic: true, message: { content: 'This session is being continued...' } },
+    { type: 'user', uuid: 'ffffffff-ffff-ffff-ffff-ffffffffffff', isReplay: true, message: { content: '<local-command-stdout>Compacted </local-command-stdout>' } },
+  ]
+  const evs = parseSSE(await readSSE(`${base}/api/stream?session=${id}`))
+  assert.ok(evs.every(e => e.id !== undefined || e.event === 'history-meta'))
+})
+
 test('bufferが空ならM再送は何も出さない', async (t) => {
   const base = withServer(t)
   const id = randomUUID()

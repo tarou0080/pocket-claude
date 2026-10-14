@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const express = require('express')
 const router = express.Router()
-const { getState, registerSSEClient, unregisterSSEClient, classifyCursor } = require('../services/stream')
+const { getState, registerSSEClient, unregisterSSEClient, classifyCursor, isTranscriptDrawn } = require('../services/stream')
 const { UUID_RE, buildConversation } = require('../services/history')
 const { findTranscript, projectDirs } = require('../services/claude-dir')
 const { readSessionFacts, projectFromCwd } = require('../services/session-facts')
@@ -123,11 +123,14 @@ router.get('/', (req, res) => {
     }
     for (let i = start; i < s.buffer.length; i++) {
       const ev = s.buffer[i]
+      // 発言・コマンド出力・停止の印などは A の tail が会話ファイルの順に描く（emitLive と同じ）
+      if (isTranscriptDrawn(ev)) continue
       if (ev.type === 'assistant' || ev.type === 'user') {
-        for (const c of claudeEntriesToEvents([ev])) {
-          if (ev.uuid != null) c.uuid = ev.uuid
+        claudeEntriesToEvents([ev]).forEach((c, seq) => {
+          // seq: 同じ行から出た何件目か。フロントは1件目（seq 0）で描く/描かないを決め、2件目以降はそれに従う
+          if (ev.uuid != null) Object.assign(c, { uuid: ev.uuid, seq })
           sendEvent(res, undefined, 'history', c)
-        }
+        })
       } else {
         sendEvent(res, undefined, undefined, ev)
       }

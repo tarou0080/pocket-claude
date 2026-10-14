@@ -478,6 +478,7 @@
   }
   .history-msg-user { color: var(--green-user); background: var(--green-user-bg); }
   .history-msg-assistant { color: var(--text); }
+  .history-msg-system { color: var(--text-dim); }
 
   /* 再開ボタン */
   #resume-btn {
@@ -1159,12 +1160,13 @@ const schedulePrompt  = document.getElementById('schedule-prompt')
 const CLI_TERMS = {
   effortTitle:          'Effort: {label}',
   rateLimitReached:     'Rate limit reached',
-  thinkingLine:         '[thinking...]',
-  thinkingDoneLine:     '[thinking done]',
+  thinkingLine:         'Thinking…',
+  compactingLine:       'Compacting conversation…',
+  conversationCompacted: 'Conversation compacted ({from} → {to})',
+  requestInterrupted:   'Interrupted · What should Claude do instead?',
   toolFallbackName:     'Tool',
   externalTag:          ' (external)',
   stderrLabel:          'CLI notice',
-  compactedLine:        'compacted? ({from}→{to})',
   doneLine:             'Done (exit {code}) — {pct}% ({used} / {max})',
   interruptedLine:      'Interrupted (server restarted)',
   autoCompactSuffixDefault: ' · auto-compact: CLI default',
@@ -1236,7 +1238,6 @@ const STRINGS = {
     retrying:             '{why} — 再試行中 ({attempt}/{max})',
     retryWait:            '・約{sec}秒後',
     retriedN:             'API混雑のため{n}回再試行しました',
-    stopped:              '停止しました',
     stopFailed:           '停止できませんでした ({detail})',
     connFailed:           '接続失敗',
     agentExited:          'エージェント終了',
@@ -1369,7 +1370,6 @@ const STRINGS = {
     retrying:             '{why} — retrying ({attempt}/{max})',
     retryWait:            ', in ~{sec}s',
     retriedN:             'Retried {n} times due to API overload',
-    stopped:              'Stopped',
     stopFailed:           'Could not stop ({detail})',
     connFailed:           'connection failed',
     agentExited:          'Agent exited',
@@ -1507,6 +1507,9 @@ const SYSTEM_LINES = {
   autoResumeFailed:    { icon: 'alert-triangle', cls: 'line-error' },
   sessionIdMismatch:   { icon: 'alert-triangle', cls: 'line-error' },
   sendFailed:          { icon: 'alert-triangle', cls: 'line-error' },
+  // 会話ファイル（CLI）由来。文言は CLI の画面と同じ（CLI_TERMS）
+  conversationCompacted: { icon: 'zap', cls: 'line-compact' },
+  requestInterrupted:  { icon: 'square' },
 }
 
 // ── 設定管理 ──
@@ -2452,7 +2455,6 @@ function ensureTabState(session) {
     currentTextEl: null,
     _rawText: '',
     _ctxTokens: 0,
-    _prevCtxTokens: 0,
     pane,
     autoScroll: true,  // デフォルトで自動スクロール有効
     _initialLoaded: false,  // 一括描画済みフラグ
@@ -3512,10 +3514,13 @@ function advanceCursor(sessionId, which, n) {
 
 // ── 会話IndexedDBキャッシュ ──
 // DB名: pocket-claude、store: conversations、keyPath: sessionId
-// レコード: { sessionId, html, a, b, seenUuids, savedAt }
+// レコード: { sessionId, html, a, b, seenUuids, render, savedAt }
 // 中身(html)とカーソル(a/b)は必ず同寿命で1レコードに保存する。
+// render: html を描いたときの描画規則の版。会話の描き方を変えたら CONV_RENDER_VERSION を上げる
+// （古い描き方で焼き込んだ html を読み捨て、サーバーから全文を描き直す）。
 // IndexedDB不可・例外時は握りつぶしてキャッシュ無効として動作継続。
 
+const CONV_RENDER_VERSION = 2  // 2: CLI と同じ見え方（v3.0.1）
 let _convDB = null
 function openConvDB() {
   if (_convDB) return Promise.resolve(_convDB)
@@ -3558,13 +3563,15 @@ async function saveConvNow(sessionId) {
     const snapshot = ts.pane.cloneNode(true)
     snapshot.querySelectorAll('.rl-panel').forEach(el => el.remove())
     snapshot.querySelectorAll('.pc-provisional').forEach(el => el.remove())
+    // 考え中・圧縮中の一時表示も焼き込まない（終われば消える行。残すと復元後に消えない）
+    snapshot.querySelectorAll('.pc-transient').forEach(el => el.remove())
     const html = snapshot.innerHTML
     const cur = getCursor(sessionId)
     const seenUuids = Array.isArray(ts._seenUuids) ? ts._seenUuids : []
     const db = await openConvDB()
     await new Promise((resolve, reject) => {
       const tx = db.transaction('conversations', 'readwrite')
-      const req = tx.objectStore('conversations').put({ sessionId, html, a: cur.a, b: cur.b, seenUuids, savedAt: Date.now() })
+      const req = tx.objectStore('conversations').put({ sessionId, html, a: cur.a, b: cur.b, seenUuids, render: CONV_RENDER_VERSION, savedAt: Date.now() })
       req.onsuccess = () => resolve()
       req.onerror = () => reject(req.error)
     })
@@ -3606,6 +3613,8 @@ async function restoreConvCache(sessionId) {
       // 変わっており信頼できない。html も捨てて全文取り直しにする。
       const isLegacy = !('a' in rec) && !('b' in rec)
       if (isLegacy) return
+      // 描画規則が変わる前に描いた html も読み捨てる（同じ会話でも見え方が違う）
+      if (rec.render !== CONV_RENDER_VERSION) return
       ts.pane.innerHTML = rec.html
       // 旧バージョンが焼き込んだ死んだ再開カードを除去（既存キャッシュ救済）。
       // 生きたカードは直後の restoreRateLimitPanel が再生成する。
@@ -3676,11 +3685,11 @@ async function loadHistoryIntoPane(sessionId, onProgress) {
   ts.currentTextEl = null
   ts._rawText = ''
   ts._ctxTokens = 0
-  ts._prevCtxTokens = 0
   ts._currentToolEl = null
   ts._currentToolInput = ''
   ts._currentBlockType = null
   ts._thinkingEl = null
+  ts._compactingEl = null
   ts._provisional = null
   ts._provisionalOpen = false
   ts._initialLoaded = true
@@ -3877,7 +3886,15 @@ async function connectSSEStream(sessionId) {
         // （stdout の assistant/user は出たが A への書き込みが未着）。
         // 既に描いた uuid（ライブで raw assistant/user から記憶済み・pane に確定済み）
         // なら二重になるので描かない。未描画なら pane へ確定描画してから記憶する。
-        if (hasSeenUuid(sessionId, ev.uuid)) return
+        // 同じ行から複数件に分かれたもの（seq>0）は1件目の判定に従う（1件目で記憶した
+        // uuid を見て2件目以降を捨てない）。
+        const ts0 = tabState[sessionId]
+        if (ev.seq > 0) {
+          if (!ts0 || ts0._uuidGroupSkip === ev.uuid) return
+        } else if (hasSeenUuid(sessionId, ev.uuid)) {
+          if (ts0) ts0._uuidGroupSkip = ev.uuid
+          return
+        } else if (ts0) ts0._uuidGroupSkip = null
         advanceProvisionalTarget(sessionId, true)
         handleEvent(sessionId, ev, false)
         rememberUuid(sessionId, ev.uuid)
@@ -4032,14 +4049,28 @@ function startNetworkMonitoring() {
 
 // ── ツール結果テキスト変換 ──
 function resolveToolContent(content, toolUseResult) {
+  let text = ''
   if (Array.isArray(content)) {
-    // Agent等: [{type:"text", text:"..."}, ...] → textブロックを結合
-    const text = content.filter(b => b.type === 'text').map(b => b.text).join('\n')
-    return text || t('noOutput')
+    // Agent等: [{type:"text", text:"..."}, ...] → textブロックを結合。画像（Read で画像を読んだ等）は
+    // 「(画像)」、ツール参照（ToolSearch が読み込んだツール）はツール名にする＝中身があるのに
+    // 「出力なし」と出さない
+    text = content.map(b => {
+      if (!b || typeof b !== 'object') return ''
+      if (b.type === 'text') return b.text || ''
+      if (b.type === 'image') return t('imagePlaceholder')
+      if (b.type === 'tool_reference') return b.tool_name || ''
+      return ''
+    }).filter(Boolean).join('\n')
+  } else if (typeof content === 'string') {
+    text = content
   }
-  if (typeof content === 'string' && content !== '') return content
-  // 空文字列のフォールバック（Bash出力なし等）
-  return t('noOutput')
+  // CLI がモデル向けに足す <system-reminder> は CLI の画面に出ない。エラーの <tool_use_error> は
+  // 外枠だけ外す（CLI は中身をエラーとして出す）
+  text = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<tool_use_error>([\s\S]*?)<\/tool_use_error>/g, '$1')
+    .trim()
+  // 空のフォールバック（Bash出力なし等）
+  return text || t('noOutput')
 }
 
 // ── 仮領域（M由来の描画の巻き戻し） ──
@@ -4081,6 +4112,7 @@ function discardProvisional(ts) {
   ts._currentToolInput = ''
   ts._currentBlockType = null
   ts._thinkingEl = null
+  ts._compactingEl = null
 }
 
 // 描画先: 仮領域が開いていればその中、無ければ pane。addLine/appendText/addToolLine が使う。
@@ -4126,14 +4158,30 @@ function rememberUuid(sessionId, uuid) {
 // 形式は CLI 内部のもので種類（コマンド完了・Monitor のイベント/終了…）ごとの表は持たず、
 // 人が読む summary と event だけを出す（task-id・tool-use-id・output-file は Claude 向け）。
 // どちらも無い未知の形は原文のまま出す＝形式が変わっても情報を落とさない。
+// CLI はタグの中身を XML の符号（&amp; &gt; …）で書くので、人が読む形へ戻す。
+function decodeXmlEntities(s) {
+  return s.replace(/&(lt|gt|quot|apos|#39|amp);/g, (_, e) => ({ lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'", amp: '&' })[e])
+}
 function formatTaskNotification(text) {
   const tag = name => {
     const m = text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))
-    return m ? m[1].trim() : ''
+    return m ? decodeXmlEntities(m[1].trim()) : ''
   }
   const parts = [tag('summary'), tag('event')].filter(Boolean)
-  if (parts.length === 0) return text.replace(/<\/?task-notification>/g, '').trim()
+  if (parts.length === 0) return decodeXmlEntities(text.replace(/<\/?task-notification>/g, '').trim())
   return parts.join(' — ')
+}
+
+// CLI が「今やっていること」を一時的に見せる行（考え中・圧縮中）。CLI と同じく終われば消し、
+// 会話には残さない（保存時も .pc-transient を除く）。slot は ts の参照置き場の名前。
+function showTransientLine(ts, slot, text) {
+  clearTransientLine(ts, slot)
+  ts[slot] = addLine(ts, text, 'line-thinking pc-transient')
+}
+function clearTransientLine(ts, slot) {
+  const el = ts[slot]
+  ts[slot] = null
+  if (el && el.isConnected) el.remove()
 }
 
 function handleEvent(sessionId, ev, isLive = true) {
@@ -4256,7 +4304,7 @@ function handleEvent(sessionId, ev, isLive = true) {
             ts._currentToolInput = ''
             ts._currentBlockType = 'tool_use'
           } else if (inner.content_block?.type === 'thinking') {
-            ts._thinkingEl = addLine(ts, t('thinkingLine'), 'line-thinking')
+            showTransientLine(ts, '_thinkingEl', t('thinkingLine'))
             ts._currentBlockType = 'thinking'
           } else {
             ts._currentBlockType = inner.content_block?.type || null
@@ -4267,7 +4315,7 @@ function handleEvent(sessionId, ev, isLive = true) {
           else if (inner.delta?.type === 'input_json_delta' && ts._currentToolEl) {
             ts._currentToolInput = (ts._currentToolInput || '') + (inner.delta.partial_json || '')
           }
-          // thinking_delta は ts._thinkingEl があれば表示更新（省略可 — 長いので折りたたみ）
+          // thinking_delta（考えている中身）は出さない（CLI も既定では出さない）
           break
         case 'content_block_stop':
           finalizeText(ts)
@@ -4281,9 +4329,8 @@ function handleEvent(sessionId, ev, isLive = true) {
             ts._currentToolEl = null
             ts._currentToolInput = ''
           } else if (ts._currentBlockType === 'thinking') {
-            // thinkingブロック終了 → 表示を折りたたみ済みに変更
-            if (ts._thinkingEl) ts._thinkingEl.textContent = t('thinkingDoneLine')
-            ts._thinkingEl = null
+            // 考え終わった＝一時表示を消す（CLI の会話画面には考えた跡が残らない）
+            clearTransientLine(ts, '_thinkingEl')
           }
           ts._currentBlockType = null
           break
@@ -4324,9 +4371,8 @@ function handleEvent(sessionId, ev, isLive = true) {
       // 実体のない空ターン対策: `--resume`直後にCLIがnum_turns:0・modelUsage:{}・
       // usage.iterations無し（＝トークン情報が皆無）のresultを1回吐くことがある。
       // これを通常ターンと同様に扱うと、コンテキスト窓が既定200Kへフォールバックし
-      // ✓0%という嘘の行が出た上、直前の正しい%まで0へ潰れる（compacted?誤検知の原因にも
-      // なる）。トークン情報が皆無なターンでは_ctxTokens/_ctxMax/_prevCtxTokensを一切
-      // 上書きせず、✓行も描かない。
+      // ✓0%という嘘の行が出た上、直前の正しい%まで0へ潰れる。トークン情報が皆無なターンでは
+      // _ctxTokens/_ctxMax を一切上書きせず、✓行も描かない。
       const hasModelUsage = ev.modelUsage && Object.keys(ev.modelUsage).length > 0
       const hasIterUsage = !!ev.usage?.iterations?.length
       const isEmptyTurn = (ev.num_turns === 0) && !hasModelUsage && !hasIterUsage
@@ -4356,15 +4402,14 @@ function handleEvent(sessionId, ev, isLive = true) {
         if (isActive) updateUI()
       }
       finalizeText(ts)
-      if (wasInterrupted) {
-        addLine(ts, t('stopped'), 'line-system', 'square')
-      } else if (!isEmptyTurn) {
+      clearTransientLine(ts, '_thinkingEl')
+      clearTransientLine(ts, '_compactingEl')
+      // 停止したターンは✓行を出さない。「Interrupted · …」の行は会話ファイルの停止の印が
+      // 描く（CLI と同じ1行。ここでも描くと二重になる）。圧縮の行も会話ファイルの
+      // compact_boundary が描く（前ターンとの差からの推測はしない）。
+      if (!wasInterrupted && !isEmptyTurn) {
         const ctxMax = ts._ctxMax || CTX_MAX
         const fmtK = n => n >= 1000 ? `${Math.round(n/1000)}K` : String(n)
-        if (ts._prevCtxTokens > 0 && ts._ctxTokens < ts._prevCtxTokens * 0.6) {
-          addLine(ts, t('compactedLine', { from: fmtK(ts._prevCtxTokens), to: fmtK(ts._ctxTokens) }), 'line-compact', 'zap')
-        }
-        ts._prevCtxTokens = ts._ctxTokens
         const pct = Math.round(ts._ctxTokens / ctxMax * 100)
         const resultEl = addLine(ts, `${pct}% (${fmtK(ts._ctxTokens)} / ${fmtK(ctxMax)})${autoCompactSuffix(ts, ctxMax)}`, 'line-done', 'check')
         if (pct >= 50) resultEl.classList.add('warn')
@@ -4374,6 +4419,8 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'done': {
       finalizeText(ts)
+      clearTransientLine(ts, '_thinkingEl')
+      clearTransientLine(ts, '_compactingEl')
       if (isLive) { ts.isRunning = false; ts.isStopping = false }
       // 再起動時、server.jsはgraceful shutdownで実プロセスを畳む前に予告の
       // done{exitCode:-1, reason:'server_shutdown'}を配信し、約0.4秒後に実際の
@@ -4402,6 +4449,8 @@ function handleEvent(sessionId, ev, isLive = true) {
 
     case 'error':
       finalizeText(ts)
+      clearTransientLine(ts, '_thinkingEl')
+      clearTransientLine(ts, '_compactingEl')
       if (isLive) { ts.isRunning = false; ts.isStopping = false }
       addLine(ts, t('errorMsg', { msg: ev.message }), 'line-error')
       if (isActive) updateUI()
@@ -4417,7 +4466,20 @@ function handleEvent(sessionId, ev, isLive = true) {
         // このイベントは text を持たないため従来は捨てられ、画面が最大3分無反応になっていた
         // （＝「死んだ」と誤解して停止→再送→さらに混雑、という2026-09-03の実害）。
         if (isLive) showRetryLine(ts, ev)
+      } else if (ev.subtype === 'status') {
+        // 圧縮は1分以上かかり、その間 CLI は「Compacting conversation…」を出す（無表示だと
+        // 止まって見える）。status:null（終了）で消す。ライブだけ（再生の過去の status は描かない）。
+        if (isLive && ev.status === 'compacting') showTransientLine(ts, '_compactingEl', t('compactingLine'))
+        else clearTransientLine(ts, '_compactingEl')
       } else if (ev.key && SYSTEM_LINES[ev.key] && t(ev.key) !== undefined) {
+        if (ev.key === 'conversationCompacted') {
+          clearTransientLine(ts, '_compactingEl')
+          // 次の✓行が圧縮前の大きさのまま出ないよう、圧縮後の大きさへ戻す
+          if (typeof ev.params?.postTokens === 'number') ts._ctxTokens = ev.params.postTokens
+        }
+        // 停止の印（会話ファイル）＝直後の result は停止したターンのもの。サーバーの interrupted
+        // マーカーが無い停止（CLI 側での停止・再起動をまたいだ停止）でも診断行や✓行を出さない
+        if (ev.key === 'requestInterrupted') ts._pendingInterrupt = true
         const def = SYSTEM_LINES[ev.key]
         const p = { ...ev.params }
         if ('reason' in p) p.reason = reasonText(p.reason, p.reasonKey)
@@ -4642,6 +4704,17 @@ function addToolLine(ts, toolName, toolId) {
   return div
 }
 
+// ツール入力の値1つを短い文字列にする。配列・オブジェクト（AskUserQuestion の questions 等）は
+// 人が読む項目（question/text/name/description）があればそれ、無ければ JSON。
+function briefValue(v) {
+  if (v == null || typeof v !== 'object') return String(v)
+  const items = Array.isArray(v) ? v : [v]
+  const named = items.map(x => (x && typeof x === 'object') ? (x.question || x.text || x.name || x.description) : x)
+    .filter(x => typeof x === 'string' && x)
+  if (named.length) return named.join(' / ')
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 function updateToolDesc(toolEl, params) {
   const descSpan = toolEl.querySelector('.tool-desc')
   if (!descSpan) return
@@ -4681,7 +4754,7 @@ function updateToolDesc(toolEl, params) {
       desc = params.pattern ? params.pattern : ''
       break
     default:
-      desc = Object.keys(params).slice(0, 2).map(k => `${k}: ${String(params[k]).substring(0, 30)}`).join(', ')
+      desc = Object.keys(params).slice(0, 2).map(k => `${k}: ${briefValue(params[k]).substring(0, 30)}`).join(', ')
   }
 
   descSpan.textContent = desc
@@ -4820,11 +4893,13 @@ async function openHistoryDetail(session) {
     }
     for (const m of msgs) {
       const div = document.createElement('div')
-      div.className = `history-msg ${m.role === 'user' ? 'history-msg-user' : 'history-msg-assistant'}`
+      div.className = `history-msg history-msg-${m.role === 'user' || m.role === 'system' ? m.role : 'assistant'}`
       if (m.role === 'user' && m.text.trimStart().startsWith('<task-notification>')) {
         setIconText(div, formatTaskNotification(m.text), 'bell')
+      } else if (m.key && SYSTEM_LINES[m.key] && t(m.key) !== undefined) {
+        setIconText(div, t(m.key, m.params || {}), SYSTEM_LINES[m.key].icon)
       } else {
-        div.textContent = m.text
+        div.textContent = m.text || ''
       }
       historyBody.appendChild(div)
     }

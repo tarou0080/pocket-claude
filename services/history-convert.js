@@ -1,17 +1,22 @@
 // Claude Code の会話jsonl（~/.claude/projects/<id>.jsonl のパース済み行配列）を
 // pocket-claude の画面イベント列へ変換する。
 //
-// 方針（設計の背景「特別扱いを増やさない」の踏襲）:
+// 方針（設計の背景「特別扱いを増やさない」「薄いラッパー」の踏襲）:
 //  - 出力はライブ配信(SSE)と完全に同じイベント語彙へ正規化する。フロントの handleEvent は
 //    ライブ/再生を区別せず処理できる（新しい表示経路を作らない）。
-//  - text / thinking / tool_use  → stream_event の content_block_* チェーン
-//  - tool_result                 → type:'user'（フロントの case 'user' が既存の折り畳みへ流す）
-//  - image                       → type:'system' の "[image]" マーカー1件（表示はスコープ外）
-//  - attachment{queued_command}  → user 行と同じ扱い（ターン中に届いた送信・バックグラウンド完了通知）
-//  - isMeta の user 行            → 写さない（スキル本文・画像注記など CLI がモデル向けに足した行。
-//                                   ライブでも描かれない。ユーザー発言として描くと緑の長文になる）
+//  - 何を画面に出すかの正解は CLI の画面。user 行の分類は services/user-entry.js 1か所が持つ。
+//  - text / tool_use              → stream_event の content_block_* チェーン
+//  - thinking                     → 写さない（CLI の会話画面は考えた跡を残さない。考え中の
+//                                   一時表示はライブの stream_event だけが出す）
+//  - tool_result                  → type:'user'（フロントの case 'user' が既存の折り畳みへ流す）
+//  - image                        → type:'system' の "[image]" マーカー1件（表示はスコープ外）
+//  - attachment{queued_command}   → user 行と同じ扱い（ターン中に届いた送信・バックグラウンド完了通知）
+//  - user 行の発言／コマンド出力／停止の印 → user_input ／ system 行 ／ system{key:'requestInterrupted'}
+//  - system 行                    → 圧縮の区切り・コマンドの記録・警告だけ（CLI が画面に出すもの）
 //  - トークン使用量 / ctx% の再構成は行わない（スコープ外）。ターン終端イベント(done/result)も
 //    足さない。各ブロックの content_block_stop が finalizeText を呼ぶため描画は閉じる。
+
+const { viewUserEntry } = require('./user-entry')
 
 // content_block（start/delta/stop）1組を out へ push する。
 function emitBlock(out, index, contentBlock, delta, timestamp) {
@@ -24,37 +29,22 @@ function safeStringify(v) {
   try { return JSON.stringify(v == null ? {} : v) } catch { return '{}' }
 }
 
-function pushUserEntry(out, entry) {
-  const content = entry.message && entry.message.content
-  const ts = entry.timestamp
-
-  if (typeof content === 'string') {
-    // CLIの制御系メッセージ（<local-command-stdout>...set_model 実行結果 等）は
-    // ライブでは type:'user' の文字列 content として届き、フロントが system 行へ落とす。
-    if (/^\s*<local-command-stdout>/.test(content)) {
-      out.push({ type: 'user', message: { content }, timestamp: ts })
-    } else if (content.trim()) {
-      out.push({ type: 'user_input', text: content, timestamp: ts })
-    }
-    return
+function pushUserView(out, view, ts) {
+  for (const item of view.items) {
+    if (item.kind === 'prompt') out.push({ type: 'user_input', text: item.text, timestamp: ts })
+    else if (item.kind === 'output') { if (item.text) out.push({ type: 'system', text: item.text, timestamp: ts }) }
+    else if (item.kind === 'interrupted') out.push({ type: 'system', key: 'requestInterrupted', timestamp: ts })
   }
-  if (!Array.isArray(content)) return
-
-  const texts = content
-    .filter(b => b && b.type === 'text' && typeof b.text === 'string')
-    .map(b => b.text)
-  const joined = texts.join('\n')
-  if (joined.trim()) out.push({ type: 'user_input', text: joined, timestamp: ts })
-
-  const imageCount = content.filter(b => b && b.type === 'image').length
-  for (let i = 0; i < imageCount; i++) {
+  for (let i = 0; i < view.images; i++) {
     out.push({ type: 'system', text: '[image]', timestamp: ts })
   }
-
-  const toolResults = content.filter(b => b && b.type === 'tool_result')
-  if (toolResults.length) {
-    out.push({ type: 'user', message: { content: toolResults }, timestamp: ts })
+  if (view.toolResults.length) {
+    out.push({ type: 'user', message: { content: view.toolResults }, timestamp: ts })
   }
+}
+
+function pushUserEntry(out, entry) {
+  pushUserView(out, viewUserEntry(entry), entry.timestamp)
 }
 
 // ターン実行中に届いた入力（ユーザーの送信／バックグラウンド処理の完了通知）を CLI は
@@ -65,6 +55,29 @@ function pushQueuedCommand(out, entry) {
   const a = entry.attachment
   if (!a || a.type !== 'queued_command' || a.prompt == null) return
   pushUserEntry(out, { message: { content: a.prompt }, timestamp: entry.timestamp })
+}
+
+const fmtTokens = n => (typeof n === 'number' && n >= 1000) ? `${Math.round(n / 1000)}K` : (n == null ? '?' : String(n))
+
+// CLI が会話画面に出す system 行だけを写す。
+//  - compact_boundary: 圧縮の区切り（CLI: "Conversation compacted"）。前後のトークン数を添える
+//  - local_command: 会話内で打ったコマンドとその出力（content は user 行と同じタグ形式）
+//  - level が warning/notice/error で本文を持つ行: モデルの切替・安全機構の知らせ等
+//  api_error（本文無し・再試行の記録）や info の内部記録は写さない。
+function pushSystemEntry(out, entry) {
+  const ts = entry.timestamp
+  if (entry.subtype === 'compact_boundary') {
+    const m = entry.compactMetadata || {}
+    // postTokens: 画面の ctx%（✓行）を圧縮後の大きさへ戻すための値（文言には使わない）
+    out.push({ type: 'system', key: 'conversationCompacted', params: { from: fmtTokens(m.preTokens), to: fmtTokens(m.postTokens), postTokens: m.postTokens }, timestamp: ts })
+    return
+  }
+  if (typeof entry.content !== 'string' || !entry.content.trim()) return
+  if (entry.subtype === 'local_command') {
+    pushUserView(out, viewUserEntry({ message: { content: entry.content } }), ts)
+  } else if (entry.level === 'warning' || entry.level === 'notice' || entry.level === 'error') {
+    out.push({ type: 'system', text: entry.content.trim(), timestamp: ts })
+  }
 }
 
 function pushAssistantEntry(out, entry) {
@@ -81,14 +94,6 @@ function pushAssistantEntry(out, entry) {
       emitBlock(out, index++,
         { type: 'text', text: '' },
         { type: 'text_delta', text: block.text }, ts)
-
-    } else if (block.type === 'thinking') {
-      // thinking 本文（thinking_delta）は slimEventsForReplay が再生前に落とす。
-      // フロントは start で "[thinking...]"、stop で "[thinking done]" を出すだけなので
-      // 中身が空（signatureのみ）でもブロックの存在は伝わる。
-      emitBlock(out, index++,
-        { type: 'thinking' },
-        { type: 'thinking_delta', thinking: typeof block.thinking === 'string' ? block.thinking : '' }, ts)
 
     } else if (block.type === 'tool_use') {
       emitBlock(out, index++,
@@ -107,11 +112,12 @@ function claudeEntriesToEvents(entries, opts = {}) {
   for (const entry of entries) {
     if (!entry || typeof entry !== 'object') continue
     if (since && entry.timestamp && entry.timestamp <= since) continue
-    if (entry.type === 'user') { if (!entry.isMeta) pushUserEntry(out, entry) }
+    if (entry.type === 'user') pushUserEntry(out, entry)
     else if (entry.type === 'assistant') pushAssistantEntry(out, entry)
     else if (entry.type === 'attachment') pushQueuedCommand(out, entry)
+    else if (entry.type === 'system') pushSystemEntry(out, entry)
     // それ以外（queue-operation / 他の attachment / atis-latch / last-prompt / ai-title /
-    // summary / system / file-history-snapshot 等）は画面イベントに写さない。
+    // summary / file-history-snapshot 等）は画面イベントに写さない。
   }
   return out
 }
