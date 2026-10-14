@@ -4,6 +4,12 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.1.0] - 2026-10-14
+
+### Added
+- **Read aloud** - A speaker button next to Send (off by default, saved per device). When a turn you were watching finishes, the opening of the last reply is read with the browser's built-in speech synthesis; long-press reads the whole reply (code and tables are announced as omitted), and tapping while it speaks stops it. Errors and usage limits are announced in one short phrase. No server changes and no new dependencies.
+- **Screen stays awake during a turn while read aloud is on** - Uses the Screen Wake Lock API (HTTPS only), released as soon as the turn ends. Without it a phone could lock mid-turn and the reply would never be read.
+
 ## [v3.0.4] - 2026-10-14
 
 ### Fixed

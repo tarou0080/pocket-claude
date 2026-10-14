@@ -867,6 +867,31 @@
   }
   #send-btn:active { opacity: 0.8; transform: scale(0.96); }
 
+  /* 読み上げ: 押す＝オン/オフ（読んでいる最中は停止）、長押し＝最後の返事を全文読む */
+  #speak-btn {
+    background: var(--surface3);
+    color: var(--text-muted);
+    border: 1px solid var(--border-input);
+    border-radius: 12px;
+    padding: 0 12px;
+    font-size: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #speak-btn[hidden] { display: none; }
+  #speak-btn .ln-icon { margin-right: 0; }
+  #speak-btn.on { color: var(--primary); border-color: var(--primary); }
+  #speak-btn.speaking { animation: speak-pulse 1.2s ease-in-out infinite; }
+  @keyframes speak-pulse { 50% { opacity: 0.45; } }
+
   #status-slot {
     position: fixed;
     left: 0; right: 0;
@@ -1111,6 +1136,7 @@
   <div id="image-preview-area"></div>
   <div id="input-row">
     <textarea id="prompt" rows="1"></textarea>
+    <button id="speak-btn" data-i18n-aria="speakToggle" hidden></button>
     <button id="send-btn">✨</button>
   </div>
   <input type="file" id="attach-input" accept="image/*" multiple style="display:none">
@@ -1319,6 +1345,12 @@ const STRINGS = {
     reasonNoProject:      'プロジェクトが設定されていません',
     reasonInterrupted:    '実行中に中断されました',
     reasonMissedWhileStopped: 'サービス停止中に予約時刻を過ぎました',
+    speakToggle:          '読み上げ（長押しで最後の返事を全文）',
+    speakEnabled:         '読み上げをオンにしました',
+    speakTurnError:       'エラーで止まりました',
+    speakRateLimit:       '使用量の上限に達しました',
+    speakCodeOmitted:     'コードは省略します',
+    speakTableOmitted:    '表は省略します',
   },
   en: {
     ...CLI_TERMS,
@@ -1451,6 +1483,12 @@ const STRINGS = {
     reasonNoProject:      'no project is configured',
     reasonInterrupted:    'interrupted while running',
     reasonMissedWhileStopped: 'scheduled time passed while the service was stopped',
+    speakToggle:          'Read aloud (long-press to read the last reply in full)',
+    speakEnabled:         'Read aloud is on',
+    speakTurnError:       'Stopped with an error',
+    speakRateLimit:       'Usage limit reached',
+    speakCodeOmitted:     'Code omitted',
+    speakTableOmitted:    'Table omitted',
   },
 }
 function t(key, params) {
@@ -1486,6 +1524,8 @@ const ICONS = {
   'alert-triangle': '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   'alert-circle':   '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
   square:           '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>',
+  'volume-2':       '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>',
+  'volume-x':       '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>',
 }
 function iconEl(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -3281,6 +3321,7 @@ function updateUI() {
     el.classList.toggle('running', ts2?.isRunning || false)
   })
   updatePlaceholder()
+  syncWakeLock()
 }
 
 function updatePlaceholder() {
@@ -4271,6 +4312,7 @@ function handleEvent(sessionId, ev, isLive = true) {
           const isNewLimit = ts.rl?.autoResume === undefined
           const wasAutoResume = ts.rl?.autoResume ?? appSettings.resumeDefaultOn ?? false
           showRateLimitPanel(sessionId, resetAt, wasAutoResume)
+          if (isActive) { ts._speakRateLimited = true; speakTurnEnd(ts, { rateLimited: true }) }
           // resetAtのサーバー保存はspawner.js（サーバー自身）が行う。クライアントからの
           // prompt無しPOSTは、サーバーが期限切れ破棄したエントリを再生成する穴になるため行わない。
           // ただしデフォルトONで新規制限が発生した場合はサーバー登録が必要なためPOSTを発行する。
@@ -4416,6 +4458,7 @@ function handleEvent(sessionId, ev, isLive = true) {
           if (auth > 0) ts._ctxTokens = auth
         }
       }
+      const wasRunning = ts.isRunning
       if (isLive) {
         ts.isRunning = false
         ts.isStopping = false
@@ -4424,6 +4467,11 @@ function handleEvent(sessionId, ev, isLive = true) {
       finalizeText(ts)
       clearTransientLine(ts, '_thinkingEl')
       clearTransientLine(ts, '_compactingEl')
+      // 読み上げ: 自分で止めたターンと、上限の一言を読んだターンは読まない
+      if (isLive && isActive && wasRunning && !wasInterrupted && !isEmptyTurn && !ts._speakRateLimited) {
+        speakTurnEnd(ts, { error: ev.is_error })
+      }
+      ts._speakRateLimited = false
       // 停止したターンは✓行を出さない。「Interrupted · …」の行は会話ファイルの停止の印が
       // 描く（CLI と同じ1行。ここでも描くと二重になる）。圧縮の行も会話ファイルの
       // compact_boundary が描く（前ターンとの差からの推測はしない）。
@@ -5344,6 +5392,161 @@ addTabBtn.addEventListener('click', async () => {
   createTabEl(newSession)
   switchTab(newSession.sessionId)
 })
+
+// ── 読み上げ（端末の音声合成） ──
+// ターンが終わったら最後の返事の冒頭（結論の段落）を端末の声で読む。サーバーは関与しない
+// （ブラウザの speechSynthesis だけ・要約に AI は使わない）。オン/オフは端末ごと（pc-speak）。
+// 読む文は画面に描いた返事（.line-text）から取る＝ライブでも開き直した会話でも同じ規則。
+// iOS は利用者の操作の中で一度声を出すまで読み上げを許さないので、ボタンを押したときと
+// 再読み込み後の最初のタップで空の発話を流しておく。
+const SPEAK_KEY = 'pc-speak'
+const SPEAK_LONG_PRESS_MS = 500
+const SPEAK_SUMMARY_MIN = 60     // 冒頭の段落がこれより短ければ（見出しだけ等）次の段落も読む
+const SPEAK_SUMMARY_PARTS = 3
+const speakBtn = document.getElementById('speak-btn')
+const speechSupported = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function'
+let speakOn = speechSupported && localStorage.getItem(SPEAK_KEY) === '1'
+let speechPrimed = false
+let speakGen = 0          // 読み始めるたびに進める。古い発話の終了通知で表示を戻さないため
+let speakingNow = false
+
+// 返事の要素から読む文の並びを作る。コードと表は読まず「省略します」に置き換える（全文のときだけ）。
+function speechParts(el) {
+  const parts = []
+  const textOf = node => {
+    const c = node.cloneNode(true)
+    c.querySelectorAll('pre, table').forEach(x => x.remove())
+    return c.textContent.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim()
+  }
+  const walk = node => {
+    for (const c of node.children) {
+      const tag = c.tagName
+      if (tag === 'PRE') parts.push({ omitted: t('speakCodeOmitted') })
+      else if (tag === 'TABLE') parts.push({ omitted: t('speakTableOmitted') })
+      else if (tag === 'UL' || tag === 'OL') [...c.children].forEach(li => parts.push({ text: textOf(li) }))
+      else if (tag === 'HR') continue
+      else if (/^(P|H[1-6]|BLOCKQUOTE)$/.test(tag)) parts.push({ text: textOf(c) })
+      else if (c.children.length) walk(c)
+      else parts.push({ text: textOf(c) })
+    }
+  }
+  walk(el)
+  if (!parts.length) parts.push({ text: textOf(el) })
+  return parts.filter(p => p.omitted || p.text)
+}
+function speechText(el, full) {
+  const parts = speechParts(el)
+  if (full) return parts.map(p => p.omitted || p.text).filter((s, i, a) => s !== a[i - 1]).join('\n')
+  const out = []
+  for (const p of parts) {
+    if (!p.text) continue
+    out.push(p.text)
+    if (out.join('').length >= SPEAK_SUMMARY_MIN || out.length >= SPEAK_SUMMARY_PARTS) break
+  }
+  return out.join('\n')
+}
+function lastReplyEl(ts) {
+  const els = ts?.pane.querySelectorAll('.line-text')
+  return els?.length ? els[els.length - 1] : null
+}
+
+function updateSpeakBtn() {
+  speakBtn.hidden = !speechSupported
+  speakBtn.classList.toggle('on', speakOn)
+  speakBtn.classList.toggle('speaking', speakingNow)
+  speakBtn.replaceChildren(iconEl(speakOn ? 'volume-2' : 'volume-x'))
+}
+function stopSpeaking() {
+  speakGen++
+  speakingNow = false
+  if (speechSupported) speechSynthesis.cancel()
+  updateSpeakBtn()
+}
+// 文ごとに分けて流す（長い1発話は途中で切れるブラウザがある。停止も文の切れ目で効く）
+function speak(text) {
+  if (!speechSupported || !text) return
+  stopSpeaking()
+  const gen = speakGen
+  const lang = /[぀-ヿ一-鿿]/.test(text) ? 'ja-JP' : 'en-US'
+  const chunks = text.replace(/([。！？!?])/g, '$1\n').replace(/\.\s+/g, '.\n').split('\n').map(s => s.trim()).filter(Boolean)
+  const finish = () => { if (gen === speakGen) { speakingNow = false; updateSpeakBtn() } }
+  chunks.forEach((c, i) => {
+    const u = new SpeechSynthesisUtterance(c)
+    u.lang = lang
+    if (i === chunks.length - 1) { u.onend = finish; u.onerror = finish }
+    speechSynthesis.speak(u)
+  })
+  speechPrimed = true
+  speakingNow = true
+  updateSpeakBtn()
+}
+// 作業中に画面が自動ロックされると、終わったときに読めない（iOS はロック中のページを止める）。
+// 読み上げがオンで、今のタブが作業中のあいだだけ画面を点けたままにする。隠れると端末が自動で解く。
+let wakeLock = null       // null / 'pending' / WakeLockSentinel
+async function syncWakeLock() {
+  if (!('wakeLock' in navigator)) return
+  const want = speakOn && !!getTS().isRunning && !document.hidden
+  if (want && !wakeLock) {
+    wakeLock = 'pending'
+    try {
+      const l = await navigator.wakeLock.request('screen')
+      l.addEventListener('release', () => { if (wakeLock === l) wakeLock = null })
+      wakeLock = l
+      syncWakeLock()      // 取得を待つあいだに作業が終わっていたら解く
+    } catch { wakeLock = null }
+  } else if (!want && wakeLock && wakeLock !== 'pending') {
+    const l = wakeLock
+    wakeLock = null
+    l.release().catch(() => {})
+  }
+}
+document.addEventListener('visibilitychange', syncWakeLock)
+
+// ターンの終わりに handleEvent から呼ぶ。読むのは今見ているタブで、この画面が実行中と
+// 見ていたターンが終わったときだけ（履歴の再生・裏のタブ・開き直しでは読まない）。
+function speakTurnEnd(ts, { error, rateLimited } = {}) {
+  if (!speakOn) return
+  if (rateLimited) speak(t('speakRateLimit'))
+  else if (error) speak(t('speakTurnError'))
+  else { const el = lastReplyEl(ts); if (el) speak(speechText(el, false)) }
+}
+
+if (speechSupported) {
+  let pressTimer = null
+  let longPressed = false
+  speakBtn.addEventListener('pointerdown', () => {
+    longPressed = false
+    clearTimeout(pressTimer)
+    pressTimer = setTimeout(() => {
+      longPressed = true
+      const el = lastReplyEl(getTS())
+      if (el) speak(speechText(el, true))
+    }, SPEAK_LONG_PRESS_MS)
+  })
+  const cancelPress = () => clearTimeout(pressTimer)
+  speakBtn.addEventListener('pointerup', cancelPress)
+  speakBtn.addEventListener('pointerleave', cancelPress)
+  speakBtn.addEventListener('pointercancel', cancelPress)
+  speakBtn.addEventListener('contextmenu', e => e.preventDefault())
+  speakBtn.addEventListener('click', () => {
+    if (longPressed) { longPressed = false; return }
+    // 読んでいる最中なら止める。終了通知が来ず印だけ残った場合は端末の実状態で判断して切り替える
+    if (speakingNow && (speechSynthesis.speaking || speechSynthesis.pending)) { stopSpeaking(); return }
+    speakingNow = false
+    speakOn = !speakOn
+    localStorage.setItem(SPEAK_KEY, speakOn ? '1' : '0')
+    if (speakOn) speak(t('speakEnabled'))
+    else updateSpeakBtn()
+    syncWakeLock()
+  })
+  // 再読み込み後: オンのままでも iOS は操作の中で一度声を出すまで読ませない
+  document.addEventListener('pointerdown', () => {
+    if (!speakOn || speechPrimed) return
+    speechPrimed = true
+    speechSynthesis.speak(new SpeechSynthesisUtterance(''))
+  }, { capture: true })
+}
+updateSpeakBtn()
 
 sendBtn.addEventListener('click', send)
 promptEl.addEventListener('keydown', e => {

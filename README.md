@@ -42,6 +42,7 @@ Turn your Claude Code CLI into a web app:
 - **SSE Streaming** - Real-time output with automatic reconnection
 - **Markdown Rendering** - Clean, readable output formatting
 - **Image Attachment** - Attach images to prompts (paste, drag-and-drop, or file picker)
+- **Read Aloud** - Optionally reads the end of each reply aloud with the device's built-in voice (off by default)
 - **Scheduled Posts** - Schedule prompts to run at a future time (server-side, no browser required)
 - **Rate Limit Auto-Resume** - Automatically re-sends when Claude's rate limit resets
 - **Language Switching** - UI available in Japanese and English
@@ -253,6 +254,7 @@ All settings are stored in the browser and persist across restarts, except the a
 - **Scheduled posts** — Schedule a prompt to run at a future time. It runs server-side, so no browser needs to stay open. Each entry keeps its state (pending / running / failed): a delivery that fails is not deleted, it stays in the list with the reason, and you can retry, edit or delete it. Deleting one puts its text back into the input box as a draft. A post whose time passed while the server was down is marked failed rather than fired late.
 - **Rate-limit auto-resume** — When Claude's rate limit resets, a queued prompt is automatically re-sent. A resume card above the input shows the scheduled kick time and counts down; enable "resume by default" in Settings to have it arm itself on every limit.
 - **Conversations keep their own model, effort and thinking** — Reopening from history reads the last values actually used in that session from the CLI's own transcript, so you don't accidentally resume a Sonnet conversation with the device default.
+- **Read aloud (optional, off by default)** — The speaker button next to Send turns it on for this device. When a turn you were watching finishes, the opening of Claude's last reply (its first paragraph, plus the next one if the first is only a heading) is read with the browser's built-in speech synthesis. Long-press the button to hear the whole last reply (code blocks and tables are announced as omitted); tap while it is speaking to stop. Nothing is sent to the server and no AI summarizes the text. Turns that finish in another tab, while the page is hidden, or in a replayed conversation are not read. While it is on and a turn is running, the page asks the browser to keep the screen awake (Screen Wake Lock, HTTPS only), because a locked phone pauses the page and the reply could not be read. To speak your prompt, use your keyboard's dictation.
 - **Stop cancels the turn, not the session** — Tapping the status dot while running interrupts the current turn via the CLI's control protocol. The session's `claude` process stays alive, so your next prompt continues in the same session without a restart. On CLI versions that don't support the control message, pocket-claude falls back to terminating the process (the next prompt then resumes the session).
 
 ## Architecture
