@@ -4,6 +4,14 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.0.2] - 2026-10-14
+
+### Fixed
+- **Turns without usage data** - Turns that report no token usage (for example a turn that failed because sign-in expired, or a model route that does not report usage) showed `0% (0 / 200K)`, which reads as an empty context. They now show `Done` (and `Done (exit N)` when the process ends) without numbers.
+
+### Notes
+- Conversations cached in the browser are redrawn from the server once after updating.
+
 ## [v3.0.1] - 2026-10-14
 
 ### Fixed
