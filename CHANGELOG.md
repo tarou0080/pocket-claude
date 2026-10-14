@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.0.4] - 2026-10-14
+
+### Fixed
+- **Reloading while a tool is running** - If the page was reloaded (or reopened from the browser's cache) while a tool was still running, the tool's input (e.g. the Bash command under `IN`) was empty once its result arrived. The input is now kept until the result is drawn.
+
 ## [v3.0.3] - 2026-10-14
 
 ### Fixed

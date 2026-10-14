@@ -4786,13 +4786,19 @@ function updateToolDesc(toolEl, params) {
 
   descSpan.textContent = desc
   toolEl._toolParams = params
+  // 結果が届くまでは入力を属性にも持つ。応答中にリロードすると画面は保存した HTML から戻り、
+  // 要素に付けた _toolParams は消える＝後から届いた結果の IN 欄が空になっていた。
+  // 結果を描いたら外す（全ツールの入力をキャッシュへ積まない）
+  toolEl.dataset.toolParams = JSON.stringify(params)
 }
 
 function renderToolResult(toolEl, resultText, isError) {
   const rd = toolEl._resultDiv || toolEl.nextElementSibling
   if (!rd) return
   const toolName = toolEl.querySelector('.tool-name')?.textContent.replace(/[\[\]]/g, '') || ''
-  const params = toolEl._toolParams || {}
+  let params = toolEl._toolParams
+  if (!params) { try { params = JSON.parse(toolEl.dataset.toolParams || '{}') } catch { params = {} } }
+  delete toolEl.dataset.toolParams
 
   rd.innerHTML = ''
   if (isError) rd.style.color = 'var(--red)'
