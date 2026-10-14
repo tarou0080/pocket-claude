@@ -1170,6 +1170,7 @@ const CLI_TERMS = {
   doneLine:             'Done (exit {code}) — {pct}% ({used} / {max})',
   doneLineNoUsage:      'Done (exit {code})',
   turnDone:             'Done',
+  taskStopped:          '{command} · stopped',
   interruptedLine:      'Interrupted (server restarted)',
   autoCompactSuffixDefault: ' · auto-compact: CLI default',
   autoCompactSuffixAt:  ' · auto-compact ~{n}',
@@ -3522,7 +3523,7 @@ function advanceCursor(sessionId, which, n) {
 // （古い描き方で焼き込んだ html を読み捨て、サーバーから全文を描き直す）。
 // IndexedDB不可・例外時は握りつぶしてキャッシュ無効として動作継続。
 
-const CONV_RENDER_VERSION = 3  // 2: CLI と同じ見え方（v3.0.1）／3: 使用量0の行を Done に（v3.0.2）
+const CONV_RENDER_VERSION = 4  // 2: CLI と同じ見え方（v3.0.1）／3: 使用量0の行を Done に（v3.0.2）／4: TaskStop・SendMessage の結果（v3.0.3）
 let _convDB = null
 function openConvDB() {
   if (_convDB) return Promise.resolve(_convDB)
@@ -4050,7 +4051,17 @@ function startNetworkMonitoring() {
 }
 
 // ── ツール結果テキスト変換 ──
-function resolveToolContent(content, toolUseResult) {
+// CLI が JSON の結果を自分の形で見せるツール（CLI 2.1.296 の画面で確認）。
+// TaskStop は「止めたコマンドの1行目 · stopped」、SendMessage は message の文だけ。
+// 結果が JSON として読めないとき・形が違うときは今までどおり中身をそのまま出す。
+const TOOL_RESULT_VIEWS = {
+  TaskStop: r => typeof r.command === 'string'
+    ? t('taskStopped', { command: r.command.split('\n')[0] + (r.command.includes('\n') ? '…' : '') })
+    : r.message,
+  SendMessage: r => r.message,
+}
+
+function resolveToolContent(content, toolUseResult, toolName) {
   let text = ''
   if (Array.isArray(content)) {
     // Agent等: [{type:"text", text:"..."}, ...] → textブロックを結合。画像（Read で画像を読んだ等）は
@@ -4071,6 +4082,13 @@ function resolveToolContent(content, toolUseResult) {
   text = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
     .replace(/<tool_use_error>([\s\S]*?)<\/tool_use_error>/g, '$1')
     .trim()
+  const view = TOOL_RESULT_VIEWS[toolName]
+  if (view && text.startsWith('{')) {
+    try {
+      const shown = view(JSON.parse(text))
+      if (typeof shown === 'string' && shown) text = shown
+    } catch {}
+  }
   // 空のフォールバック（Bash出力なし等）
   return text || t('noOutput')
 }
@@ -4275,7 +4293,7 @@ function handleEvent(sessionId, ev, isLive = true) {
             const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
             const rd = toolEl?._resultDiv || toolEl?.nextElementSibling
             if (toolEl && rd && rd.classList?.contains('tool-result') && toolEl.dataset.toolType !== 'ask') {
-              renderToolResult(toolEl, resolveToolContent(item.content, ev.tool_use_result), item.is_error)
+              renderToolResult(toolEl, resolveToolContent(item.content, ev.tool_use_result, toolEl.dataset.toolName), item.is_error)
             }
           }
         })
@@ -4526,7 +4544,7 @@ function handleEvent(sessionId, ev, isLive = true) {
                 const toolEl = ts.pane.querySelector(`[data-tool-id="${toolId}"]`)
                 const rd = toolEl?._resultDiv || toolEl?.nextElementSibling
                 if (toolEl && rd && rd.classList?.contains('tool-result') && toolEl.dataset.toolType !== 'ask') {
-                  renderToolResult(toolEl, resolveToolContent(item.content, parsed.tool_use_result), item.is_error)
+                  renderToolResult(toolEl, resolveToolContent(item.content, parsed.tool_use_result, toolEl.dataset.toolName), item.is_error)
                 }
               }
             })
@@ -4683,6 +4701,7 @@ function addToolLine(ts, toolName, toolId) {
   const div = document.createElement('div')
   div.className = 'line line-tool'
   div.dataset.toolId = toolId
+  div.dataset.toolName = toolName
 
   const nameSpan = document.createElement('span')
   nameSpan.className = 'tool-name'

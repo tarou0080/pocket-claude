@@ -4,6 +4,14 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.0.3] - 2026-10-14
+
+### Fixed
+- **TaskStop and SendMessage results** - These were shown as raw JSON. They now look the way the CLI shows them: `<first line of the command> · stopped` for TaskStop, and the message text (e.g. `Resuming agent …`) for SendMessage. Results in an unexpected shape are still shown as they are.
+
+### Notes
+- Conversations cached in the browser are redrawn from the server once after updating.
+
 ## [v3.0.2] - 2026-10-14
 
 ### Fixed
