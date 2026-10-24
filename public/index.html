@@ -1662,23 +1662,49 @@ function applyTheme() {
 }
 
 // ── 設定モーダル操作 ──
-async function loadBodyLimit() {
+// 自動再開の設定（既定でON・再開時の文）はサーバーを正とする。ブラウザが繋がっていない間に
+// 制限が解けたときもサーバーがこの値で再開するため（services/spawner.js）。
+function applyServerResumeSettings(data) {
+  // サーバー値の取り込みはユーザーの変更ではない=控えにも入れて「変更あり」扱いにしない
+  const adopt = (key, value) => {
+    appSettings[key] = value
+    if (settingsBaseline) settingsBaseline[key] = value
+  }
+  if (typeof data.resumeDefaultOn === 'boolean') {
+    adopt('resumeDefaultOn', data.resumeDefaultOn)
+    const chk = document.getElementById('resume-default-on-chk')
+    if (chk) chk.checked = data.resumeDefaultOn
+  }
+  const saved = settingsBaseline || appSettings
+  if (typeof data.resumePrompt === 'string') {
+    adopt('resumePrompt', data.resumePrompt)
+    const input = document.getElementById('resume-prompt-input')
+    if (input) input.value = data.resumePrompt || t('resumePromptDefault')
+  } else if (data.resumePrompt === null && (saved.resumePrompt || '').trim()) {
+    // サーバーで一度も決めていない＝v3.0.4 までは端末にだけ保存していた文。サーバーへ移す
+    fetch('/api/server-config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resumePrompt: (saved.resumePrompt || '').trim() }),
+    }).catch(() => {})
+  }
+  // モーダルを開いている間は appSettings が下書きなので、保存済みの控えの方を書く
+  saveSettings(saved)
+}
+
+// 再開時に Claude へ送る文（空・空白だけなら既定の文）
+function resumePromptText() {
+  return (appSettings.resumePrompt || '').trim() || t('resumePromptDefault')
+}
+
+async function loadServerConfig() {
   try {
     const res = await fetch('/api/server-config')
     const data = await res.json()
     const input = document.getElementById('body-limit-input')
     bodyLimitState.server = typeof data.maxBodySizeMb === 'number' ? data.maxBodySizeMb : 0
     if (input) input.value = bodyLimitState.server
-    // サーバーの resumeDefaultOn をローカル設定に反映（サーバーを正とする）
-    if (typeof data.resumeDefaultOn === 'boolean') {
-      appSettings.resumeDefaultOn = data.resumeDefaultOn
-      // サーバー値の取り込みはユーザーの変更ではない=控えにも入れて「変更あり」扱いにしない
-      if (settingsBaseline) settingsBaseline.resumeDefaultOn = data.resumeDefaultOn
-      // モーダルを開いている間は appSettings が下書きなので、保存済みの控えの方を書く
-      saveSettings(settingsBaseline || appSettings)
-      const chk = document.getElementById('resume-default-on-chk')
-      if (chk) chk.checked = data.resumeDefaultOn
-    }
+    applyServerResumeSettings(data)
     autoCompactState.server = Number.isInteger(data.autoCompactWindow) ? data.autoCompactWindow : null
     const acSel = document.getElementById('autocompact-select')
     if (acSel) { acSel.innerHTML = ''; renderAutoCompactSelect() }
@@ -1938,9 +1964,12 @@ async function saveSettingsDraftAndClose() {
   if (dirtyBodyLimit) patch.maxBodySizeMb = bodyLimitVal
   const dirtyAutoCompact = autoCompactIsDirty()
   if (dirtyAutoCompact) patch.autoCompactWindow = autoCompactDraft()
-  // 自動再開の既定はブラウザ不在時にサーバーが使うので、確定時にサーバーへも送る
+  // 自動再開の既定と再開時の文はブラウザ不在時にサーバーが使うので、確定時にサーバーへも送る
   if (settingsBaseline && appSettings.resumeDefaultOn !== settingsBaseline.resumeDefaultOn) {
     patch.resumeDefaultOn = appSettings.resumeDefaultOn
+  }
+  if (settingsBaseline && appSettings.resumePrompt !== settingsBaseline.resumePrompt) {
+    patch.resumePrompt = (appSettings.resumePrompt || '').trim()
   }
 
   if (Object.keys(patch).length === 0) { commitLocalSettings(); closeSettings(); return }
@@ -1985,7 +2014,7 @@ function openSettings() {
   settingsBtn.classList.add('active')
   renderSettingsModal()
   loadProjects()
-  loadBodyLimit()
+  loadServerConfig()
 }
 
 function closeSettings() {
@@ -2908,7 +2937,7 @@ async function scheduleResumeForSession(sessionId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         resetAt: ts.rl.resetAt.toISOString(),
-        prompt: appSettings.resumePrompt || t('resumePromptDefault'),
+        prompt: resumePromptText(),
         project: session?.project ?? null,
         model: (ts.model || appSettings.defaultModel) || null,
         effort: (ts.effort ?? appSettings.effort) || null,
@@ -3197,6 +3226,8 @@ async function init() {
   await refreshModels()
   applyFontSizes()
   updateEffortIndicator()
+  // 自動再開の設定をサーバーと揃える（待たない。設定を開いたときにも取り直す）
+  fetch('/api/server-config').then(r => r.json()).then(applyServerResumeSettings).catch(() => {})
   await refreshProjectsCache()
   let sessions = loadSessions()
 

@@ -5,6 +5,9 @@ const router = express.Router()
 const { writeJsonAtomic } = require('../services/persist')
 const { loadToolsCatalog } = require('../services/tools-catalog')
 const { validAutoCompactWindow } = require('../services/auto-compact')
+const { setPendingPrompt, DEFAULT_RESUME_PROMPT } = require('../services/scheduler')
+
+const MAX_RESUME_PROMPT_LENGTH = 2000
 
 const CONFIG_FILE = path.join(__dirname, '..', 'config.json')
 
@@ -27,6 +30,8 @@ router.get('/', (_req, res) => {
   res.json({
     maxBodySizeMb: typeof cfg.maxBodySizeMb === 'number' ? cfg.maxBodySizeMb : 0,
     resumeDefaultOn: typeof cfg.resumeDefaultOn === 'boolean' ? cfg.resumeDefaultOn : false,
+    // null＝サーバーでは一度も決めていない（端末にだけ保存していた旧版の値をクライアントが移す目印）。''＝既定の文
+    resumePrompt: typeof cfg.resumePrompt === 'string' ? cfg.resumePrompt : null,
     toolsDirect: Array.isArray(cfg.toolsDirect) ? cfg.toolsDirect : null,
     toolsProxy: Array.isArray(cfg.toolsProxy) ? cfg.toolsProxy : null,
     autoCompactWindow: validAutoCompactWindow(cfg.autoCompactWindow),
@@ -37,7 +42,7 @@ router.get('/', (_req, res) => {
 
 // PATCH /api/server-config — 設定値を更新
 router.patch('/', (req, res) => {
-  const { maxBodySizeMb, resumeDefaultOn, toolsDirect, toolsProxy, autoCompactWindow } = req.body
+  const { maxBodySizeMb, resumeDefaultOn, resumePrompt, toolsDirect, toolsProxy, autoCompactWindow } = req.body
   if (maxBodySizeMb !== undefined) {
     if (typeof maxBodySizeMb !== 'number' || maxBodySizeMb < 0 || !Number.isFinite(maxBodySizeMb)) {
       return res.status(400).json({ error: 'maxBodySizeMb must be a non-negative number (0 = unlimited)' })
@@ -46,6 +51,11 @@ router.patch('/', (req, res) => {
   if (resumeDefaultOn !== undefined) {
     if (typeof resumeDefaultOn !== 'boolean') {
       return res.status(400).json({ error: 'resumeDefaultOn must be a boolean' })
+    }
+  }
+  if (resumePrompt !== undefined) {
+    if (typeof resumePrompt !== 'string' || resumePrompt.length > MAX_RESUME_PROMPT_LENGTH) {
+      return res.status(400).json({ error: `resumePrompt must be a string of at most ${MAX_RESUME_PROMPT_LENGTH} characters ('' = default)` })
     }
   }
   if (toolsDirect !== undefined && !isValidToolsValue(toolsDirect)) {
@@ -63,6 +73,7 @@ router.patch('/', (req, res) => {
   const cfg = readConfigFile()
   if (maxBodySizeMb !== undefined) cfg.maxBodySizeMb = maxBodySizeMb
   if (resumeDefaultOn !== undefined) cfg.resumeDefaultOn = resumeDefaultOn
+  if (resumePrompt !== undefined) cfg.resumePrompt = resumePrompt.trim()
   if (toolsDirect !== undefined) {
     if (toolsDirect === null) delete cfg.toolsDirect
     else cfg.toolsDirect = toolsDirect
@@ -84,6 +95,10 @@ router.patch('/', (req, res) => {
   const config = require('../config/index')
   if (maxBodySizeMb !== undefined) config.maxBodySizeMb = maxBodySizeMb
   if (resumeDefaultOn !== undefined) config.resumeDefaultOn = resumeDefaultOn
+  if (resumePrompt !== undefined) {
+    config.resumePrompt = cfg.resumePrompt
+    setPendingPrompt(cfg.resumePrompt || DEFAULT_RESUME_PROMPT)
+  }
   if (toolsDirect !== undefined) config.toolsDirect = cfg.toolsDirect ?? null
   if (toolsProxy !== undefined) config.toolsProxy = cfg.toolsProxy ?? null
   if (autoCompactWindow !== undefined) config.autoCompactWindow = cfg.autoCompactWindow ?? null
@@ -91,6 +106,7 @@ router.patch('/', (req, res) => {
     ok: true,
     maxBodySizeMb: cfg.maxBodySizeMb,
     resumeDefaultOn: cfg.resumeDefaultOn ?? false,
+    resumePrompt: cfg.resumePrompt ?? null,
     toolsDirect: cfg.toolsDirect ?? null,
     toolsProxy: cfg.toolsProxy ?? null,
     autoCompactWindow: cfg.autoCompactWindow ?? null,

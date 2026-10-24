@@ -239,6 +239,41 @@ test('bufferが空ならM再送は何も出さない', async (t) => {
 
 // --- バリデーション ---
 
+// --- A tail ---
+
+// history-meta の後も一定時間読み続ける（A tail の追記分を拾う）。onOpen は最初のバイト受信時に1回呼ぶ。
+function readSSEFor(url, ms, onOpen) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, res => {
+      let body = ''
+      res.once('data', () => onOpen())
+      res.on('data', d => { body += d })
+      setTimeout(() => { req.destroy(); resolve(body) }, ms)
+    })
+    req.on('error', reject)
+  })
+}
+
+test('A tail: 接続時に書きかけだった末尾行は、書き終わってから正しい行番号で届く', async (t) => {
+  const base = withServer(t)
+  const id = randomUUID()
+  t.after(() => { cleanupMainJsonl(id); getState(id).buffer = [] })
+  const line = (uuid, text) => JSON.stringify({ type: 'assistant', uuid, message: { content: [{ type: 'text', text }] } })
+  const aFile = path.join(CLAUDE_PROJECTS_DIR, `${id}.jsonl`)
+  const third = line('u2', 'L2')
+  // 2行＋書きかけの3行目（改行まで届いていない）
+  fs.writeFileSync(aFile, line('u0', 'L0') + '\n' + line('u1', 'L1') + '\n' + third.slice(0, 20))
+
+  const text = await readSSEFor(`${base}/api/stream?session=${id}`, 800, () => {
+    fs.appendFileSync(aFile, third.slice(20) + '\n' + line('u3', 'L3') + '\n')
+  })
+  const evs = parseSSE(text)
+  const meta = evs.find(e => e.event === 'history-meta')
+  assert.equal(meta.data.maxA, 1, '書きかけの行は数えない')
+  const texts = evs.filter(e => e.data?.event?.delta?.type === 'text_delta').map(e => `${e.id}:${e.data.event.delta.text}`)
+  assert.deepEqual(texts, ['A0:L0', 'A1:L1', 'A2:L2', 'A3:L3'])
+})
+
 test('session無しは400・不正IDは400', async (t) => {
   const base = withServer(t)
   assert.equal((await fetch(`${base}/api/stream`)).status, 400)

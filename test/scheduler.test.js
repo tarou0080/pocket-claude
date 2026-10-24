@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { computeFireAt, schedules, STAGGER_MS, RESUME_BUFFER_MS, loadSchedules } = require('../services/scheduler')
+const { computeFireAt, schedules, STAGGER_MS, RESUME_BUFFER_MS, loadSchedules, setPendingPrompt } = require('../services/scheduler')
 
 // computeFireAt() は「他の実際に再開する(prompt有り)エントリの fireAt と STAGGER_MS 未満で
 // 被らない発火時刻」を返す純粋な探索ロジック。schedules Map を直接操作して検証する
@@ -79,4 +79,17 @@ test('再起動時、リセット時刻を過ぎた状態記録のみの予約�
   assert.equal(schedules.has('session-a'), false)
   assert.equal(schedules.has('session-b'), true)
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))), ['session-b'])
+})
+
+test('再開時の文を変えると、まだ送っていない再開予約の文も差し替える（状態記録のみの予約は触らない）', () => {
+  const future = new Date(Date.now() + 3600000).toISOString()
+  const file = writeTmpSchedules({
+    'session-a': { resetAt: future, prompt: '続けて' },
+    'session-b': { resetAt: future, prompt: null }
+  })
+  loadSchedules(file)
+  setPendingPrompt('続きをお願いします')
+  assert.equal(schedules.get('session-a').prompt, '続きをお願いします')
+  assert.equal(schedules.get('session-b').prompt, null)
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8'))['session-a'].prompt, '続きをお願いします')
 })

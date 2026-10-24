@@ -135,6 +135,7 @@ function getSessionMessages(sessionId) {
 //  - B ＝ pocketログ config.LOGS_DIR/<id>.jsonl（非空行番号b、v2.15.0では各行に
 //    after: <uuid|null> ＝ 直前のA行のuuid。Bの各行はafterでAの織り込み位置を自ら指定する）
 // 実測済み: stdoutのassistant/userイベントはAの行と同じuuidを持つ。
+// 返り値: weave の結果＋ aBytes（読んだ A のバイト長）＋ aUuids（同じ A の assistant/user の uuid 集合）
 function buildConversation(sessionId, { fromA = 0, fromB = 0 } = {}) {
   if (!UUID_RE.test(sessionId)) {
     throw new Error('invalid sessionId')
@@ -143,14 +144,38 @@ function buildConversation(sessionId, { fromA = 0, fromB = 0 } = {}) {
 
   let mainRawLines = []
   let pocketRawLines = []
+  // A は CLI が書き続けているので、1回だけ読んで最後の改行までを使う（書きかけの末尾行は
+  // まだ1行と数えない）。aBytes はその長さで、routes/stream.js の A tail はここから読み始める。
+  // 読んだ時点と tail の起点がずれると、間に追記された行が届かず、以降の行番号もずれる
+  // （再接続でカーソルが手前に戻り、描画済みの行がもう一度届く）。
+  let aBytes = 0
   try {
-    mainRawLines = fs.readFileSync(findTranscript(sessionId), 'utf8').split('\n')
+    const buf = fs.readFileSync(findTranscript(sessionId))
+    aBytes = buf.lastIndexOf(0x0a) + 1
+    mainRawLines = buf.toString('utf8', 0, aBytes).split('\n')
   } catch {}
   try {
     pocketRawLines = fs.readFileSync(path.join(config.LOGS_DIR, `${sessionId}.jsonl`), 'utf8').split('\n')
   } catch {}
 
-  return weave(mainRawLines, pocketRawLines, { fromA, fromB })
+  return { ...weave(mainRawLines, pocketRawLines, { fromA, fromB }), aBytes, aUuids: messageUuids(mainRawLines) }
+}
+
+// A の assistant/user 行の uuid 集合（M 再送のアンカー判定用）。
+// stdout の assistant/user イベントは A の行と同じ uuid を持つ（実測）。それ以外の
+// 行種（queue-operation 等）の uuid は stream_event の uuid と衝突し得るため集めない。
+function messageUuids(rawLines) {
+  const set = new Set()
+  for (const line of rawLines) {
+    if (!line.trim()) continue
+    try {
+      const entry = JSON.parse(line)
+      if (entry && (entry.type === 'assistant' || entry.type === 'user') && entry.uuid != null) {
+        set.add(entry.uuid)
+      }
+    } catch {}
+  }
+  return set
 }
 
 // weave: buildConversationの純関数部分。ファイル読みを外に出してテスト可能にしてある

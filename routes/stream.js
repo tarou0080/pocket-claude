@@ -1,5 +1,4 @@
 const fs = require('fs')
-const path = require('path')
 const express = require('express')
 const router = express.Router()
 const { getState, registerSSEClient, unregisterSSEClient, classifyCursor, isTranscriptDrawn } = require('../services/stream')
@@ -18,29 +17,6 @@ function sendEvent(res, id, event, dataObj) {
   if (event) line += `event: ${event}\n`
   line += `data: ${JSON.stringify(dataObj)}\n\n`
   res.write(line)
-}
-
-// A（本体jsonl）の assistant/user 行の uuid 集合（M再送のアンカー判定用）。
-// stdout の assistant/user イベントは A の行と同じ uuid を持つ（実測）。それ以外の
-// 行種（queue-operation 等）の uuid は stream_event の uuid と衝突し得るため集めない。
-function collectAUuids(sessionId) {
-  const set = new Set()
-  let raw
-  try {
-    raw = fs.readFileSync(findTranscript(sessionId), 'utf8')
-  } catch {
-    return set
-  }
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue
-    try {
-      const entry = JSON.parse(line)
-      if (entry && (entry.type === 'assistant' || entry.type === 'user') && entry.uuid != null) {
-        set.add(entry.uuid)
-      }
-    } catch {}
-  }
-  return set
 }
 
 // ファイルの [start, start+length) バイトだけ読む（全読みしない）。
@@ -91,7 +67,7 @@ router.get('/', (req, res) => {
     try { res.write(': ping\n\n') } catch {}
   }, 20000)
 
-  const { events, maxA, maxB } = buildConversation(sessionId, { fromA, fromB })
+  const { events, maxA, maxB, aBytes, aUuids } = buildConversation(sessionId, { fromA, fromB })
 
   // 1. カーソルがサーバーの履歴を追い越している（jsonl削除・セッション再利用等）なら
   //    履歴は送らずリセットだけ伝える。接続は保ち、以降は何も送らない（クライアントが
@@ -112,8 +88,8 @@ router.get('/', (req, res) => {
   //    assistant/user は表示語彙へ変換して event: history（id 無し・クライアントは
   //    uuid で履歴側と照合）、それ以外の生イベント（書きかけの stream_event 等）は
   //    そのまま id 無しの無名イベントで送る。
+  //    A の uuid は履歴と同じ読み取りから取る（別に読み直すと、間に追記された行の分だけ食い違う）。
   if (Array.isArray(s.buffer) && s.buffer.length) {
-    const aUuids = collectAUuids(sessionId)
     let start = 0
     for (let i = 0; i < s.buffer.length; i++) {
       const ev = s.buffer[i]
@@ -158,17 +134,11 @@ router.get('/', (req, res) => {
   let aPath = findTranscript(sessionId)
   const aName = `${sessionId}.jsonl`
   let aExists = aPath !== null
-  let lastSize = 0
-  // 追加行の非空行番号の起点＝既存の非空行数（再生済みの A0..A<maxA> の次）。
+  // 再生した A の続きから読む。起点のバイト位置と行番号は buildConversation が読んだ
+  // 同じ内容から取る（ここで stat し直すと、その間に CLI が追記した行を飛ばし、
+  // 以降の行番号も実際より小さくなる）。A がまだ無かったなら aBytes=0・maxA=-1。
+  let lastSize = aBytes
   let nextA = maxA + 1
-  if (aExists) {
-    try {
-      lastSize = fs.statSync(aPath).size
-    } catch {
-      aExists = false
-    }
-  }
-  if (!aExists) nextA = 0
   // 末尾の不完全行はバイト列のままバッファし、改行が揃ってから toString('utf8') する
   // （マルチバイト文字の境界で分割されないようにする＝バイト長と文字長の混同防止）。
   let tailBuf = Buffer.alloc(0)

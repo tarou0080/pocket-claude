@@ -4,6 +4,12 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **Duplicated or late conversation lines** - Reopening the page while a turn was running (returning to the app, reconnecting) dropped lines written to the transcript at that moment and shifted the numbering of later lines, so the next reconnect showed the missing lines late or drew already-shown lines again. The server now starts watching the transcript exactly where it finished reading it, and a half-written last line is counted only once it is complete.
+- **Resume prompt ignored** - The resume prompt in Settings was stored only in the browser, so whenever the server armed an auto-resume by itself (e.g. no browser connected) it always sent the built-in default. The prompt is now also stored on the server (`resumePrompt` in `config.json`), and saving it updates resumes that are already waiting. A prompt previously saved only in the browser is moved to the server the next time the page opens.
+
 ## [v3.0.4] - 2026-10-14
 
 ### Fixed

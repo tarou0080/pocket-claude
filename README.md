@@ -244,7 +244,7 @@ Open the **⚙** panel in the header to adjust:
 - **Language** — Japanese / English.
 - **Request body size limit** — Max upload size in MB (`0` = unlimited), useful when attaching large images.
 
-All settings are stored in the browser and persist across restarts, except the auto-compact window, the tool lists, the body size limit and resume-by-default, which live in `config.json` because the server needs them when no browser is connected.
+All settings are stored in the browser and persist across restarts, except the auto-compact window, the tool lists, the body size limit, resume-by-default and the resume prompt, which live in `config.json` because the server needs them when no browser is connected.
 
 ## Usage notes
 

@@ -212,6 +212,18 @@ test('pocketログが無ければ本体jsonl全部を返す', () => {
   assert.deepEqual(out.map(e => e.text), ['turn1', 'turn2'])
 })
 
+test('buildConversation: 書きかけの末尾行は数えず、aBytes は最後の改行までの長さ', () => {
+  const id = testSessionId()
+  const aLines = aLinesFixture()
+  const complete = aLines.join('\n') + '\n'
+  fs.writeFileSync(mainJsonlPath(id), complete + '{"type":"user","uu')
+
+  const conv = buildConversation(id)
+  assert.equal(conv.maxA, 2)
+  assert.equal(conv.aBytes, Buffer.byteLength(complete))
+  assert.deepEqual([...conv.aUuids].sort(), ['a0', 'a1', 'a2'])
+})
+
 test('buildConversation: A＋B（after付き）を織り込んで返す', () => {
   const id = testSessionId()
   const aLines = aLinesFixture()

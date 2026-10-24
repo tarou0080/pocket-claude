@@ -13,6 +13,9 @@ const RESUME_BUFFER_MS = 180000
 // 衝突するものは 3分 ずつ後ろの空きスロットへずらす。
 const STAGGER_MS = 180000
 
+// 自動再開で送る文の既定（設定で文を決めていないとき）。
+const DEFAULT_RESUME_PROMPT = '続けてください'  // Claude 宛ての本文（画面の文言ではない）
+
 // sessionId -> { resetAt, prompt, project, model, effort, thinking, fireAt, timerId }
 // prompt が null の場合は状態記録のみ（再開しない＝ずらし対象外）
 // fireAt は実際にタイマーが発火する時刻(ms)。カードはこの時刻を表示する。
@@ -137,6 +140,16 @@ function cancelResume(sessionId) {
   saveSchedules()
 }
 
+// 設定の「再開時の文」が変わったら、まだ送っていない予約（prompt有り）の文も差し替える。
+// 予約は登録した時点の文を持つので、差し替えないと保存後も古い文が送られる。
+function setPendingPrompt(prompt) {
+  let changed = false
+  schedules.forEach(s => {
+    if (s.prompt && s.prompt !== prompt) { s.prompt = prompt; changed = true }
+  })
+  if (changed) saveSchedules()
+}
+
 function getSchedule(sessionId) {
   const s = schedules.get(sessionId)
   if (!s) return null
@@ -184,8 +197,10 @@ function loadSchedules(file = SCHEDULES_FILE) {
 }
 
 module.exports = {
+  DEFAULT_RESUME_PROMPT,
   scheduleResume,
   cancelResume,
+  setPendingPrompt,
   getSchedule,
   loadSchedules,
   // テスト専用に追加公開（発火時刻計算のロジックはそのまま・挙動変更なし）

@@ -190,7 +190,7 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
         // prompt=null の保存は既存のON登録（prompt有り）を上書きしない（scheduler側ガード）。
         const resetAt = parseResetTime(limitText)
         if (resetAt) {
-          const { scheduleResume } = require('./scheduler')
+          const { scheduleResume, DEFAULT_RESUME_PROMPT } = require('./scheduler')
           const cfg = require('../config/index')
           if (cfg.resumeDefaultOn) {
             // resumeDefaultON=true: prompt付きで登録 → doResumeタイマーが入る
@@ -198,7 +198,8 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
             // model/effort/thinking も渡す（このプロセスが現在実際に走っている設定＝最も正確な値）。
             // 渡し忘れると切断中に制限へ当たった場合、doResume再起動時にCLI既定モデルへ
             // 無言で落ちる（予約投稿のproject欠落と同型の不具合）。
-            const resumePrompt = '続けてください'  // Claude 宛ての本文（画面の文言ではない）
+            // 文は設定画面の「再開時の文」（config.json の resumePrompt）。ブラウザが繋がっていない間も効くようにサーバーが持つ
+            const resumePrompt = cfg.resumePrompt || DEFAULT_RESUME_PROMPT
             scheduleResume(sessionId, resetAt.toISOString(), resumePrompt, project, model, effort, thinking)
             console.log(`[rate-limit] auto-resume default-on registered sessionId=${sessionId} resetAt=${resetAt.toISOString()}`)
           } else {

@@ -6,7 +6,6 @@
 
 const fs = require('fs')
 const path = require('path')
-const config = require('../config/index')
 const { findTranscript } = require('./claude-dir')
 const { UUID_RE } = require('./history')
 
