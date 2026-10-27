@@ -4,6 +4,17 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.2.0] - 2026-10-27
+
+### Changed
+- **Effort in settings now applies to the current tab only** - Saving it used to overwrite the effort of every open tab. It now changes the current tab (and the default for tabs with nothing to inherit), the same way Thinking already worked. Each tab keeps its own model, effort and thinking.
+
+### Fixed
+- **Changing effort or thinking had no effect on a conversation that was already running** - The CLI reads both only when it starts, and pocket-claude keeps the process alive between turns, so a new value was ignored until the process happened to restart. An idle conversation whose effort or thinking differs from what it was started with is now restarted with `--resume` on your next send (the conversation continues). Fields a client does not send are not compared, and are carried over when restarting. Proxied models never receive these settings and are not restarted.
+
+### Removed
+- **Read aloud (v3.1.0)** - The speaker button, speech synthesis and Screen Wake Lock are removed. The per-device `pc-speak` value left in the browser is ignored.
+
 ## [v3.1.0] - 2026-10-14
 
 ### Added

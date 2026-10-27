@@ -2,14 +2,14 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const router = express.Router()
-const { stopClaude, deliverPrompt, sendControlMessage, gitPull } = require('../services/spawner')
+const { stopClaude, deliverPrompt, sendControlMessage, gitPull, thinkingFlag } = require('../services/spawner')
 const { getState, broadcast, logFile, turningSessions } = require('../services/stream')
 const { scheduleResume, cancelResume, getSchedule } = require('../services/scheduler')
 const { readSessionFacts, projectFromCwd, sessionExists } = require('../services/session-facts')
 const { sessionModel } = require('../services/models')
 const { findClaudePid } = require('../services/external-process')
 const { UUID_RE } = require('../services/history')
-const { proxyRouteChanged } = require('../services/proxy-route')
+const { proxyRouteChanged, getProxyEnv } = require('../services/proxy-route')
 const { validAutoCompactWindow } = require('../services/auto-compact')
 const config = require('../config/index')
 
@@ -95,6 +95,22 @@ router.post('/send', async (req, res) => {
     restart = true
   }
 
+  // Effort・Thinking も CLI は起動時にしか読まない。タブで変えた値が待機中のプロセスと違えば、
+  // その会話だけ起動し直す。送ってこなかった項目（undefined）は比べない＝API から本文だけ送る
+  // 呼び出しで起動し直さない。プロキシ経由のモデルにはそもそも渡さないので比べない。
+  if (s.process && !s.turning && !restart && !getProxyEnv(config, s.model)) {
+    const effortChanged = effort !== undefined && (effort || null) !== (s.effort ?? null)
+    const thinkingChanged = thinking !== undefined && thinkingFlag(thinking) !== (s.thinking ?? null)
+    if (effortChanged || thinkingChanged) {
+      console.log(`[send] effort ${s.effort ?? 'default'} → ${effort ?? '(unchanged)'} thinking ${s.thinking ?? 'default'} → ${thinking ?? '(unchanged)'} sessionId=${actualSessionId} : kill+resume restart`)
+      restart = true
+    }
+  }
+
+  // 起動し直すとき、送ってこなかった項目は今のプロセスの値を引き継ぐ（黙って既定へ戻さない）
+  const effortArg = effort !== undefined ? (effort || null) : (restart ? (s.effort ?? null) : null)
+  const thinkingArg = thinking !== undefined ? thinking : (restart ? (s.thinking ?? null) : null)
+
   if (restart) {
     const oldProc = s.process
     oldProc.removeAllListeners('close')
@@ -118,8 +134,8 @@ router.post('/send', async (req, res) => {
     imageData,
     project: actualProject,
     model,
-    effort: effort || null,
-    thinking: thinking !== undefined ? thinking : null,
+    effort: effortArg,
+    thinking: thinkingArg,
   })
   if (result.status === 'failed') {
     return res.status(502).json({

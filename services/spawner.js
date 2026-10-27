@@ -45,6 +45,14 @@ function sendControlMessage(proc, subtype, extra = {}, timeoutMs = CONTROL_TIMEO
   })
 }
 
+// 画面の Thinking 値（'on'/'off'/'none'・旧形式の true/false）を CLI の alwaysThinkingEnabled へ。
+// null＝指定しない（CLI 既定）。
+function thinkingFlag(thinking) {
+  if (thinking === 'on' || thinking === true) return true
+  if (thinking === 'off' || thinking === false) return false
+  return null
+}
+
 // claude プロセス起動（常駐モード: --input-format stream-json）
 //
 // ID統一（v2.12.0）: pocket session ID === Claude session ID。
@@ -89,9 +97,13 @@ function startClaude(sessionId, prompt, model, project, effort, thinking, imageD
   // effort/alwaysThinkingEnabled は Claude 固有設定。プロキシ経由(GLM等)では送らない。
   if (!proxyEnv) {
     if (effort) settings.effort = effort
-    if (thinking === 'on' || thinking === true) settings.alwaysThinkingEnabled = true
-    else if (thinking === 'off' || thinking === false) settings.alwaysThinkingEnabled = false
+    const flag = thinkingFlag(thinking)
+    if (flag !== null) settings.alwaysThinkingEnabled = flag
   }
+  // effort/thinking も CLI は起動時にしか読まない。控えておき、タブの値が変わった後の
+  // 送信で /api/send がこれと比べ、違えば --resume で起動し直す（routes/claude.js）。
+  s.effort = effort || null
+  s.thinking = thinkingFlag(thinking)
   // 自動圧縮の開始点（CLI の autoCompactWindow・トークン数）。effort と違いプロキシ経由でも渡す:
   // API へは送られず CLI 内の判定にだけ使われ、モデルの窓を超える値は CLI が窓へ切り詰める（実測）。
   // 未設定なら渡さない＝CLI 既定（~/.claude/settings.json → モデル既定）に委ねる。
@@ -420,4 +432,4 @@ function _notifyFailure(sessionId, prompt, reason, reasonKey = null) {
   broadcast(sessionId, { type: 'system', key: 'sendFailed', params: { reason, reasonKey, preview }, text: `Could not send: ${reason} — ${preview ?? '(image)'}` })
 }
 
-module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull }
+module.exports = { startClaude, stopClaude, injectPrompt, deliverPrompt, sendControlMessage, gitPull, thinkingFlag }
