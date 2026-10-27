@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.2.1] - 2026-10-28
+
+### Changed
+- **New tabs start from the defaults in settings** - A tab opened with **+** used to copy the current tab's model, effort and thinking, so the defaults in ⚙ were only used when there was no tab to copy from. New tabs now always start from the defaults. The tab created on first launch or after closing the last tab, and any value the server could not read for a conversation reopened from history, now also store the defaults in the tab, so they no longer follow later changes to the defaults.
+
 ## [v3.2.0] - 2026-10-27
 
 ### Changed

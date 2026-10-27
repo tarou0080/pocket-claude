@@ -2419,6 +2419,20 @@ let connectionCheckTimer = null
 let lastHeartbeat = Date.now()
 
 // ── localStorage管理 ──
+// 新しいタブ（＋・起動時に0枚・最後のタブを閉じた・履歴から開いた／実行中に合流した会話の読めない項目）は設定の既定値で始め、値をタブに持たせる。
+// 今のタブは引き継がない（既定値が使われなくなる）。値を持たせないと後で既定値を変えたときに追従してしまう
+function newTabSession(project) {
+  return {
+    sessionId: crypto.randomUUID(),
+    name: 'Claude Code',
+    project,
+    lastUsed: Date.now(),
+    model: appSettings.defaultModel,
+    effort: appSettings.effort,
+    thinking: appSettings.thinking
+  }
+}
+
 function loadSessions() {
   const data = localStorage.getItem('sessions')
   return data ? JSON.parse(data) : []
@@ -2609,13 +2623,7 @@ async function deleteTab(sessionId) {
       switchTab(remaining[0].dataset.sessionId)
     } else {
       // 最後のタブを削除したので新規タブを作成
-      const currentProj = Object.keys(_projectsCache)[0]
-      const newSession = {
-        sessionId: crypto.randomUUID(),
-        name: 'Claude Code',
-        project: currentProj,
-        lastUsed: Date.now()
-      }
+      const newSession = newTabSession(Object.keys(_projectsCache)[0])
       saveSessions([newSession])
       ensureTabState(newSession)
       createTabEl(newSession)
@@ -3221,13 +3229,7 @@ async function init() {
 
   // 初回起動時、セッションがなければ作成
   if (sessions.length === 0) {
-    const defaultProject = Object.keys(_projectsCache)[0]
-    sessions = [{
-      sessionId: crypto.randomUUID(),
-      name: 'Claude Code',
-      project: defaultProject,
-      lastUsed: Date.now()
-    }]
+    sessions = [newTabSession(Object.keys(_projectsCache)[0])]
     saveSessions(sessions)
   }
 
@@ -4983,10 +4985,9 @@ async function attachLiveSession(liveSessionId, title) {
         if (r.ok) saved = await r.json()
       } catch (e) { /* 取得失敗時は既定値フォールバック */ }
       session = {
+        ...newTabSession(saved.project || getCurrentSession()?.project || Object.keys(_projectsCache)[0]),
         sessionId: liveSessionId,
         name: (title || t('resumedConvName')).substring(0, 30),
-        project: saved.project || getCurrentSession()?.project || Object.keys(_projectsCache)[0],
-        lastUsed: Date.now(),
       }
       if (saved.model != null) session.model = saved.model
       if (saved.effort != null) session.effort = saved.effort
@@ -5070,14 +5071,13 @@ async function resumeConversation(sessionId, title) {
     if (!targetSession) {
       const currentProj = getCurrentSession()?.project || Object.keys(_projectsCache)[0]
       targetSession = {
+        ...newTabSession(currentProj),
         sessionId,
         name: (title || t('resumedConvName')).substring(0, 30),
-        project: currentProj,
-        lastUsed: Date.now(),
       }
       // サーバーに最終使用設定(model/effort/thinking)が残っていれば引き継ぐ。
       // model はサーバーが一覧の中から決めた値（pocket が起動時に渡した値が最優先）。
-      // null なら既定値へフォールバック（ensureTabStateの既定処理に任せる）。
+      // null の項目は newTabSession が入れた既定値のまま（タブが値を持つ）。
       try {
         const settingsRes = await fetch(`/api/session-settings/${sessionId}`)
         if (settingsRes.ok) {
@@ -5336,19 +5336,7 @@ addTabBtn.addEventListener('click', async () => {
     ? defaultProject
     : (getCurrentSession()?.project || Object.keys(_projectsCache)[0])
 
-  // 現在のタブの設定を継承
-  const currentSession = getCurrentSession()
-  const currentTabState = currentSessionId ? tabState[currentSessionId] : null
-
-  const newSession = {
-    sessionId: crypto.randomUUID(),
-    name: 'Claude Code',
-    project,
-    lastUsed: Date.now(),
-    model: currentTabState?.model || currentSession?.model || appSettings.defaultModel,
-    effort: currentTabState?.effort ?? currentSession?.effort ?? appSettings.effort,
-    thinking: currentTabState?.thinking ?? currentSession?.thinking ?? appSettings.thinking
-  }
+  const newSession = newTabSession(project)
 
   const sessions = loadSessions()
   sessions.push(newSession)
