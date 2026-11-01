@@ -986,6 +986,8 @@
           </div>
         </div>
       </div>
+      <!-- Model / Effort / Thinking = 新しいタブの既定値（今のタブはヘッダーで変える） -->
+      <div id="tab-defaults-note" style="font-size:12px;color:var(--text-muted);margin-bottom:-6px;"></div>
       <!-- Model -->
       <div>
         <div class="settings-section-title" id="stitle-model"></div>
@@ -1197,6 +1199,7 @@ const STRINGS = {
     fontCode:             'コード',
     modelLabel:           'モデル',
     modelDefault:         'デフォルト',
+    tabDefaultsNote:      'モデル・思考レベル・内部推論ステップは、新しいタブの既定です。今のタブはヘッダーで変えます。',
     effortLabel:          '思考レベル',
     thinkingLabel:        '内部推論ステップ',
     thinkingNone:         '指定なし',
@@ -1330,6 +1333,7 @@ const STRINGS = {
     fontCode:             'Code',
     modelLabel:           'Model',
     modelDefault:         'default',
+    tabDefaultsNote:      'Model, Effort and Thinking are the defaults for new tabs. Change the current tab from the header.',
     effortLabel:          'Effort',
     thinkingLabel:        'Thinking',
     thinkingNone:         'None',
@@ -1764,29 +1768,12 @@ function bodyLimitIsDirty() {
 
 // 端末側の設定(appSettings)は、モーダルを開いた時点の値を控えておき、モーダル内の操作では
 // 画面にだけ反映して localStorage へは書かない。確定は「保存 ✕」、破棄は「キャンセル」の1経路。
-// Effort と Thinking は「今のタブ」の値を表示・変更するため appSettings と別に下書きを持つ(undefined=未操作)。
-// 確定すると今のタブと、今後の既定値(appSettings)が変わる。ほかのタブには触らない(設定はタブごと)。
+// モデル・Effort・Thinking も既定値(新しいタブで使う値)だけを表示・変更する。今のタブの値はヘッダーで変える
+// (1つの欄にタブの値と既定値を兼ねさせない・v3.3.0)。
 let settingsBaseline = null
-let thinkingDraft
-let effortDraft
-
-function currentEffort() {
-  return (currentSessionId && tabState[currentSessionId])
-    ? tabState[currentSessionId].effort
-    : appSettings.effort
-}
-
-function currentThinking() {
-  const v = (currentSessionId && tabState[currentSessionId])
-    ? tabState[currentSessionId].thinking
-    : appSettings.thinking
-  return v === true ? 'on' : v === false ? 'off' : (v || 'none')
-}
 
 function localSettingsIsDirty() {
   if (!settingsBaseline) return false
-  if (thinkingDraft !== undefined && thinkingDraft !== currentThinking()) return true
-  if (effortDraft !== undefined && effortDraft !== currentEffort()) return true
   // 表示モデルは外して付け直すと末尾に回る=順序は意味を持たないので集合として比べる
   const norm = s => JSON.stringify({ ...s, enabledModels: [...(s.enabledModels || [])].sort() })
   return norm(appSettings) !== norm(settingsBaseline)
@@ -1801,34 +1788,16 @@ function markSettingsChanged() {
 function restoreSettingsBaseline() {
   if (!settingsBaseline) return
   appSettings = JSON.parse(JSON.stringify(settingsBaseline))
-  thinkingDraft = undefined
-  effortDraft = undefined
   applyFontSizes()
   applyTheme()
   rebuildModelSelect()
   loadProjects()
 }
 
-// 端末側の下書きを確定する(localStorage へ書き、Effort/Thinking は今のタブへ反映)
+// 端末側の下書きを確定する(localStorage へ書く)。設定画面は既定値だけを持ち、今のタブには触らない
 function commitLocalSettings() {
-  if (effortDraft !== undefined) {
-    if (currentSessionId && tabState[currentSessionId]) {
-      tabState[currentSessionId].effort = effortDraft
-      updateSession(currentSessionId, { effort: effortDraft })
-    }
-    appSettings.effort = effortDraft
-    effortDraft = undefined
-    updateEffortIndicator()
-  }
-  if (thinkingDraft !== undefined) {
-    if (currentSessionId && tabState[currentSessionId]) {
-      tabState[currentSessionId].thinking = thinkingDraft
-      updateSession(currentSessionId, { thinking: thinkingDraft })
-    }
-    appSettings.thinking = thinkingDraft
-    thinkingDraft = undefined
-  }
   saveSettings(appSettings)
+  updateEffortIndicator() // タブが無いときだけヘッダーは既定値を出す
 }
 
 // 設定モーダル全体で未保存の変更があるか(ツール構成 + ボディサイズ上限 + 端末側の設定)
@@ -1993,8 +1962,6 @@ function cancelSettingsDraftAndClose() {
 
 function openSettings() {
   settingsBaseline = JSON.parse(JSON.stringify(appSettings))
-  thinkingDraft = undefined
-  effortDraft = undefined
   settingsModal.classList.add('open')
   settingsBtn.classList.add('active')
   renderSettingsModal()
@@ -2004,8 +1971,6 @@ function openSettings() {
 
 function closeSettings() {
   settingsBaseline = null
-  thinkingDraft = undefined
-  effortDraft = undefined
   settingsModal.classList.remove('open')
   settingsBtn.classList.remove('active')
   // 保存・キャンセルのどちらでも、確定した言語で静的な文言と予約一覧を描き直す
@@ -2104,6 +2069,7 @@ function renderSettingsModal() {
   document.getElementById('settings-title').textContent  = t('settingsTitle')
   document.getElementById('stitle-lang').textContent     = t('langLabel')
   document.getElementById('stitle-font').textContent     = t('fontSizeLabel')
+  document.getElementById('tab-defaults-note').textContent = t('tabDefaultsNote')
   document.getElementById('stitle-model').textContent    = t('modelLabel')
   document.getElementById('stitle-effort').textContent   = t('effortLabel')
   document.getElementById('stitle-thinking').textContent = t('thinkingLabel')
@@ -2210,16 +2176,15 @@ function renderSettingsModal() {
     modelList.appendChild(row)
   })
 
-  // Effort list（今のタブの値を表示・変更。確定で今のタブと今後の既定値が変わる）
+  // Effort list（既定値を表示・変更。今のタブには触らない）
   const effortList = document.getElementById('settings-effort-list')
   effortList.innerHTML = ''
-  const curEffort = effortDraft !== undefined ? effortDraft : currentEffort()
+  const curEffort = appSettings.effort
   getEffortOptions().forEach(opt => {
     const row = document.createElement('div')
     row.className = 'effort-option' + (curEffort === opt.value ? ' selected' : '')
     row.addEventListener('click', () => {
-      // タブへの反映は「保存 ✕」で確定したとき(commitLocalSettings)
-      effortDraft = opt.value
+      appSettings.effort = opt.value
       markSettingsChanged()
       effortList.querySelectorAll('.effort-option').forEach(r => r.classList.remove('selected'))
       row.classList.add('selected')
@@ -2243,14 +2208,13 @@ function renderSettingsModal() {
   })
 
   // Thinking selector
-  const curThinking = thinkingDraft !== undefined ? thinkingDraft : currentThinking()
+  const curThinking = appSettings.thinking || 'none'
   document.getElementById('thinking-selector').querySelectorAll('.seg-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.val === curThinking)
     btn.onclick = () => {
       const val = btn.dataset.val
       btn.closest('.seg-control').querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn))
-      // タブへの反映は「保存 ✕」で確定したとき(commitLocalSettings)
-      thinkingDraft = val
+      appSettings.thinking = val
       markSettingsChanged()
     }
   })

@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.3.0] - 2026-11-02
+
+### Changed
+- **⚙ shows and edits only the defaults for new tabs** - Effort and Thinking in settings used to show the current tab's value and, when saved, write it to both the current tab and the default. The real default was never shown, and a value switched temporarily in the header could slip into the default. Model, Effort and Thinking in ⚙ now all show the defaults and saving never touches open tabs; the header (model menu and **●●●**) is the only place that changes the current tab. A note above these settings says so.
+
 ## [v3.2.1] - 2026-10-28
 
 ### Changed
