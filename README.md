@@ -135,7 +135,7 @@ This is mostly useful for endpoints where prompt caching does not apply — e.g.
 
 ### Prerequisites
 
-- Node.js v18+
+- Node.js v22+ (a supported LTS; tested on v24)
 - [Claude Code CLI](https://code.claude.com/) installed and authenticated
 
 ## Project Management

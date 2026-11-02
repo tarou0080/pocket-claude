@@ -135,7 +135,7 @@ cp projects.example.json projects.json
 
 ### 前提条件
 
-- Node.js v18+
+- Node.js v22+（サポート中の LTS。動作確認は v24）
 - [Claude Code CLI](https://code.claude.com/) がインストール・認証済み
 
 ## プロジェクト管理

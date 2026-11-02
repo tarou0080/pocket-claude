@@ -4,6 +4,15 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.3.2] - 2026-11-02
+
+### Changed
+- **Bundled marked 9.1.6 → 18.1.2** - The 9.x line has had no release since 2023-11. Output still always passes through DOMPurify. Rendering is the same for almost all messages (6 of 1,068 real replies differed in testing): `&` in link URLs is now written as `&amp;` (same link), and bold that starts or ends with a symbol right next to CJK text, such as `と**⚙の既定値**の`, now stays literal `**` as CommonMark requires (put a space or plain text at the edge to make it bold).
+- **`qs` pinned to 6.16.1** (`overrides` `^6.16.1`) - v3.3.1 picked up 6.17.1 four days after it was published. 6.16.1 has the same fix and had been out for 19 days. Freshly published versions are avoided on purpose: compromised releases of popular npm packages were repeatedly found and pulled within days in 2026.
+
+### Documentation
+- **Node.js requirement is now v22+** (README) - Node 18 and 20 are past end of life. Tested on v24.
+
 ## [v3.3.1] - 2026-11-02
 
 ### Security

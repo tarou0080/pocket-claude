@@ -9,13 +9,13 @@ and removes the runtime dependency on any external network access.
 
 | File | Library | Version | License |
 |---|---|---|---|
-| `marked.min.js` | [marked](https://github.com/markedjs/marked) | 9.1.6 | MIT |
+| `marked.min.js` | [marked](https://github.com/markedjs/marked) | 18.1.2 | MIT |
 | `purify.min.js` | [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.17 | Apache-2.0 OR MPL-2.0 |
 
 Both files were fetched unmodified from jsdelivr's pinned-version URLs:
 
 ```
-https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js
+https://cdn.jsdelivr.net/npm/marked@18.1.2/lib/marked.umd.js   (saved as marked.min.js; marked no longer ships a root marked.min.js)
 https://cdn.jsdelivr.net/npm/dompurify@3.4.17/dist/purify.min.js
 ```
 
