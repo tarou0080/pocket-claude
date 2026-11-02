@@ -4,6 +4,11 @@ English | [日本語](CHANGELOG.ja.md)
 
 All notable changes to pocket-claude are documented here.
 
+## [v3.3.1] - 2026-11-02
+
+### Security
+- **Dependency updates** - `body-parser` 1.20.6 → 1.20.9 (GHSA-27r3-jxmh-p828, High: denial of service via trailing bytes after a compressed request body; `express.json()` inflates gzip/deflate bodies, so pocket-claude was affected). `qs` → 6.17.1 (GHSA-6pq8-jhm2-2vcw, Moderate; `stringify` is not used by pocket-claude). Bundled DOMPurify 3.4.16 → 3.4.17 (GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr, GHSA-c6gr-qvv4-5v3f; these require `SAFE_FOR_TEMPLATES`, `IN_PLACE` or `PARSER_MEDIA_TYPE`, none of which pocket-claude uses). No behavior change. Run `npm install` after updating.
+
 ## [v3.3.0] - 2026-11-02
 
 ### Changed

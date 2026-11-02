@@ -4,6 +4,11 @@
 
 pocket-claude の主要な変更をここに記録します。
 
+## [v3.3.1] - 2026-11-02
+
+### セキュリティ
+- **依存の更新** — `body-parser` 1.20.6 → 1.20.9（GHSA-27r3-jxmh-p828・High: 圧縮したリクエスト本文の末尾のバイトでサービス停止。`express.json()` は gzip/deflate を展開するので pocket-claude も該当）。`qs` → 6.17.1（GHSA-6pq8-jhm2-2vcw・Moderate。pocket-claude は `stringify` を使わない）。同梱の DOMPurify 3.4.16 → 3.4.17（GHSA-cg2g-xh64-v4q7・GHSA-mrv2-3pqr-j5jr・GHSA-c6gr-qvv4-5v3f。いずれも `SAFE_FOR_TEMPLATES`・`IN_PLACE`・`PARSER_MEDIA_TYPE` を使う場合だけで、pocket-claude はどれも使わない）。挙動の変更なし。更新後は `npm install` を実行してください。
+
 ## [v3.3.0] - 2026-11-02
 
 ### 変更
